@@ -25,7 +25,7 @@ static lv_obj_t *tile_create(const char *title, uint32_t color,
     lv_obj_t *label = lv_label_create(tile);
     lv_label_set_text(label, title);
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
     lv_obj_align(label, LV_ALIGN_BOTTOM_LEFT, 2, -2);
     return tile;
 }
