@@ -19,16 +19,27 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install ESP-IDF
-        uses: espressif/esp-idf@v5.5.4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util
+
+      - name: Cache ESP-IDF
+        id: cache-idf
+        uses: actions/cache@v4
         with:
-          esp-idf-version: v5.5.4
-          target: esp32
+          path: /opt/esp-idf
+          key: ${{ runner.os }}-esp-idf-v5.3.1
+
+      - name: Clone ESP-IDF
+        if: steps.cache-idf.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch v5.3.1 --recursive https://github.com/espressif/esp-idf.git /opt/esp-idf
+          /opt/esp-idf/install.sh esp32
 
       - name: Build
         run: |
-          . /home/runner/work/_temp/setup-idf/idf-env.sh 2>/dev/null || true
-          . $IDF_PATH/export.sh
+          . /opt/esp-idf/export.sh
           idf.py build
           idf.py merge-bin
 
