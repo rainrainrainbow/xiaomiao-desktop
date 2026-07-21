@@ -42,8 +42,8 @@ void app_main(void)
 
     lv_init();
 
-    lv_disp_t *disp = lv_disp_create(LV_HOR_RES, LV_VER_RES);
-    lv_disp_set_flush_cb(disp, NULL);
+    lv_display_t *disp = lv_display_create(LV_HOR_RES, LV_VER_RES);
+    lv_display_set_flush_cb(disp, NULL);
 
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
