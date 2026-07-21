@@ -21,6 +21,7 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_heap_caps.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -375,9 +376,9 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
     uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
     size_t sz = stride * LCD_V_RES;
-    void *b1 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
-    void *b2 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
-    void *b3 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
+    void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    void *b3 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
     assert(b1 && b2 && b3);
     lv_display_set_color_format(d, cf);
     lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_FULL);
@@ -404,7 +405,7 @@ static int s_app_count = 0;
 
 static void apps_scan_sdcard(void)
 {
-    /* 扫描 /sdcard/apps/*.app 目录 */
+    /* Scan /sdcard/apps/*.app directory */
     /* 简化版: 注册内置应用 */
     s_app_count = 0;
     strncpy(s_apps[0].name, "LED Blink", sizeof(s_apps[0].name));
