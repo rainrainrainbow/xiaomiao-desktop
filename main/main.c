@@ -38,7 +38,7 @@
  * ═══════════════════════════════════════════════════════════════════════ */
 
 #define LCD_HOST            SPI2_HOST
-#define LCD_PIXEL_CLOCK_HZ  (60 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
 #define LCD_NATIVE_H_RES    128
 #define LCD_NATIVE_V_RES    160
 #define LCD_H_RES           160
@@ -99,6 +99,7 @@
 #define MADCTL_MY       0x80
 #define MADCTL_MV       0x20
 #define MADCTL_RGB      0x00
+#define MADCTL_BGR      0x08
 
 /* Metro Colors */
 #define METRO_BLACK     0x000000
@@ -284,19 +285,18 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     const uint8_t pwctr3[]  = {0x0A,0x00};
     const uint8_t pwctr4[]  = {0x8A,0x2A};
     const uint8_t pwctr5[]  = {0x8A,0xEE};
-    const uint8_t madctl_d[] = {MADCTL_MX | MADCTL_MY | MADCTL_RGB};
-    const uint8_t madctl_r[] = {MADCTL_MX | MADCTL_MV | MADCTL_RGB};
+    const uint8_t madctl_d[] = {MADCTL_MX | MADCTL_MY | MADCTL_BGR};
+    const uint8_t madctl_r[] = {MADCTL_MX | MADCTL_MV | MADCTL_BGR};
     const uint8_t colmod[] = {0x05};
     const uint8_t gp[] = {0x02,0x1C,0x07,0x12,0x37,0x32,0x29,0x2D,
                           0x29,0x25,0x2B,0x39,0x00,0x01,0x03,0x10};
     const uint8_t gn[] = {0x03,0x1D,0x07,0x06,0x2E,0x2C,0x29,0x2D,
                           0x2E,0x2E,0x37,0x3F,0x00,0x00,0x02,0x10};
 
-    st7735_tx(io, ST7735_DISPOFF, NULL, 0);
     st7735_tx(io, ST7735_SWRESET, NULL, 0);
     st7735_delay(150);
     st7735_tx(io, ST7735_SLPOUT, NULL, 0);
-    st7735_delay(500);
+    st7735_delay(200);
     st7735_tx(io, ST7735_FRMCTR1, frmctr, sizeof(frmctr));
     st7735_tx(io, ST7735_FRMCTR2, frmctr, sizeof(frmctr));
     st7735_tx(io, ST7735_FRMCTR3, frmctr3, sizeof(frmctr3));
@@ -317,6 +317,8 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     st7735_tx(io, ST7735_NORON, NULL, 0);
     st7735_delay(10);
     st7735_tx(io, ST7735_MADCTL, madctl_r, sizeof(madctl_r));
+    st7735_tx(io, ST7735_DISPON, NULL, 0);
+    st7735_delay(100);
 }
 
 static esp_lcd_panel_io_handle_t lcd_init(void)
@@ -586,8 +588,7 @@ void app_main(void)
     lv_refr_now(NULL);
     for (int i = 0; i < 100 && !s_first_flush; i++)
         vTaskDelay(pdMS_TO_TICKS(1));
-    st7735_tx(s_lcd_io, ST7735_DISPON, NULL, 0);
-    st7735_delay(20);
+    /* DISPON already sent in st7735_init */
 
     /* 主循环 */
     while (true) {
