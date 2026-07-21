@@ -16,8 +16,8 @@
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
-#include "driver/adc.h"
-#include "driver/adc_oneshot.h"
+// #include "driver/adc.h" (deprecated, use esp_adc/)
+#include "esp_adc/adc_oneshot.h"
 #include "esp_adc_cal.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_err.h"
