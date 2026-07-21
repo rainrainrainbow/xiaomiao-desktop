@@ -25,13 +25,13 @@ static void status_bar_render(void)
     lv_obj_t *time_lbl = lv_label_create(bar);
     lv_label_set_text(time_lbl, "12:42");
     lv_obj_set_style_text_color(time_lbl, lv_color_white(), 0);
-    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
     lv_obj_align(time_lbl, LV_ALIGN_LEFT_MID, 2, 0);
 
     lv_obj_t *bat_lbl = lv_label_create(bar);
     lv_label_set_text(bat_lbl, "BAT");
     lv_obj_set_style_text_color(bat_lbl, lv_color_white(), 0);
-    lv_obj_set_style_text_font(bat_lbl, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_font(bat_lbl, &lv_font_montserrat_14, 0);
     lv_obj_align(bat_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
 }
 
@@ -48,14 +48,14 @@ void app_main(void)
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
 
-/* 标题 */
+    /* 标题 */
     lv_obj_t *title = lv_label_create(lv_scr_act());
     lv_label_set_text(title, "xiao\nmiao desktop");
     lv_obj_set_style_text_color(title, lv_color_white(), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 4, 4);
 
-/* 部件 */
+    /* 部件 */
     tiles_render();
     dock_render();
     status_bar_render();
