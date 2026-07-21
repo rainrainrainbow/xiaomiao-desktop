@@ -171,12 +171,12 @@ static void battery_init(void)
     ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BAT_ADC_CHANNEL, &chan_cfg));
 
     // 使用新的 ADC 校准 API
-    adc_cali_curve_fitting_config_t cali_cfg = {
+    adc_cali_line_fitting_config_t cali_cfg = {
         .unit_id = BAT_ADC_UNIT,
         .atten = BAT_ADC_ATTEN,
         .bitwidth = BAT_ADC_BITWIDTH,
     };
-    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_adc_chars));
+    ESP_ERROR_CHECK(adc_cali_create_scheme_line_fitting(&cali_cfg, &s_adc_chars));
     ESP_LOGI(TAG, "Battery monitor on GPIO%d (divider %dK+%dK)", BTN_A, BAT_VDIV_R1/1000, BAT_VDIV_R2/1000);
 }
 
