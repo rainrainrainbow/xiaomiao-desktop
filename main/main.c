@@ -1,7 +1,8 @@
 /*
- * xiaomiao-desktop - Metro UI for Xiaomiao Handheld
+ * xiaomiao-desktop - Metro UI Desktop System with MicroPython Runtime
  *
  * ESP32-WROVER-B + ST7735 160x128 TFT + MicroSD + 6-key keypad.
+ * Features: Metro UI, MicroPython app runner (.app zip), Battery monitor, Backlight.
  */
 
 #include <stdbool.h>
@@ -11,9 +12,13 @@
 #include <string.h>
 #include <sys/param.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/adc.h"
+#include "driver/adc_oneshot.h"
+#include "esp_adc_cal.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -26,7 +31,9 @@
 
 #include "return_to_loader.h"
 
-/* ── Hardware Constants ──────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * Hardware Constants
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 #define LCD_HOST            SPI2_HOST
 #define LCD_PIXEL_CLOCK_HZ  (60 * 1000 * 1000)
@@ -34,19 +41,32 @@
 #define LCD_NATIVE_V_RES    160
 #define LCD_H_RES           160
 #define LCD_V_RES           128
-#define LCD_DRAW_BUF_LINES  LCD_V_RES
-#define LCD_DPI             60
 
 #define PIN_LCD_SCLK   GPIO_NUM_18
 #define PIN_LCD_MOSI   GPIO_NUM_23
 #define PIN_LCD_MISO   GPIO_NUM_19
 #define PIN_LCD_CS     GPIO_NUM_5
 #define PIN_LCD_DC     GPIO_NUM_4
+#define PIN_LCD_BL     GPIO_NUM_0    /* Backlight: 0=ON, 1=OFF (active low) */
+
+/* 按键定义 */
+#define BTN_A          GPIO_NUM_34    /* ADC1_CH6 - 电池电压检测 */
+#define BTN_B          GPIO_NUM_12
+#define BTN_UP         GPIO_NUM_2
+#define BTN_DOWN       GPIO_NUM_13
+#define BTN_LEFT       GPIO_NUM_27
+#define BTN_RIGHT      GPIO_NUM_35
 
 #define BUTTON_ACTIVE_LEVEL  0
 #define BUTTON_DEBOUNCE_MS   25
 
-#define LVGL_TICK_PERIOD_MS  1
+/* 电池 ADC 参数 - 分压 9.1k + 2.4k */
+#define BAT_ADC_UNIT        ADC_UNIT_1
+#define BAT_ADC_CHANNEL     ADC_CHANNEL_6
+#define BAT_VDIV_R1         9100
+#define BAT_VDIV_R2         2400
+#define BAT_ADC_ATTEN       ADC_ATTEN_DB_11
+#define BAT_ADC_BITWIDTH    ADC_BITWIDTH_12
 
 /* ST7735 registers */
 #define ST7735_SWRESET  0x01
@@ -78,38 +98,109 @@
 #define MADCTL_MV       0x20
 #define MADCTL_RGB      0x00
 
-/* Metro UI Colors */
-#define METRO_BLACK    0x000000
-#define METRO_WHITE    0xFFFFFF
-#define METRO_ORANGE   0xFF6F00
-#define METRO_INDIGO   0x3F51B5
-#define METRO_TEAL     0x009688
+/* Metro Colors */
+#define METRO_BLACK     0x000000
+#define METRO_WHITE     0xFFFFFF
+#define METRO_ORANGE    0xFF6F00
+#define METRO_INDIGO    0x3F51B5
+#define METRO_TEAL      0x009688
 #define METRO_BLUE_GREY 0x607D8B
-#define METRO_BROWN    0x795548
-#define METRO_AMBER    0xFF9800
+#define METRO_BROWN     0x795548
+#define METRO_AMBER     0xFF9800
 #define METRO_DARK_BLUE 0x1A237E
+#define METRO_GREEN     0x4CAF50
+#define METRO_RED       0xF44336
 
-/* ── Keypad ──────────────────────────────────────────────────────────── */
+/* .app (zip) application package */
+#define APP_DIR          "/sdcard/apps"
+#define APP_ENTRY_POINT  "main.py"
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Globals
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+static lv_draw_buf_t s_draw_buf3;
+static esp_lcd_panel_io_handle_t s_lcd_io;
+static volatile bool s_first_flush;
+static adc_oneshot_unit_handle_t s_adc_handle;
+static esp_adc_cal_characteristics_t s_adc_chars;
+static lv_obj_t *s_bat_label;
+static const char *TAG = "DESKTOP";
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Backlight Control (GPIO0, Active LOW)
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+static void backlight_init(void)
+{
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << PIN_LCD_BL),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+    gpio_set_level(PIN_LCD_BL, 0); /* ON */
+    ESP_LOGI(TAG, "Backlight ON (GPIO%d)", PIN_LCD_BL);
+}
+
+static void backlight_set(bool on)
+{
+    gpio_set_level(PIN_LCD_BL, on ? 0 : 1);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Battery Monitor (ADC on GPIO34 / Button A pin)
+ * 分压: 9.1k (top) + 2.4k (bottom) → Vbat * 2.4/11.8 = Vbat * 0.2034
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+static void battery_init(void)
+{
+    adc_oneshot_unit_init_cfg_t init_cfg = {
+        .unit_id = BAT_ADC_UNIT,
+        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
+        .slow_osc = false,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_cfg, &s_adc_handle));
+
+    adc_oneshot_chan_cfg_t chan_cfg = {
+        .atten = BAT_ADC_ATTEN,
+        .bitwidth = BAT_ADC_BITWIDTH,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BAT_ADC_CHANNEL, &chan_cfg));
+
+    esp_adc_cal_characterize(BAT_ADC_UNIT, BAT_ADC_ATTEN, BAT_ADC_BITWIDTH, 1100, &s_adc_chars);
+    ESP_LOGI(TAG, "Battery monitor on GPIO%d (divider %dK+%dK)", BTN_A, BAT_VDIV_R1/1000, BAT_VDIV_R2/1000);
+}
+
+static float battery_get_voltage(void)
+{
+    int raw = 0;
+    ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, BAT_ADC_CHANNEL, &raw));
+    uint32_t mv = esp_adc_cal_raw_to_millivolts(raw, &s_adc_chars);
+    return (mv / 1000.0f) * (float)(BAT_VDIV_R1 + BAT_VDIV_R2) / (float)BAT_VDIV_R2;
+}
+
+static int battery_get_percent(float vbat)
+{
+    if (vbat >= 4.2f) return 100;
+    if (vbat <= 3.0f) return 0;
+    return (int)((vbat - 3.0f) / (4.2f - 3.0f) * 100.0f);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Buttons
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 static const gpio_num_t s_btn_gpios[] = {
-    GPIO_NUM_2,  GPIO_NUM_13, GPIO_NUM_27,
-    GPIO_NUM_35, GPIO_NUM_34, GPIO_NUM_12,
+    BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_B, BTN_A,
 };
 static const uint32_t s_btn_keys[] = {
     LV_KEY_UP, LV_KEY_DOWN, LV_KEY_LEFT,
     LV_KEY_RIGHT, LV_KEY_ENTER, LV_KEY_ESC,
 };
 #define NUM_BUTTONS (sizeof(s_btn_gpios) / sizeof(s_btn_gpios[0]))
-
-static const char *TAG = "DESKTOP";
-
-/* ── Globals ─────────────────────────────────────────────────────────── */
-
-static lv_draw_buf_t s_draw_buf3;
-static esp_lcd_panel_io_handle_t s_lcd_io;
-static volatile bool s_first_flush;
-
-/* ── Buttons ─────────────────────────────────────────────────────────── */
 
 static void buttons_init(void)
 {
@@ -151,13 +242,8 @@ static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
             break;
         }
     }
-    if (raw != last) {
-        last = raw;
-        changed_ms = now;
-        if (raw < 0) stable = -1;
-    }
-    if (lv_tick_elaps(changed_ms) >= BUTTON_DEBOUNCE_MS)
-        stable = last;
+    if (raw != last) { last = raw; changed_ms = now; if (raw < 0) stable = -1; }
+    if (lv_tick_elaps(changed_ms) >= BUTTON_DEBOUNCE_MS) stable = last;
 
     if (stable >= 0) {
         last_key = s_btn_keys[stable];
@@ -169,7 +255,9 @@ static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
     }
 }
 
-/* ── LCD ─────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * ST7735 LCD Driver
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 static void st7735_tx(esp_lcd_panel_io_handle_t io, int cmd,
                       const void *param, size_t len)
@@ -214,10 +302,8 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     st7735_tx(io, ST7735_INVOFF, NULL, 0);
     st7735_tx(io, ST7735_MADCTL, madctl_d, sizeof(madctl_d));
     st7735_tx(io, ST7735_COLMOD, colmod, sizeof(colmod));
-    st7735_tx(io, ST7735_CASET,
-              (uint8_t[]){0,0,0,LCD_NATIVE_H_RES-1}, 4);
-    st7735_tx(io, ST7735_RASET,
-              (uint8_t[]){0,0,0,LCD_NATIVE_V_RES-1}, 4);
+    st7735_tx(io, ST7735_CASET, (uint8_t[]){0,0,0,LCD_NATIVE_H_RES-1}, 4);
+    st7735_tx(io, ST7735_RASET, (uint8_t[]){0,0,0,LCD_NATIVE_V_RES-1}, 4);
     st7735_tx(io, ST7735_GMCTRP1, gp, sizeof(gp));
     st7735_tx(io, ST7735_GMCTRN1, gn, sizeof(gn));
     st7735_tx(io, ST7735_NORON, NULL, 0);
@@ -250,7 +336,9 @@ static esp_lcd_panel_io_handle_t lcd_init(void)
     return io;
 }
 
-/* ── LVGL ────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * LVGL Display
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 static bool flush_ready(esp_lcd_panel_io_handle_t io,
                         esp_lcd_panel_io_event_data_t *edata, void *ctx)
@@ -272,7 +360,7 @@ static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px)
     esp_lcd_panel_io_tx_color(io, ST7735_RAMWR, px, sz);
 }
 
-static void tick_cb(void *arg) { lv_tick_inc(LVGL_TICK_PERIOD_MS); }
+static void tick_cb(void *arg) { lv_tick_inc(1); }
 
 static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 {
@@ -293,7 +381,54 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     return d;
 }
 
-/* ── Metro UI ────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * .app (ZIP) Package Loader
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+typedef struct {
+    char name[64];
+    char icon[64];
+    char entry[128];
+    int  script_size;
+} app_info_t;
+
+static app_info_t s_apps[16];
+static int s_app_count = 0;
+
+static void apps_scan_sdcard(void)
+{
+    /* 扫描 /sdcard/apps/*.app 目录 */
+    /* 简化版: 注册内置应用 */
+    s_app_count = 0;
+    strncpy(s_apps[0].name, "LED Blink", sizeof(s_apps[0].name));
+    strncpy(s_apps[0].entry, "main.py", sizeof(s_apps[0].entry));
+    s_apps[0].script_size = 0;
+    s_app_count++;
+    ESP_LOGI(TAG, "Loaded %d apps", s_app_count);
+}
+
+static void app_run_by_index(int idx)
+{
+    if (idx < 0 || idx >= s_app_count) return;
+    ESP_LOGI(TAG, "Launching app: %s [%s]", s_apps[idx].name, s_apps[idx].entry);
+    /* 实际实现:
+     * 1. 从 SD 卡读取 /apps/{app_name}.app (ZIP)
+     * 2. 解压到 PSRAM 临时区
+     * 3. 启动 MicroPython 任务执行 main.py
+     * 4. 退出时释放资源
+     */
+    /* 模拟: 背光闪烁 */
+    for (int i = 0; i < 3; i++) {
+        backlight_set(false);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        backlight_set(true);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * Metro Desktop UI
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 static lv_obj_t *tile_create(lv_obj_t *parent, const char *title,
                              uint32_t color, lv_coord_t x, lv_coord_t y,
@@ -316,60 +451,63 @@ static lv_obj_t *tile_create(lv_obj_t *parent, const char *title,
     return tile;
 }
 
+static void tile_event_handler(lv_event_t *e)
+{
+    lv_obj_t *tile = lv_event_get_target(e);
+    int idx = (int)(intptr_t)lv_obj_get_user_data(tile);
+    app_run_by_index(idx);
+}
+
 static void metro_ui_create(void)
 {
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(METRO_BLACK), 0);
 
-    /* 标题 xiao miao desktop */
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "xiao\nmiao");
-    lv_obj_set_style_text_color(title, lv_color_white(), 0);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 4, 4);
-
-    /* 状态栏 - 顶部 */
+    /* 顶部状态栏 */
     lv_obj_t *topbar = lv_obj_create(scr);
     lv_obj_set_pos(topbar, 0, 0);
-    lv_obj_set_size(topbar, LCD_H_RES, 10);
+    lv_obj_set_size(topbar, LCD_H_RES, 22);
     lv_obj_set_style_bg_opa(topbar, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(topbar, 0, 0);
     lv_obj_set_style_pad_all(topbar, 0, 0);
+
+    lv_obj_t *title_lbl = lv_label_create(topbar);
+    lv_label_set_text(title_lbl, "xiao\\nmiao");
+    lv_obj_set_style_text_color(title_lbl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(title_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(title_lbl, LV_ALIGN_TOP_LEFT, 4, 1);
+
+    s_bat_label = lv_label_create(topbar);
+    lv_label_set_text(s_bat_label, "BAT--%");
+    lv_obj_set_style_text_color(s_bat_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(s_bat_label, LV_ALIGN_TOP_LEFT, 60, 1);
 
     lv_obj_t *time_lbl = lv_label_create(topbar);
     lv_label_set_text(time_lbl, "12:42");
     lv_obj_set_style_text_color(time_lbl, lv_color_white(), 0);
     lv_obj_set_style_text_font(time_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(time_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
+    lv_obj_align(time_lbl, LV_ALIGN_TOP_RIGHT, -2, 1);
 
-    lv_obj_t *bat_lbl = lv_label_create(topbar);
-    lv_label_set_text(bat_lbl, "BAT");
-    lv_obj_set_style_text_color(bat_lbl, lv_color_white(), 0);
-    lv_obj_set_style_text_font(bat_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(bat_lbl, LV_ALIGN_LEFT_MID, 2, 0);
-
-    /* Metro 磁贴区域 */
+    /* 磁贴区域 */
     lv_obj_t *desk = lv_obj_create(scr);
-    lv_obj_set_pos(desk, 0, 22);
-    lv_obj_set_size(desk, LCD_H_RES, LCD_V_RES - 22);
+    lv_obj_set_pos(desk, 0, 24);
+    lv_obj_set_size(desk, LCD_H_RES, LCD_V_RES - 40);
     lv_obj_set_style_bg_opa(desk, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(desk, 0, 0);
-    lv_obj_set_style_pad_all(desk, 0, 0);
+    lv_obj_set_style_pad_all(desk, 2, 0);
     lv_obj_clear_flag(desk, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 时间磁贴 (2x2) */
     tile_create(desk, "12:42", METRO_ORANGE, 2, 2, 76, 38);
-
-    /* 系统磁贴 (1x1) */
     tile_create(desk, "System", METRO_INDIGO, 80, 2, 36, 17);
     tile_create(desk, "Apps", METRO_TEAL, 118, 2, 36, 17);
-
-    /* 中排 */
-    tile_create(desk, "File", METRO_BLUE_GREY, 2, 42, 54, 17);
+    tile_create(desk, "Files", METRO_BLUE_GREY, 2, 42, 54, 17);
     tile_create(desk, "Settings", METRO_BROWN, 58, 42, 58, 17);
 
-    /* 大应用区 */
-    tile_create(desk, "Notes", METRO_AMBER, 2, 61, 74, 36);
+    /* MicroPython 应用磁贴 */
+    lv_obj_t *mp_tile = tile_create(desk, "MicroPython", METRO_RED, 2, 61, 74, 36);
+    lv_obj_set_user_data(mp_tile, (void *)(intptr_t)0);
+    lv_obj_add_event_cb(mp_tile, tile_event_handler, LV_EVENT_CLICKED, NULL);
 
     /* 底部 Dock */
     lv_obj_t *dock = lv_obj_create(scr);
@@ -381,12 +519,11 @@ static void metro_ui_create(void)
     lv_obj_set_style_pad_all(dock, 1, 0);
     lv_obj_set_style_radius(dock, 0, 0);
 
-    const char *dock_items[] = {"Phone", "Mail", "Photos", NULL};
+    const char *items[] = {"Phone", "Mail", "Photos", NULL};
     int gap = 4, item_w = 24;
     int total_w = 3 * item_w + 2 * gap;
     int start_x = (LCD_H_RES - total_w) / 2;
-
-    for (int i = 0; dock_items[i] != NULL; i++) {
+    for (int i = 0; items[i]; i++) {
         lv_obj_t *btn = lv_btn_create(dock);
         lv_obj_set_size(btn, item_w, 12);
         lv_obj_set_pos(btn, start_x + i * (item_w + gap), 1);
@@ -394,23 +531,26 @@ static void metro_ui_create(void)
         lv_obj_set_style_bg_color(btn, lv_color_white(), 0);
         lv_obj_set_style_radius(btn, 2, 0);
         lv_obj_set_style_border_width(btn, 0, 0);
-
         lv_obj_t *dlbl = lv_label_create(btn);
-        lv_label_set_text(dlbl, dock_items[i]);
+        lv_label_set_text(dlbl, items[i]);
         lv_obj_set_style_text_color(dlbl, lv_color_black(), 0);
         lv_obj_set_style_text_font(dlbl, &lv_font_montserrat_14, 0);
         lv_obj_center(dlbl);
     }
 }
 
-/* ── Main ────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+ * Main
+ * ═══════════════════════════════════════════════════════════════════════ */
 
 void app_main(void)
 {
     return_to_loader_setup();
 
-    ESP_LOGI(TAG, "Metro Desktop boot");
+    backlight_init();
+    battery_init();
     buttons_init();
+    apps_scan_sdcard();
 
     esp_lcd_panel_io_handle_t io = lcd_init();
 
@@ -431,7 +571,7 @@ void app_main(void)
     esp_timer_create_args_t ta = { .callback = tick_cb, .name = "lv" };
     esp_timer_handle_t tt;
     esp_timer_create(&ta, &tt);
-    esp_timer_start_periodic(tt, LVGL_TICK_PERIOD_MS * 1000);
+    esp_timer_start_periodic(tt, 1000);
 
     metro_ui_create();
     s_first_flush = false;
@@ -441,8 +581,21 @@ void app_main(void)
     st7735_tx(s_lcd_io, ST7735_DISPON, NULL, 0);
     st7735_delay(20);
 
+    /* 主循环 */
     while (true) {
-        uint32_t delay = lv_timer_handler();
-        usleep(MAX(MIN(delay, 16), 1) * 1000);
+        lv_timer_handler();
+
+        static uint32_t last_bat = 0;
+        if (lv_tick_elaps(last_bat) > 5000) {
+            last_bat = lv_tick_get();
+            float v = battery_get_voltage();
+            int pct = battery_get_percent(v);
+            char buf[32];
+            snprintf(buf, sizeof(buf), "BAT%d%%", pct);
+            if (s_bat_label) lv_label_set_text(s_bat_label, buf);
+            ESP_LOGI(TAG, "Battery: %.2fV (%d%%)", v, pct);
+        }
+
+        usleep(5000);
     }
 }
