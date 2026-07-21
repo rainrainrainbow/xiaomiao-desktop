@@ -3,4 +3,5 @@ idf_component_register(
         main.c
         return_to_loader.c
     INCLUDE_DIRS .
+    REQUIRES esp_adc
 )
