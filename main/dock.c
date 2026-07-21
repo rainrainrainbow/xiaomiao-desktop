@@ -43,7 +43,7 @@ void dock_render(void)
         lv_obj_t *label = lv_label_create(btn);
         lv_label_set_text(label, items[i]);
         lv_obj_set_style_text_color(label, lv_color_black(), 0);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
         lv_obj_center(label);
 
         lv_obj_set_user_data(btn, (void *)items[i]);
