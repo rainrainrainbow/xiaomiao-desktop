@@ -19,23 +19,20 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
+      - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y git wget flex bison gperf python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util
 
-      - name: Cache ESP-IDF
-        id: cache-idf
-        uses: actions/cache@v4
-        with:
-          path: /opt/esp-idf
-          key: ${{ runner.os }}-esp-idf-v5.3.1
-
       - name: Clone ESP-IDF
-        if: steps.cache-idf.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v5.3.1 --recursive https://github.com/espressif/esp-idf.git /opt/esp-idf
+
+      - name: Install ESP-IDF tools
+        run: |
           /opt/esp-idf/install.sh esp32
+          . /opt/esp-idf/export.sh
+          python $IDF_PATH/tools/idf_tools.py install
 
       - name: Build
         run: |
