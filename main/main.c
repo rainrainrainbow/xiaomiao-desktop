@@ -362,10 +362,11 @@ static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px)
 {
     esp_lcd_panel_io_handle_t io = lv_display_get_user_data(d);
     uint16_t x1 = area->x1, x2 = area->x2, y1 = area->y1, y2 = area->y2;
+    /* MADCTL_MV = 1: CASET maps to display Y (LVGL Y), RASET maps to display X (LVGL X) */
     esp_lcd_panel_io_tx_param(io, ST7735_CASET,
-        (uint8_t[]){x1>>8,x1&0xFF,x2>>8,x2&0xFF}, 4);
-    esp_lcd_panel_io_tx_param(io, ST7735_RASET,
         (uint8_t[]){y1>>8,y1&0xFF,y2>>8,y2&0xFF}, 4);
+    esp_lcd_panel_io_tx_param(io, ST7735_RASET,
+        (uint8_t[]){x1>>8,x1&0xFF,x2>>8,x2&0xFF}, 4);
     int sz = (x2-x1+1)*(y2-y1+1)*2;
     esp_lcd_panel_io_tx_color(io, ST7735_RAMWR, px, sz);
 }
