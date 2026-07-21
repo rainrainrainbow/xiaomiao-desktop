@@ -405,7 +405,7 @@ static int s_app_count = 0;
 
 static void apps_scan_sdcard(void)
 {
-    /* Scan /sdcard/apps/*.app directory */
+    // Scan /sdcard/apps/*.app (ZIP packages)
     /* 简化版: 注册内置应用 */
     s_app_count = 0;
     strncpy(s_apps[0].name, "LED Blink", sizeof(s_apps[0].name));
