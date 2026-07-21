@@ -16,9 +16,10 @@
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
-// #include "driver/adc.h" (deprecated, use esp_adc/)
+// #include "driver/adc.h" (deprecated)
 #include "esp_adc/adc_oneshot.h"
-#include "esp_adc_cal.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -65,7 +66,7 @@
 #define BAT_ADC_CHANNEL     ADC_CHANNEL_6
 #define BAT_VDIV_R1         9100
 #define BAT_VDIV_R2         2400
-#define BAT_ADC_ATTEN       ADC_ATTEN_DB_11
+#define BAT_ADC_ATTEN       ADC_ATTEN_DB_12
 #define BAT_ADC_BITWIDTH    ADC_BITWIDTH_12
 
 /* ST7735 registers */
@@ -123,7 +124,7 @@ static lv_draw_buf_t s_draw_buf3;
 static esp_lcd_panel_io_handle_t s_lcd_io;
 static volatile bool s_first_flush;
 static adc_oneshot_unit_handle_t s_adc_handle;
-static esp_adc_cal_characteristics_t s_adc_chars;
+static adc_cali_handle_t s_adc_chars;
 static lv_obj_t *s_bat_label;
 static const char *TAG = "DESKTOP";
 
@@ -160,7 +161,6 @@ static void battery_init(void)
     adc_oneshot_unit_init_cfg_t init_cfg = {
         .unit_id = BAT_ADC_UNIT,
         .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
-        .slow_osc = false,
     };
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_cfg, &s_adc_handle));
 
@@ -170,7 +170,13 @@ static void battery_init(void)
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BAT_ADC_CHANNEL, &chan_cfg));
 
-    esp_adc_cal_characterize(BAT_ADC_UNIT, BAT_ADC_ATTEN, BAT_ADC_BITWIDTH, 1100, &s_adc_chars);
+    // 使用新的 ADC 校准 API
+    adc_cali_curve_fitting_config_t cali_cfg = {
+        .unit_id = BAT_ADC_UNIT,
+        .atten = BAT_ADC_ATTEN,
+        .bitwidth = BAT_ADC_BITWIDTH,
+    };
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_adc_chars));
     ESP_LOGI(TAG, "Battery monitor on GPIO%d (divider %dK+%dK)", BTN_A, BAT_VDIV_R1/1000, BAT_VDIV_R2/1000);
 }
 
@@ -178,7 +184,8 @@ static float battery_get_voltage(void)
 {
     int raw = 0;
     ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, BAT_ADC_CHANNEL, &raw));
-    uint32_t mv = esp_adc_cal_raw_to_millivolts(raw, &s_adc_chars);
+    int mv = 0;
+    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(s_adc_chars, raw, &mv));
     return (mv / 1000.0f) * (float)(BAT_VDIV_R1 + BAT_VDIV_R2) / (float)BAT_VDIV_R2;
 }
 
