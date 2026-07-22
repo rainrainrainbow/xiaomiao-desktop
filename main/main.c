@@ -1,7 +1,7 @@
 /*
- * xiaomiao-desktop - MINIMAL TEST v2 (EXACTLY matching xiaomiao-loader)
- * Uses identical init sequence: clear_black BEFORE DISPON
- * Then draws test pattern.
+ * xiaomiao-desktop - MINIMAL TEST v3
+ * DOES NOT touch GPIO0 (backlight). Matches xiaomiao-loader exactly.
+ * Uses small line buffer, no large heap allocations.
  */
 
 #include <stdbool.h>
@@ -14,7 +14,6 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
-#include "esp_heap_caps.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -35,9 +34,8 @@
 #define PIN_LCD_MISO   GPIO_NUM_19
 #define PIN_LCD_CS     GPIO_NUM_5
 #define PIN_LCD_DC     GPIO_NUM_4
-#define PIN_LCD_BL     GPIO_NUM_0
+/* NOTE: NOT touching GPIO0 (backlight) - let hardware default */
 
-/* ST7735 registers */
 #define ST7735_SWRESET  0x01
 #define ST7735_SLPOUT   0x11
 #define ST7735_NORON    0x13
@@ -66,9 +64,8 @@
 #define MADCTL_MX       0x40
 #define MADCTL_MV       0x20
 #define MADCTL_RGB      0x00
-#define MADCTL_BGR      0x08
 
-static const char *TAG = "TEST2";
+static const char *TAG = "TEST3";
 static esp_lcd_panel_io_handle_t s_io;
 
 static void st7735_tx(int cmd, const void *param, size_t len)
@@ -78,10 +75,10 @@ static void st7735_tx(int cmd, const void *param, size_t len)
 
 static void st7735_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
-/* Exactly matches xiaomiao-loader's st7735_clear_black */
+/* Fill screen with black - exactly matches xiaomiao-loader */
 static void st7735_clear_black(void)
 {
-    static uint16_t line[LCD_H_RES * 8];
+    uint16_t line[LCD_H_RES * 8];  /* stack, not heap */
     const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
     memset(line, 0, sizeof(line));
     st7735_tx(ST7735_CASET, caset, sizeof(caset));
@@ -91,6 +88,20 @@ static void st7735_clear_black(void)
         st7735_tx(ST7735_RASET, raset, sizeof(raset));
         st7735_tx(ST7735_RAMWR, line,
                   (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
+    }
+}
+
+/* Fill screen with a solid color - uses small line buffer */
+static void fill_screen(uint16_t color)
+{
+    uint16_t line[LCD_H_RES];
+    const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
+    for (int i = 0; i < LCD_H_RES; i++) line[i] = color;
+    st7735_tx(ST7735_CASET, caset, sizeof(caset));
+    for (uint16_t y = 0; y < LCD_V_RES; y++) {
+        const uint8_t raset[] = {y >> 8, y & 0xFF, y >> 8, y & 0xFF};
+        st7735_tx(ST7735_RASET, raset, sizeof(raset));
+        st7735_tx(ST7735_RAMWR, line, LCD_H_RES * sizeof(uint16_t));
     }
 }
 
@@ -141,42 +152,16 @@ static void st7735_init(void)
     st7735_tx(ST7735_NORON,   NULL, 0);
     st7735_delay(10);
     st7735_tx(ST7735_MADCTL,  madctl_r, sizeof(madctl_r));
-    /* CRITICAL: clear to black before DISPON */
     st7735_clear_black();
-    /* DISPON will be sent below */
-}
-
-static void draw_rect(int x1, int y1, int x2, int y2, uint16_t color)
-{
-    uint8_t caset[] = {x1>>8, x1&0xFF, x2>>8, x2&0xFF};
-    uint8_t raset[] = {y1>>8, y1&0xFF, y2>>8, y2&0xFF};
-    st7735_tx(ST7735_CASET, caset, 4);
-    st7735_tx(ST7735_RASET, raset, 4);
-
-    int w = x2 - x1 + 1;
-    int h = y2 - y1 + 1;
-    int pixels = w * h;
-    uint16_t *buf = heap_caps_aligned_alloc(64, pixels * 2, MALLOC_CAP_DMA);
-    if (!buf) {
-        ESP_LOGE(TAG, "malloc fail");
-        return;
-    }
-    for (int i = 0; i < pixels; i++) buf[i] = color;
-    esp_lcd_panel_io_tx_color(s_io, ST7735_RAMWR, (uint8_t*)buf, pixels * 2);
-    heap_caps_free(buf);
+    /* DISPON done below */
 }
 
 void app_main(void)
 {
     return_to_loader_setup();
-    ESP_LOGI(TAG, "=== TEST v2 ===");
+    ESP_LOGI(TAG, "=== TEST v3 - NO GPIO0 touch ===");
 
-    /* Backlight ON */
-    gpio_config_t bl = {
-        .pin_bit_mask = (1ULL << PIN_LCD_BL), .mode = GPIO_MODE_OUTPUT,
-    };
-    gpio_config(&bl);
-    gpio_set_level(PIN_LCD_BL, 0);
+    /* DO NOT touch GPIO0 - let hardware default control backlight */
 
     /* SPI init */
     spi_bus_config_t bus = {
@@ -196,27 +181,31 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(
         (esp_lcd_spi_bus_handle_t)LCD_HOST, &cfg, &s_io));
 
-    /* Init ST7735 (exactly like xiaomiao-loader, includes clear_black) */
+    /* Init ST7735 */
     st7735_init();
-    ESP_LOGI(TAG, "Init done, clear_black done");
+    ESP_LOGI(TAG, "Init done");
 
-    /* Now send DISPON */
+    /* DISPON */
     st7735_tx(ST7735_DISPON, NULL, 0);
     st7735_delay(50);
     ESP_LOGI(TAG, "Display ON");
 
-    /* Draw test pattern in rotated 160x128 mode */
-    /* Draw full-screen red */
-    draw_rect(0, 0, LCD_H_RES-1, LCD_V_RES-1, 0xF800);
-    ESP_LOGI(TAG, "Red screen drawn");
+    /* Fill RED */
+    fill_screen(0xF800);
+    ESP_LOGI(TAG, "RED");
 
     st7735_delay(2000);
 
-    /* Draw green */
-    draw_rect(0, 0, LCD_H_RES-1, LCD_V_RES-1, 0x07E0);
-    ESP_LOGI(TAG, "Green screen drawn");
+    /* Fill GREEN */
+    fill_screen(0x07E0);
+    ESP_LOGI(TAG, "GREEN");
 
-    /* Loop forever */
+    st7735_delay(2000);
+
+    /* Fill BLUE */
+    fill_screen(0x001F);
+    ESP_LOGI(TAG, "BLUE");
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         ESP_LOGI(TAG, "Alive...");
