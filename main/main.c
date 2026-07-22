@@ -183,7 +183,7 @@ static void st7735_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
 {
-    uint16_t line[LCD_H_RES * 8];
+    static uint16_t line[LCD_H_RES * 8];
     const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
     memset(line, 0, sizeof(line));
     st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
