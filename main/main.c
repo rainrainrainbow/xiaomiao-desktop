@@ -342,18 +342,18 @@ static void metro_ui_create(void)
     lv_obj_align(time_lbl, LV_ALIGN_TOP_RIGHT, -2, 1);
     lv_obj_t *desk = lv_obj_create(scr);
     lv_obj_set_pos(desk, 0, 24);
-    lv_obj_set_size(desk, LCD_H_RES, LCD_V_RES - 40);
+    lv_obj_set_size(desk, LCD_H_RES, LCD_V_RES - 38);
     lv_obj_set_style_bg_opa(desk, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(desk, 0, 0);
     lv_obj_set_style_pad_all(desk, 2, 0);
     lv_obj_clear_flag(desk, LV_OBJ_FLAG_SCROLLABLE);
-    tile_create(desk, "12:42", METRO_ORANGE, 2, 2, 76, 38);
-    tile_create(desk, "System", METRO_INDIGO, 80, 2, 36, 17);
-    tile_create(desk, "Apps", METRO_TEAL, 118, 2, 36, 17);
-    tile_create(desk, "Files", METRO_BLUE_GREY, 2, 42, 54, 17);
-    tile_create(desk, "Settings", METRO_BROWN, 58, 42, 58, 17);
+    tile_create(desk, "12:42", METRO_ORANGE, 2, 2, 76, 36);
+    tile_create(desk, "System", METRO_INDIGO, 80, 2, 36, 16);
+    tile_create(desk, "Apps", METRO_TEAL, 118, 2, 36, 16);
+    tile_create(desk, "Files", METRO_BLUE_GREY, 2, 40, 54, 16);
+    tile_create(desk, "Settings", METRO_BROWN, 58, 40, 58, 16);
     lv_obj_t *dock = lv_obj_create(scr);
-    lv_obj_set_pos(dock, 0, LCD_V_RES - 16);
+    lv_obj_set_pos(dock, 0, LCD_V_RES - 14);
     lv_obj_set_size(dock, LCD_H_RES, 14);
     lv_obj_set_style_bg_opa(dock, LV_OPA_50, 0);
     lv_obj_set_style_bg_color(dock, lv_color_black(), 0);
@@ -400,6 +400,15 @@ void app_main(void)
     esp_timer_create(&ta, &tt);
     esp_timer_start_periodic(tt, 1000);
     metro_ui_create();
+    /* Add all tiles to group for keypad navigation */
+    lv_obj_t *desk = lv_obj_get_child(lv_screen_active(), 1);
+    if (desk) {
+        uint32_t cnt = lv_obj_get_child_count(desk);
+        for (uint32_t i = 0; i < cnt; i++) {
+            lv_obj_t *child = lv_obj_get_child(desk, i);
+            lv_group_add_obj(group, child);
+        }
+    }
     s_first_flush = false;
     lv_refr_now(NULL);
     for (int i = 0; i < 100 && !s_first_flush; i++)
@@ -416,6 +425,6 @@ void app_main(void)
             snprintf(buf, sizeof(buf), "BAT%d%%", pct);
             if (s_bat_label) lv_label_set_text(s_bat_label, buf);
         }
-        usleep(5000);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
