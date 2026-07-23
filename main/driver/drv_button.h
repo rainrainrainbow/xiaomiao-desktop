@@ -1,6 +1,6 @@
 /**
  * @file drv_button.h
- * @brief 按键驱动 - 6键手柄输入
+ * @brief 按键驱动 - 6键手柄输入（带事件检测）
  */
 
 #ifndef DRV_BUTTON_H
@@ -18,7 +18,7 @@
 #define BTN_RIGHT      GPIO_NUM_35
 
 #define BUTTON_ACTIVE_LEVEL  0
-#define BUTTON_DEBOUNCE_MS   25
+#define BUTTON_DEBOUNCE_MS   30
 
 /* ========== 按键索引 ========== */
 typedef enum {
@@ -39,24 +39,24 @@ typedef enum {
 void drv_button_init(void);
 
 /**
- * 扫描按键状态（原始，未去抖）
- * @return 按下的按键索引，-1表示无按键
+ * 按键任务（在独立任务中运行，检测按键事件）
+ * @param pvParameters 未使用
  */
-int drv_button_scan(void);
+void drv_button_task(void *pvParameters);
 
 /**
- * 带去抖的按键扫描
- * 内部维护状态机：返回稳定后的按键索引
- * 需要先调用 drv_button_init()
- * @return 当前稳定的按键索引，-1表示无按键
+ * 获取按键事件（非阻塞）
+ * @return 按下的按键索引（0-5），-1表示无事件
+ * 
+ * 注意：每个按键事件只返回一次，直到按键释放后再次按下
  */
-int drv_button_scan_debounced(void);
+int drv_button_get_event(void);
 
 /**
- * 获取按键GPIO电平
- * @param btn 按键索引
- * @return 电平状态
+ * 获取当前按下的按键（阻塞版本，用于调试）
+ * @param timeout_ms 超时时间（毫秒）
+ * @return 按下的按键索引，-1表示超时
  */
-bool drv_button_get_level(btn_idx_t btn);
+int drv_button_wait_press(uint32_t timeout_ms);
 
 #endif /* DRV_BUTTON_H */
