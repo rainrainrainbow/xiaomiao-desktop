@@ -1003,6 +1003,7 @@ void app_main(void)
 
     int last_btn = -1;
     uint32_t btn_changed = 0;
+    int prev_stable = -1;
     while (true) {
         lv_timer_handler();
 
@@ -1015,7 +1016,6 @@ void app_main(void)
         }
         if (raw >= 0 && lv_tick_elaps(btn_changed) >= BUTTON_DEBOUNCE_MS) {
             /* Detect rising edge: previous reading was different */
-            static int prev_stable = -1;
             if (raw != prev_stable) {
                 handle_input(raw);
                 prev_stable = raw;
