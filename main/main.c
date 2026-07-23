@@ -1,12 +1,19 @@
 /**
  * @file main.c
  * @brief 小喵桌面 - 模块化架构入口
- * 
+ *
  * 架构：
  * - UI框架层：ui_framework (页面栈、主题、通用组件)
  * - 应用层：app_manager, app_builtin, app_micropython
  * - 驱动层：drv_lcd, drv_button, drv_battery, drv_backlight
  * - 系统层：sys_nvs
+ *
+ * v18 (2026-07-23): 修复按键绑定
+ *   - 新增 drv_button_scan_debounced()（带去抖+边沿检测）
+ *   - 新增 ui_stack_current_callbacks()（获取当前页面回调）
+ *   - 主循环修复按键分发到当前页面 on_key
+ *   - app_manager_launch() 改为推入页面栈
+ *   - 电池更新真正显示到状态栏
  */
 
 #include <stdbool.h>
@@ -411,7 +418,7 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v17 (Modular) ===");
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v18 (Modular + Keypad Fix) ===");
     
     // 初始化系统服务
     sys_nvs_init();
@@ -476,32 +483,38 @@ void app_main(void)
     
     // 主循环
     int last_btn = -1;
-    uint32_t btn_changed = 0;
-    int prev_stable = -1;
-    
+
     while (true) {
         lv_timer_handler();
-        
-        // 按键扫描和去抖
-        int raw = drv_button_scan();
-        uint32_t now = lv_tick_get();
-        
+
+        // 带去抖的按键扫描
+        int raw = drv_button_scan_debounced();
+
         if (raw != last_btn) {
-            btn_changed = now;
+            // 检测到新的稳定按键（边沿检测，按下瞬间触发）
+            if (raw >= 0) {
+                ESP_LOGD(TAG, "Key pressed: idx=%d", raw);
+
+                // 分发按键事件到当前页面的 on_key 回调
+                const page_callbacks_t *cbs = ui_stack_current_callbacks();
+                if (cbs && cbs->on_key) {
+                    bool handled = cbs->on_key(raw);
+                    if (!handled) {
+                        // 全局兜底：B键=返回上一级
+                        if (raw == BTN_IDX_B) {
+                            ui_stack_pop();
+                        }
+                    }
+                } else {
+                    // 无回调时的兜底：B键=返回
+                    if (raw == BTN_IDX_B) {
+                        ui_stack_pop();
+                    }
+                }
+            }
             last_btn = raw;
         }
-        
-        if (raw >= 0 && lv_tick_elaps(btn_changed) >= BUTTON_DEBOUNCE_MS) {
-            if (raw != prev_stable) {
-                // 分发按键事件到当前页面
-                page_type_t current = ui_stack_current();
-                // TODO: 获取当前页面的on_key回调并调用
-                prev_stable = raw;
-            }
-        } else if (raw < 0) {
-            prev_stable = -1;
-        }
-        
+
         // 电池更新（每5秒）
         static uint32_t last_bat = 0;
         if (lv_tick_elaps(last_bat) > 5000) {
@@ -509,12 +522,17 @@ void app_main(void)
             float v = drv_battery_get_voltage();
             if (v >= BAT_MIN_VALID_V) {
                 int pct = drv_battery_get_percent(v);
-                // TODO: 更新状态栏电池显示
+                // 更新状态栏电池显示
+                if (state->bat_label && lv_obj_is_valid(state->bat_label)) {
+                    char bbuf[8];
+                    snprintf(bbuf, sizeof(bbuf), "%d%%", pct);
+                    lv_label_set_text(state->bat_label, bbuf);
+                }
             }
             // 更新时间
             ui_statusbar_update_time();
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
