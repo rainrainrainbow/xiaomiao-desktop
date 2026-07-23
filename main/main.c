@@ -292,14 +292,14 @@ static void desktop_page_init(void *data)
         lv_obj_t *icon = lv_label_create(cell);
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_18, 0);
+        lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
         lv_obj_align(icon, LV_ALIGN_CENTER, 0, -4);
         
         // 名称
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_10, 0);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_align(name, LV_ALIGN_BOTTOM_MID, 0, -2);
         
         s_app_cells[i] = cell;
