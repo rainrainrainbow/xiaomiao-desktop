@@ -39,10 +39,18 @@ typedef enum {
 void drv_button_init(void);
 
 /**
- * 扫描按键状态
+ * 扫描按键状态（原始，未去抖）
  * @return 按下的按键索引，-1表示无按键
  */
 int drv_button_scan(void);
+
+/**
+ * 带去抖的按键扫描
+ * 内部维护状态机：返回稳定后的按键索引
+ * 需要先调用 drv_button_init()
+ * @return 当前稳定的按键索引，-1表示无按键
+ */
+int drv_button_scan_debounced(void);
 
 /**
  * 获取按键GPIO电平
