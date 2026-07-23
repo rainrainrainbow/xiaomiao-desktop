@@ -22,19 +22,23 @@ void drv_backlight_init(void)
     };
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
+    // 初始化时设置为最亮（duty=8191，高电平点亮）
+    uint32_t initial_duty = 8191;  // 100%亮度
     ledc_channel_config_t ledc_channel = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel = LEDC_CHANNEL,
         .timer_sel = LEDC_TIMER,
         .intr_type = LEDC_INTR_DISABLE,
         .gpio_num = PIN_LCD_BL,
-        .duty = 0,
+        .duty = initial_duty,  // 最亮
         .hpoint = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
     
-    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit)", 
-             PIN_LCD_BL, LEDC_FREQ_HZ);
+    s_current_brightness = 100;
+    
+    ESP_LOGW(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit, duty=%lu=MAX)", 
+             PIN_LCD_BL, LEDC_FREQ_HZ, initial_duty);
 }
 
 /* ========== 设置背光亮度 ========== */
@@ -46,6 +50,7 @@ void drv_backlight_set_brightness(int percent)
     s_current_brightness = percent;
     
     // 13-bit resolution: 0-8191
+    // 硬件是高电平点亮，duty越大越亮
     uint32_t duty = (8191 * percent) / 100;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL);
