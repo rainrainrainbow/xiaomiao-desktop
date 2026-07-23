@@ -40,7 +40,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_partition.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -964,7 +963,33 @@ static void app_placeholder_show(const char *title, const char *subtitle, uint32
     s_screen = SCREEN_APP_PLACEHOLDER; /* Use dedicated state for app screens */
 }
 
-/* ========== SD card app scanning (stub - SD card driver not yet enabled) ========== */
+/* ========== SD card app scanning ========== */
+/* TODO v14: Integrate SD card hardware (HSPI SDSPI driver).
+ *
+ * Required hardware configuration:
+ *   - SDSPI bus: SCLK=MOSI=MISO=<TBD>, CS=<TBD>
+ *   - Mount point: "/sdcard" (FAT32)
+ *
+ * Required sdkconfig.defaults additions:
+ *   CONFIG_FATFS_LONG_FILENAME=y
+ *   CONFIG_FATFS_MAX_LFN=255
+ *   CONFIG_SDPHYSIC_DRIVER=y
+ *   CONFIG_COMPONENT_SDSPI_ENABLED=y
+ *
+ * Application directory layout (after SD card enabled):
+ *   /sdcard/xiaomiao-apps/
+ *     calculator/
+ *       app.json         (name, icon, color, entry, version)
+ *       main.py          (MicroPython entry)
+ *     tetris/
+ *       app.json
+ *       main.py
+ *       icon.bmp         (optional)
+ *
+ * Application launching will use MicroPython firmware component.
+ * See: https://github.com/micropython/micropython/tree/master/ports/esp32
+ */
+
 #define MAX_SD_APPS 16
 
 typedef struct {
@@ -977,10 +1002,7 @@ typedef struct {
 static sd_app_info_t s_sd_apps[MAX_SD_APPS];
 static int s_sd_app_count = 0;
 
-/* Placeholder: SD card scanning will be enabled in v14 once SD card driver
- * (esp_vfs_fat.h + sdspi_driver) is integrated with hardware pins.
- * For now, we register zero SD apps so the build works and the desktop
- * shows only built-in apps. */
+/* v14: enable SD card scanning here after hardware integration */
 static void scan_sdcard_apps(void)
 {
     s_sd_app_count = 0;
