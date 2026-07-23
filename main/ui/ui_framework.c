@@ -6,6 +6,7 @@
 #include "ui_framework.h"
 #include "esp_log.h"
 #include <string.h>
+#include <stdio.h>
 #include <time.h>
 
 static const char *TAG = "UI_FW";
