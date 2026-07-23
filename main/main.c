@@ -993,18 +993,6 @@ static void app_placeholder_show(const char *title, const char *subtitle, uint32
  * See: https://github.com/micropython/micropython/tree/master/ports/esp32
  */
 
-#define MAX_SD_APPS 16
-
-typedef struct {
-    char name[32];
-    char icon[8];
-    uint32_t color;
-    char entry[32];
-} sd_app_info_t;
-
-static sd_app_info_t s_sd_apps[MAX_SD_APPS];
-static int s_sd_app_count = 0;
-
 /* v14: enable SD card scanning here after hardware integration */
 static void scan_sdcard_apps(void)
 {
