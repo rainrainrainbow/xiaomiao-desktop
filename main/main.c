@@ -1,24 +1,12 @@
 /*
- * xiaomiao-desktop v11 - Settings app + custom nav + fixed keypad
+ * xiaomiao-desktop v16 - Theme live switch + LEFT/RIGHT toggle/select
  *
- * Changes vs v10:
- *   - Layout: 4-app mode (2x2 vertical) vs 2-app mode (1x2 horizontal)
- *   - Keypad: BUILT-IN navigation. Use selected_idx and manual highlight,
- *     not LVGL group (which was broken due to keypad indev handler).
- *   - Settings app: real implementation with list navigation, brightness,
- *     sound toggle, theme switch, etc. Press B to return to desktop.
- *   - A/B buttons: A = enter / activate, B = back / cancel
+ * Changes vs v15:
+ *   - Theme switching now rebuilds UI immediately (no restart needed)
+ *   - LEFT/RIGHT keys now toggle toggle/select type settings
+ *   - Improved settings navigation UX
  *
  * Hardware: ESP32-WROVER-B + ST7735 160x128 + 6-key keypad
- *   BTN_A=GPIO34 (shared with ADC1_CH6), BTN_B=12, UP=2, DOWN=13, LEFT=27, RIGHT=35
- *   All buttons active LOW with internal pullups (where possible)
- *
- * Architecture:
- *   - s_screen = "desktop" or "settings" (current screen)
- *   - s_selected_idx = current focused item in current screen
- *   - Press UP/DOWN/LEFT/RIGHT: move selection
- *   - Press A: launch app / activate item
- *   - Press B: return to previous screen
  */
 
 #include <stdbool.h>
@@ -1207,7 +1195,7 @@ static void launch_about(void) {
     lv_obj_set_style_text_font(l1, &lv_font_montserrat_14, 0);
 
     lv_obj_t *l2 = lv_label_create(content);
-    lv_label_set_text(l2, "v12.0");
+    lv_label_set_text(l2, "v16.0");
     lv_obj_set_style_text_color(l2, lv_color_hex(0x9AA0AC), 0);
     lv_obj_set_style_text_font(l2, &lv_font_montserrat_12, 0);
 
@@ -1264,6 +1252,11 @@ static void settings_activate(int idx)
 
     /* Auto-save settings to NVS after every change */
     save_settings_to_nvs();
+    
+    /* Theme changed - rebuild entire UI to apply new colors */
+    if (idx == 3) {
+        settings_rebuild();
+    }
 }
 
 static void settings_back(void)
@@ -1397,6 +1390,9 @@ static void handle_input(int raw_idx)
                 if (s_settings_idx == 1) {
                     backlight_set_brightness(s_setting_brightness);
                 }
+            } else if (strcmp(s->type, "toggle") == 0 || strcmp(s->type, "select") == 0) {
+                /* Toggle/select: LEFT also toggles value */
+                settings_activate(s_settings_idx);
             }
         } else if (raw_idx == BTN_IDX_RIGHT) {
             const setting_item_t *s = &s_settings[s_settings_idx];
@@ -1409,10 +1405,12 @@ static void handle_input(int raw_idx)
                     lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
                 save_settings_to_nvs();
                 /* Update backlight if brightness changed */
-             
                 if (s_settings_idx == 1) {
                     backlight_set_brightness(s_setting_brightness);
                 }
+            } else if (strcmp(s->type, "toggle") == 0 || strcmp(s->type, "select") == 0) {
+                /* Toggle/select: RIGHT also toggles value */
+                settings_activate(s_settings_idx);
             }
         } else if (raw_idx == BTN_IDX_A) {
             settings_activate(s_settings_idx);
