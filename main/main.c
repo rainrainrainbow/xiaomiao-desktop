@@ -369,6 +369,14 @@ typedef enum {
 
 static screen_t s_screen = SCREEN_DESKTOP;
 
+/* Theme colors (defined early so all UI builders can use them) */
+static uint32_t theme_bg(void) { return s_setting_theme ? 0xF0F0F0 : COLOR_BG_DARK; }
+static uint32_t theme_text(void) { return s_setting_theme ? 0x1A1A1A : 0xE8E8EC; }
+static uint32_t theme_text_dim(void) { return s_setting_theme ? 0x666666 : 0x9AA0AC; }
+static uint32_t theme_header_bg(void) { return s_setting_theme ? 0xD8D8D8 : 0x16181E; }
+static uint32_t theme_border(void) { return s_setting_theme ? 0xCCCCCC : 0x222222; }
+static uint32_t theme_sel_bg(void) { return s_setting_theme ? 0xD0E0FF : 0x2A3A5A; }
+
 /* Forward decls */
 static void desktop_rebuild(void);
 static void settings_rebuild(void);
@@ -381,6 +389,8 @@ static void launch_phone(void);
 static void launch_games(void);
 static void launch_camera(void);
 static void launch_music(void);
+static void launch_browser(void);
+static void launch_notes(void);
 static void launch_about(void);
 
 /* Apps (8 max) */
@@ -390,8 +400,8 @@ static const app_def_t s_apps[8] = {
     { "G", "Games",    0xF43F5E, 0x3A1A22, launch_games },
     { "C", "Camera",   0xF59E0B, 0x3A2A10, launch_camera },
     { "M", "Music",    0x22C55E, 0x1A3A22, launch_music },
-    { "B", "Browser",  0x06B6D4, 0x1A2A3A, NULL },
-    { "T", "Notes",    0xEC4899, 0x3A1A2A, NULL },
+    { "B", "Browser",  0x06B6D4, 0x1A2A3A, launch_browser },
+    { "T", "Notes",    0xEC4899, 0x3A1A2A, launch_notes },
     { "?", "About",    0x64748B, 0x1A1A1A, launch_about },
 };
 
@@ -454,7 +464,9 @@ static lv_obj_t *make_dock(lv_obj_t *scr, int active_idx)
     lv_obj_set_flex_align(dock, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(dock, 8, 0);
 
-    for (int i = 0; i < 3; i++) {
+    /* Dynamic dot count based on total pages */
+    int dot_count = (s_total_pages > 0) ? s_total_pages : 1;
+    for (int i = 0; i < dot_count; i++) {
         lv_obj_t *dot = lv_obj_create(dock);
         lv_obj_set_size(dot, 3, 3);
         lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
@@ -490,7 +502,7 @@ static void highlight_setting(int idx)
     for (int i = 0; i < s_settings_count; i++) {
         if (!s_settings_rows[i]) continue;
         if (i == idx) {
-            lv_obj_set_style_bg_color(s_settings_rows[i], lv_color_hex(0x2A3A5A), 0);
+            lv_obj_set_style_bg_color(s_settings_rows[i], lv_color_hex(theme_sel_bg()), 0);
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_TRANSP, 0);
@@ -588,7 +600,7 @@ static void desktop_rebuild(void)
         s_settings_value_lbls[i] = NULL;
     }
     /* recreate */
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(theme_bg()), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     make_statusbar(scr);
@@ -705,18 +717,18 @@ static void settings_rebuild(void)
         s_settings_value_lbls[i] = NULL;
     }
 
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(theme_bg()), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     /* Header */
     lv_obj_t *hdr = lv_obj_create(scr);
     lv_obj_set_pos(hdr, 0, 0);
     lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
-    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x16181E), 0);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(theme_header_bg()), 0);
     lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(hdr, 0, 0);
     lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(hdr, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(theme_border()), 0);
     lv_obj_set_style_border_width(hdr, 1, 0);
     lv_obj_set_style_pad_all(hdr, 0, 0);
     lv_obj_set_style_pad_left(hdr, 4, 0);
@@ -754,14 +766,17 @@ static void settings_rebuild(void)
     lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_pad_left(s_bat_label, 60, 0);
 
-    /* Settings list */
+    /* Settings list (scrollable) */
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_set_pos(list, 0, HEADER_H);
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - HEADER_H);
     lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(list, 0, 0);
     lv_obj_set_style_pad_all(list, 0, 0);
-    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    /* Enable scrolling */
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_ON_FOCUS);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_set_scroll_snap_y(list, LV_SCROLL_SNAP_NONE);
 
     lv_coord_t row_h = 18;
     for (int i = 0; i < NUM_SETTINGS; i++) {
@@ -799,7 +814,7 @@ static void settings_rebuild(void)
         /* label */
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, s_settings[i].label);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0xE8E8EC), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(theme_text()), 0);
         lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
         lv_obj_set_style_pad_left(lbl, 0, 0);
 
@@ -815,7 +830,7 @@ static void settings_rebuild(void)
         char vbuf[16];
         setting_value_str(i, vbuf, sizeof(vbuf));
         lv_label_set_text(vlbl, vbuf);
-        lv_obj_set_style_text_color(vlbl, lv_color_hex(0x9AA0AC), 0);
+        lv_obj_set_style_text_color(vlbl, lv_color_hex(theme_text_dim()), 0);
         lv_obj_set_style_text_font(vlbl, &lv_font_montserrat_14, 0);
 
         s_settings_rows[i] = row;
@@ -827,25 +842,211 @@ static void settings_rebuild(void)
     highlight_setting(s_settings_idx);
 }
 
+/* ========== App placeholder screens ========== */
+static void app_placeholder_show(const char *title, const char *subtitle, uint32_t color)
+{
+    lv_obj_t *scr = lv_screen_active();
+    uint32_t cnt = lv_obj_get_child_count(scr);
+    for (int i = (int)cnt - 1; i >= 0; i--) {
+        lv_obj_delete(lv_obj_get_child(scr, i));
+    }
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    /* Header */
+    lv_obj_t *hdr = lv_obj_create(scr);
+    lv_obj_set_pos(hdr, 0, 0);
+    lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x16181E), 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hdr, 0, 0);
+    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_border_width(hdr, 1, 0);
+    lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_pad_left(hdr, 4, 0);
+    lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *back = lv_obj_create(hdr);
+    lv_obj_set_size(back, 10, 10);
+    lv_obj_set_style_radius(back, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(back, lv_color_hex(0x2A2D36), 0);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(back, 0, 0);
+    lv_obj_set_style_pad_all(back, 0, 0);
+    lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "<");
+    lv_obj_set_style_text_color(bl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_12, 0);
+    lv_obj_center(bl);
+
+    lv_obj_t *ttl = lv_label_create(hdr);
+    lv_label_set_text(ttl, title);
+    lv_obj_set_style_text_color(ttl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(ttl, &lv_font_montserrat_12, 0);
+
+    /* Content */
+    lv_obj_t *content = lv_obj_create(scr);
+    lv_obj_set_pos(content, 0, HEADER_H);
+    lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - HEADER_H);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(content, 8, 0);
+
+    /* Icon */
+    lv_obj_t *icon = lv_obj_create(content);
+    lv_obj_set_size(icon, 40, 40);
+    lv_obj_set_style_radius(icon, 8, 0);
+    lv_obj_set_style_bg_color(icon, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(icon, 0, 0);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *sub = lv_label_create(content);
+    lv_label_set_text(sub, subtitle);
+    lv_obj_set_style_text_color(sub, lv_color_hex(0x9AA0AC), 0);
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
+
+    lv_obj_t *hint = lv_label_create(content);
+    lv_label_set_text(hint, "Press B to return");
+    lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+
+    s_screen = SCREEN_SETTINGS; /* Reuse settings screen state for B button */
+}
+
+/* ========== Reset function ========== */
+static void reset_settings(void)
+{
+    s_setting_brightness = 75;
+    s_setting_sound_on = 1;
+    s_setting_theme = 0;
+    s_setting_wifi_on = 1;
+    s_setting_layout = 0;
+    s_current_page = 0;
+    ESP_LOGI(TAG, "Settings reset to defaults");
+}
+
+/* Theme colors already defined above */
+
 /* ========== App launch handlers ========== */
 static void launch_settings(void) {
     ESP_LOGI(TAG, "Launch: Settings");
     settings_rebuild();
 }
 static void launch_phone(void) {
-    ESP_LOGI(TAG, "Launch: Phone (TODO)");
+    ESP_LOGI(TAG, "Launch: Phone");
+    app_placeholder_show("Phone", "Dialer coming soon...", 0x8B5CF6);
 }
 static void launch_games(void) {
-    ESP_LOGI(TAG, "Launch: Games (TODO)");
+    ESP_LOGI(TAG, "Launch: Games");
+    app_placeholder_show("Games", "Game library loading...", 0xF43F5E);
 }
 static void launch_camera(void) {
-    ESP_LOGI(TAG, "Launch: Camera (TODO)");
+    ESP_LOGI(TAG, "Launch: Camera");
+    app_placeholder_show("Camera", "Camera preview...", 0xF59E0B);
 }
 static void launch_music(void) {
-    ESP_LOGI(TAG, "Launch: Music (TODO)");
+    ESP_LOGI(TAG, "Launch: Music");
+    app_placeholder_show("Music", "Now playing...", 0x22C55E);
+}
+static void launch_browser(void) {
+    ESP_LOGI(TAG, "Launch: Browser");
+    app_placeholder_show("Browser", "Web browser...", 0x06B6D4);
+}
+static void launch_notes(void) {
+    ESP_LOGI(TAG, "Launch: Notes");
+    app_placeholder_show("Notes", "Note editor...", 0xEC4899);
 }
 static void launch_about(void) {
     ESP_LOGI(TAG, "Launch: About");
+    /* Show about screen with device info */
+    lv_obj_t *scr = lv_screen_active();
+    uint32_t cnt = lv_obj_get_child_count(scr);
+    for (int i = (int)cnt - 1; i >= 0; i--) {
+        lv_obj_delete(lv_obj_get_child(scr, i));
+    }
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    /* Header */
+    lv_obj_t *hdr = lv_obj_create(scr);
+    lv_obj_set_pos(hdr, 0, 0);
+    lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x16181E), 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hdr, 0, 0);
+    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_border_width(hdr, 1, 0);
+    lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_pad_left(hdr, 4, 0);
+    lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t *back = lv_obj_create(hdr);
+    lv_obj_set_size(back, 10, 10);
+    lv_obj_set_style_radius(back, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(back, lv_color_hex(0x2A2D36), 0);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(back, 0, 0);
+    lv_obj_set_style_pad_all(back, 0, 0);
+    lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "<");
+    lv_obj_set_style_text_color(bl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_12, 0);
+    lv_obj_center(bl);
+
+    lv_obj_t *ttl = lv_label_create(hdr);
+    lv_label_set_text(ttl, "About");
+    lv_obj_set_style_text_color(ttl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(ttl, &lv_font_montserrat_12, 0);
+
+    /* Content */
+    lv_obj_t *content = lv_obj_create(scr);
+    lv_obj_set_pos(content, 0, HEADER_H);
+    lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - HEADER_H);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(content, 0, 0);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(content, 4, 0);
+
+    lv_obj_t *l1 = lv_label_create(content);
+    lv_label_set_text(l1, "XiaoMiao Desktop");
+    lv_obj_set_style_text_color(l1, lv_color_white(), 0);
+    lv_obj_set_style_text_font(l1, &lv_font_montserrat_14, 0);
+
+    lv_obj_t *l2 = lv_label_create(content);
+    lv_label_set_text(l2, "v12.0");
+    lv_obj_set_style_text_color(l2, lv_color_hex(0x9AA0AC), 0);
+    lv_obj_set_style_text_font(l2, &lv_font_montserrat_12, 0);
+
+    lv_obj_t *l3 = lv_label_create(content);
+    lv_label_set_text(l3, "ESP32-WROVER-B");
+    lv_obj_set_style_text_color(l3, lv_color_hex(0x9AA0AC), 0);
+    lv_obj_set_style_text_font(l3, &lv_font_montserrat_12, 0);
+
+    lv_obj_t *l4 = lv_label_create(content);
+    lv_label_set_text(l4, "ST7735 160x128");
+    lv_obj_set_style_text_color(l4, lv_color_hex(0x9AA0AC), 0);
+    lv_obj_set_style_text_font(l4, &lv_font_montserrat_12, 0);
+
+    lv_obj_t *l5 = lv_label_create(content);
+    lv_label_set_text(l5, "LVGL 9.5.0");
+    lv_obj_set_style_text_color(l5, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(l5, &lv_font_montserrat_12, 0);
+
+    s_screen = SCREEN_SETTINGS;
 }
 
 /* ========== Input handling ========== */
@@ -863,6 +1064,17 @@ static void settings_activate(int idx)
             /* Layout changed */
             s_setting_layout = *s->value;
             s_app_count = s_setting_layout ? 2 : 4;
+        }
+    } else if (strcmp(s->type, "action") == 0) {
+        if (idx == 5) {
+            /* About - show about screen */
+            launch_about();
+            return;
+        } else if (idx == 6) {
+            /* Reset - restore defaults */
+            reset_settings();
+            settings_rebuild();
+            return;
         }
     }
     /* Update value label */
@@ -977,12 +1189,6 @@ static void handle_input(int raw_idx)
             }
         } else if (raw_idx == BTN_IDX_A) {
             settings_activate(s_settings_idx);
-            /* If layout changed, refresh desktop preview */
-            if (s_settings_idx == 4 && s_setting_layout == 1 && s_app_count == 4) {
-                s_app_count = 2;
-            } else if (s_settings_idx == 4 && s_setting_layout == 0 && s_app_count == 2) {
-                s_app_count = 4;
-            }
         } else if (raw_idx == BTN_IDX_B) {
             settings_back();
         }
@@ -1048,7 +1254,7 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1));
     lcd_display_on();
 
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v11 Started ===");
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v12 Started ===");
     ESP_LOGI(TAG, "Press UP/DOWN/LEFT/RIGHT to navigate, A to enter, B to back");
 
     int last_btn = -1;
