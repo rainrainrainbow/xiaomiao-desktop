@@ -418,15 +418,19 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v18 (Modular + Keypad Fix) ===");
+    ESP_LOGW(TAG, "=== Xiaomiao Desktop v19 (Button Task + Event Queue) ===");
     
     // 初始化系统服务
     sys_nvs_init();
     
-    // 初始化驱动
+    // 重要：先初始化按键，再初始化电池（因为GPIO34共享）
     drv_button_init();
-    drv_battery_init();
     drv_backlight_init();
+    drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
+    
+    // 启动按键任务（独立任务，5ms扫描周期）
+    xTaskCreate(drv_button_task, "btn_task", 2048, NULL, 10, NULL);
+    ESP_LOGI(TAG, "Button task created");
     
     // 加载保存的设置
     ui_state_t *state = ui_state_get();
@@ -479,42 +483,36 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1));
     lcd_display_on();
     
-    ESP_LOGI(TAG, "Desktop started");
+    ESP_LOGI(TAG, "Desktop started - waiting for button events...");
     
-    // 主循环
-    int last_btn = -1;
-
+    // 主循环 - 从事件队列获取按键
     while (true) {
         lv_timer_handler();
-
-        // 带去抖的按键扫描
-        int raw = drv_button_scan_debounced();
-
-        if (raw != last_btn) {
-            // 检测到新的稳定按键（边沿检测，按下瞬间触发）
-            if (raw >= 0) {
-                ESP_LOGD(TAG, "Key pressed: idx=%d", raw);
-
-                // 分发按键事件到当前页面的 on_key 回调
-                const page_callbacks_t *cbs = ui_stack_current_callbacks();
-                if (cbs && cbs->on_key) {
-                    bool handled = cbs->on_key(raw);
-                    if (!handled) {
-                        // 全局兜底：B键=返回上一级
-                        if (raw == BTN_IDX_B) {
-                            ui_stack_pop();
-                        }
-                    }
-                } else {
-                    // 无回调时的兜底：B键=返回
-                    if (raw == BTN_IDX_B) {
+        
+        // 从队列获取按键事件（非阻塞）
+        int btn_event = drv_button_get_event();
+        
+        if (btn_event >= 0) {
+            ESP_LOGI(TAG, "KEY EVENT: idx=%d (UP=0,DOWN=1,LEFT=2,RIGHT=3,A=4,B=5)", btn_event);
+            
+            // 分发按键事件到当前页面的 on_key 回调
+            const page_callbacks_t *cbs = ui_stack_current_callbacks();
+            if (cbs && cbs->on_key) {
+                bool handled = cbs->on_key(btn_event);
+                if (!handled) {
+                    // 全局兜底：B键=返回上一级
+                    if (btn_event == BTN_IDX_B) {
                         ui_stack_pop();
                     }
                 }
+            } else {
+                // 无回调时的兜底：B键=返回
+                if (btn_event == BTN_IDX_B) {
+                    ui_stack_pop();
+                }
             }
-            last_btn = raw;
         }
-
+        
         // 电池更新（每5秒）
         static uint32_t last_bat = 0;
         if (lv_tick_elaps(last_bat) > 5000) {
@@ -532,7 +530,7 @@ void app_main(void)
             // 更新时间
             ui_statusbar_update_time();
         }
-
+        
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
