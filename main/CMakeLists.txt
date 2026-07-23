@@ -3,5 +3,5 @@ idf_component_register(
         main.c
         return_to_loader.c
     INCLUDE_DIRS .
-    REQUIRES esp_adc esp_timer esp_lcd
+REQUIRES esp_adc esp_timer esp_lcd nvs_flash
 )
