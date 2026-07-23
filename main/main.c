@@ -148,6 +148,18 @@ static int s_last_pct = -1;
 static int s_current_page = 0; /* current desktop page */
 static int s_total_pages = 1;  /* total pages */
 
+/* SD card app definitions */
+#define MAX_SD_APPS 16
+typedef struct {
+    char name[32];
+    char icon[8];
+    uint32_t color;
+    char entry[32];
+} sd_app_info_t;
+
+static sd_app_info_t s_sd_apps[MAX_SD_APPS];
+static int s_sd_app_count = 0;
+
 /* Settings values (mutable) */
 static int s_setting_brightness = 75;
 static int s_setting_sound_on = 1;
