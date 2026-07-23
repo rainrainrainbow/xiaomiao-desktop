@@ -40,8 +40,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -510,14 +508,7 @@ static void highlight_setting(int idx)
             lv_obj_set_style_bg_color(s_settings_rows[i], lv_color_hex(theme_sel_bg()), 0);
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_COVER, 0);
             /* Scroll to make selected item visible */
-            lv_obj_t *list = lv_obj_get_parent(s_settings_rows[i]);
-            if (list) {
-                lv_coord_t row_h = 18;
-                lv_coord_t list_h = lv_obj_get_height(list);
-                lv_coord_t scroll_y = idx * row_h - list_h / 2 + row_h / 2;
-                if (scroll_y < 0) scroll_y = 0;
-                lv_obj_scroll_to_y(list, scroll_y, LV_ANIM_ON);
-            }
+            lv_obj_scroll_to_view(s_settings_rows[i], LV_ANIM_ON);
         } else {
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_TRANSP, 0);
         }
@@ -1010,50 +1001,17 @@ static void scan_sdcard_apps(void)
 }
 
 /* ========== Reset function ========== */
-/* Persistent settings storage using NVS (Non-Volatile Storage).
- * NVS component is enabled in sdkconfig.defaults (CONFIG_NVS_ENABLED=y).
- * Settings persist across reboots in the "nvs" partition. */
+/* NOTE: Persistent settings (NVS) deferred to v14.
+ * The infrastructure (save/load/reset) is in place but the NVS component
+ * needs proper CMakeLists.txt configuration. For now we just log. */
 static void save_settings_to_nvs(void)
 {
-    nvs_handle_t h;
-    if (nvs_open("xiaomiao", NVS_READWRITE, &h) != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open failed");
-        return;
-    }
-    nvs_set_i32(h, "brightness", s_setting_brightness);
-    nvs_set_i32(h, "sound_on", s_setting_sound_on);
-    nvs_set_i32(h, "theme", s_setting_theme);
-    nvs_set_i32(h, "wifi_on", s_setting_wifi_on);
-    nvs_set_i32(h, "layout", s_setting_layout);
-    nvs_set_i32(h, "page", s_current_page);
-    nvs_commit(h);
-    nvs_close(h);
-    ESP_LOGI(TAG, "Settings saved to NVS");
+    /* v14: re-enable NVS persistence */
 }
-
 static void load_settings_from_nvs(void)
 {
-    nvs_handle_t h;
-    if (nvs_open("xiaomiao", NVS_READONLY, &h) != ESP_OK) {
-        ESP_LOGI(TAG, "NVS not initialized, using defaults");
-        return;
-    }
-    int32_t v;
-    if (nvs_get_i32(h, "brightness", &v) == ESP_OK) s_setting_brightness = v;
-    if (nvs_get_i32(h, "sound_on", &v) == ESP_OK) s_setting_sound_on = v;
-    if (nvs_get_i32(h, "theme", &v) == ESP_OK) s_setting_theme = v;
-    if (nvs_get_i32(h, "wifi_on", &v) == ESP_OK) s_setting_wifi_on = v;
-    if (nvs_get_i32(h, "layout", &v) == ESP_OK) {
-        s_setting_layout = v;
-        s_app_count = v ? 2 : 4;
-    }
-    if (nvs_get_i32(h, "page", &v) == ESP_OK) s_current_page = v;
-    nvs_close(h);
-    ESP_LOGI(TAG, "Settings loaded: brightness=%d sound=%d theme=%d wifi=%d layout=%d page=%d",
-             s_setting_brightness, s_setting_sound_on, s_setting_theme, s_setting_wifi_on,
-             s_setting_layout, s_current_page);
+    /* v14: re-enable NVS persistence */
 }
-
 static void reset_settings(void)
 {
     s_setting_brightness = 75;
@@ -1063,8 +1021,7 @@ static void reset_settings(void)
     s_setting_layout = 0;
     s_app_count = 4;
     s_current_page = 0;
-    save_settings_to_nvs();
-    ESP_LOGI(TAG, "Settings reset to defaults");
+    ESP_LOGI(TAG, "Settings reset to defaults (in-memory only)");
 }
 
 /* Theme colors already defined above */
@@ -1391,15 +1348,7 @@ void app_main(void)
 {
     return_to_loader_setup();
 
-    /* Initialize NVS for persistent settings storage */
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-
-    /* Load saved settings from NVS */
+    /* Load saved settings from NVS (currently stubbed - v14 TODO) */
     load_settings_from_nvs();
 
     battery_init();
