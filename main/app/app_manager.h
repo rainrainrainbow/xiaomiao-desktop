@@ -39,6 +39,12 @@ typedef struct {
 void app_manager_init(void);
 
 /**
+ * 注册内置应用
+ * @param app 应用定义
+ */
+void app_register_builtin(const app_def_t *app);
+
+/**
  * 获取内置应用列表
  * @param count 输出应用数量
  * @return 应用数组指针
@@ -70,5 +76,10 @@ void app_manager_launch(const app_def_t *app);
  * @return 页面回调结构体
  */
 page_callbacks_t app_manager_get_callbacks(const app_def_t *app);
+
+/**
+ * 注册所有内置应用
+ */
+void app_builtin_register_all(void);
 
 #endif /* APP_MANAGER_H */
