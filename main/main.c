@@ -460,8 +460,7 @@ void app_main(void)
     
     // 初始化应用管理器
     app_manager_init();
-    // TODO: 注册内置应用
-    // app_builtin_register_all();
+    app_builtin_register_all();
     
     // 推入桌面页面
     ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
