@@ -730,7 +730,7 @@ static void settings_rebuild(void)
 
     /* Battery in header (compact) */
     s_bat_label = lv_label_create(hdr);
-    char bbuf[8];
+    char bbuf[16];
     snprintf(bbuf, sizeof(bbuf), "%d%%", s_last_pct >= 0 ? s_last_pct : 85);
     lv_label_set_text(s_bat_label, bbuf);
     lv_obj_set_style_text_color(s_bat_label, lv_color_hex(0x4ADE80), 0);
@@ -1047,7 +1047,7 @@ void app_main(void)
                 time_t nowt;
                 time(&nowt);
                 struct tm *tm_info = localtime(&nowt);
-                char tbuf[8];
+                char tbuf[16];
                 snprintf(tbuf, sizeof(tbuf), "%02d:%02d", tm_info->tm_hour, tm_info->tm_min);
                 lv_label_set_text(s_time_label, tbuf);
             }
