@@ -1010,6 +1010,9 @@ static void scan_sdcard_apps(void)
 }
 
 /* ========== Reset function ========== */
+/* Persistent settings storage using NVS (Non-Volatile Storage).
+ * NVS component is enabled in sdkconfig.defaults (CONFIG_NVS_ENABLED=y).
+ * Settings persist across reboots in the "nvs" partition. */
 static void save_settings_to_nvs(void)
 {
     nvs_handle_t h;
@@ -1388,7 +1391,7 @@ void app_main(void)
 {
     return_to_loader_setup();
 
-    /* Initialize NVS for persistent settings */
+    /* Initialize NVS for persistent settings storage */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
