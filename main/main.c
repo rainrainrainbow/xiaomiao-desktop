@@ -108,7 +108,7 @@
 
 #define STATUS_H        12
 #define DOCK_H          10
-#define HEADER_H        14   /* Settings header height */
+#define HEADER_H        18   /* Settings header height */
 #define GRID_TOP        (STATUS_H + 2)
 #define GRID_BOTTOM     (LCD_V_RES - DOCK_H)
 #define GRID_H          (GRID_BOTTOM - GRID_TOP)
@@ -145,6 +145,8 @@ static int s_selected = 0;    /* current selection in current screen */
 static int s_settings_count = 0;
 static int s_settings_idx = 0;
 static int s_last_pct = -1;
+static int s_current_page = 0; /* current desktop page */
+static int s_total_pages = 1;  /* total pages */
 
 /* Settings values (mutable) */
 static int s_setting_brightness = 75;
@@ -609,6 +611,20 @@ static void desktop_rebuild(void)
         cell_h = (inner_h - GRID_GAP) / 2;
     }
 
+    /* Calculate total pages */
+    int total_apps = 8;  /* s_apps array size */
+    s_total_pages = (total_apps + s_app_count - 1) / s_app_count;
+    if (s_current_page >= s_total_pages) {
+        s_current_page = s_total_pages - 1;
+    }
+
+    /* Calculate which apps to show on current page */
+    int start_app = s_current_page * s_app_count;
+    int apps_on_page = s_app_count;
+    if (start_app + apps_on_page > total_apps) {
+        apps_on_page = total_apps - start_app;
+    }
+
     lv_coord_t x[8], y[8];
     if (s_app_count == 4) {
         x[0] = 0;          y[0] = 0;
@@ -620,18 +636,19 @@ static void desktop_rebuild(void)
         x[1] = 0; y[1] = cell_h + GRID_GAP;
     }
 
-    for (int i = 0; i < s_app_count; i++) {
-        s_app_cells[i] = create_app_cell(scr, &s_apps[i], x[i], y[i], cell_w, cell_h, vertical);
+    for (int i = 0; i < apps_on_page; i++) {
+        int app_idx = start_app + i;
+        s_app_cells[i] = create_app_cell(scr, &s_apps[app_idx], x[i], y[i], cell_w, cell_h, vertical);
         /* Adjust cell into grid position */
         lv_obj_set_pos(s_app_cells[i], GRID_PAD + x[i], GRID_TOP + y[i]);
     }
 
-    make_dock(scr, s_setting_layout ? 1 : 0);
+    make_dock(scr, s_current_page);
 
     s_selected = 0;
     s_screen = SCREEN_DESKTOP;
     highlight_cell(s_selected);
-    ESP_LOGI(TAG, "Desktop rebuilt with %d apps (%s)", s_app_count, vertical ? "2x2 vertical" : "1x2 horizontal");
+    ESP_LOGI(TAG, "Desktop rebuilt: page %d/%d, %d apps (%s)", s_current_page + 1, s_total_pages, apps_on_page, vertical ? "2x2 vertical" : "1x2 horizontal");
 }
 
 /* Settings row struct */
@@ -746,7 +763,7 @@ static void settings_rebuild(void)
     lv_obj_set_style_pad_all(list, 0, 0);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_coord_t row_h = 14;
+    lv_coord_t row_h = 18;
     for (int i = 0; i < NUM_SETTINGS; i++) {
         lv_obj_t *row = lv_obj_create(list);
         lv_obj_set_pos(row, 0, i * row_h);
@@ -766,7 +783,7 @@ static void settings_rebuild(void)
 
         /* icon */
         lv_obj_t *icon = lv_obj_create(row);
-        lv_obj_set_size(icon, 10, 10);
+        lv_obj_set_size(icon, 12, 12);
         lv_obj_set_style_radius(icon, 2, 0);
         lv_obj_set_style_bg_color(icon, lv_color_hex(s_settings[i].icon_color), 0);
         lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
@@ -776,14 +793,14 @@ static void settings_rebuild(void)
         lv_obj_t *il = lv_label_create(icon);
         lv_label_set_text(il, s_settings[i].icon_letter);
         lv_obj_set_style_text_color(il, lv_color_white(), 0);
-        lv_obj_set_style_text_font(il, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(il, &lv_font_montserrat_14, 0);
         lv_obj_center(il);
 
         /* label */
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, s_settings[i].label);
         lv_obj_set_style_text_color(lbl, lv_color_hex(0xE8E8EC), 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
         lv_obj_set_style_pad_left(lbl, 0, 0);
 
         /* value */
@@ -799,7 +816,7 @@ static void settings_rebuild(void)
         setting_value_str(i, vbuf, sizeof(vbuf));
         lv_label_set_text(vlbl, vbuf);
         lv_obj_set_style_text_color(vlbl, lv_color_hex(0x9AA0AC), 0);
-        lv_obj_set_style_text_font(vlbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(vlbl, &lv_font_montserrat_14, 0);
 
         s_settings_rows[i] = row;
         s_settings_value_lbls[i] = vlbl;
@@ -878,16 +895,49 @@ static void handle_input(int raw_idx)
     if (raw_idx < 0) return;
 
     if (s_screen == SCREEN_DESKTOP) {
-        if (raw_idx == BTN_IDX_UP || raw_idx == BTN_IDX_LEFT) {
+        if (raw_idx == BTN_IDX_LEFT) {
             if (s_app_count == 4) {
-                /* 2x2: up=left col, down=right col */
+                /* 2x2: LEFT moves left in row */
+                if (s_selected % 2 == 1) {
+                    s_selected--;
+                } else if (s_current_page > 0) {
+                    /* At left edge, switch to previous page */
+                    s_current_page--;
+                    s_selected = s_app_count - 1;
+                    desktop_rebuild();
+                    return;
+                }
+            } else {
+                if (s_selected > 0) s_selected--;
+            }
+            highlight_cell(s_selected);
+        } else if (raw_idx == BTN_IDX_RIGHT) {
+            if (s_app_count == 4) {
+                /* 2x2: RIGHT moves right in row */
+                if (s_selected % 2 == 0) {
+                    s_selected++;
+                } else if (s_current_page < s_total_pages - 1) {
+                    /* At right edge, switch to next page */
+                    s_current_page++;
+                    s_selected = 0;
+                    desktop_rebuild();
+                    return;
+                }
+            } else {
+                if (s_selected < s_app_count - 1) s_selected++;
+            }
+            highlight_cell(s_selected);
+        } else if (raw_idx == BTN_IDX_UP) {
+            if (s_app_count == 4) {
+                /* 2x2: UP moves up in column */
                 if (s_selected >= 2) s_selected -= 2;
             } else {
                 if (s_selected > 0) s_selected--;
             }
             highlight_cell(s_selected);
-        } else if (raw_idx == BTN_IDX_DOWN || raw_idx == BTN_IDX_RIGHT) {
+        } else if (raw_idx == BTN_IDX_DOWN) {
             if (s_app_count == 4) {
+                /* 2x2: DOWN moves down in column */
                 if (s_selected < 2) s_selected += 2;
             } else {
                 if (s_selected < s_app_count - 1) s_selected++;
