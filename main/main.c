@@ -40,8 +40,6 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_vfs_fat.h"
-#include "dirent.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -961,9 +959,8 @@ static void app_placeholder_show(const char *title, const char *subtitle, uint32
     s_screen = SCREEN_APP_PLACEHOLDER; /* Use dedicated state for app screens */
 }
 
-/* ========== SD card app scanning ========== */
+/* ========== SD card app scanning (stub - SD card driver not yet enabled) ========== */
 #define MAX_SD_APPS 16
-#define APPS_DIR "/sdcard/xiaomiao-apps"
 
 typedef struct {
     char name[32];
@@ -975,105 +972,14 @@ typedef struct {
 static sd_app_info_t s_sd_apps[MAX_SD_APPS];
 static int s_sd_app_count = 0;
 
+/* Placeholder: SD card scanning will be enabled in v14 once SD card driver
+ * (esp_vfs_fat.h + sdspi_driver) is integrated with hardware pins.
+ * For now, we register zero SD apps so the build works and the desktop
+ * shows only built-in apps. */
 static void scan_sdcard_apps(void)
 {
     s_sd_app_count = 0;
-    DIR *dir = opendir(APPS_DIR);
-    if (!dir) {
-        ESP_LOGW(TAG, "Cannot open %s", APPS_DIR);
-        return;
-    }
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && s_sd_app_count < MAX_SD_APPS) {
-        if (entry->d_type != DT_DIR) continue;
-        if (entry->d_name[0] == '.') continue;
-
-        /* Try to read app.json */
-        char json_path[128];
-        snprintf(json_path, sizeof(json_path), "%s/%s/app.json", APPS_DIR, entry->d_name);
-
-        FILE *f = fopen(json_path, "r");
-        if (!f) {
-            ESP_LOGW(TAG, "No app.json in %s", entry->d_name);
-            continue;
-        }
-
-        /* Simple JSON parsing (manual) */
-        char buf[256];
-        size_t len = fread(buf, 1, sizeof(buf) - 1, f);
-        fclose(f);
-        buf[len] = '\0';
-
-        sd_app_info_t *app = &s_sd_apps[s_sd_app_count];
-        strncpy(app->name, entry->d_name, sizeof(app->name) - 1);
-        app->name[sizeof(app->name) - 1] = '\0';
-        strncpy(app->icon, "?", sizeof(app->icon) - 1);
-        app->color = 0x3B82F6;
-        strncpy(app->entry, "main.py", sizeof(app->entry) - 1);
-
-        /* Parse name */
-        char *p = strstr(buf, "\"name\"");
-        if (p) {
-            p = strchr(p + 6, '"');
-            if (p) {
-                p++;
-                char *end = strchr(p, '"');
-                if (end) {
-                    size_t nlen = end - p;
-                    if (nlen < sizeof(app->name)) {
-                        strncpy(app->name, p, nlen);
-                        app->name[nlen] = '\0';
-                    }
-                }
-            }
-        }
-
-        /* Parse icon */
-        p = strstr(buf, "\"icon\"");
-        if (p) {
-            p = strchr(p + 6, '"');
-            if (p) {
-                p++;
-                char *end = strchr(p, '"');
-                if (end && (end - p) < sizeof(app->icon)) {
-                    strncpy(app->icon, p, end - p);
-                    app->icon[end - p] = '\0';
-                }
-            }
-        }
-
-        /* Parse color (hex string) */
-        p = strstr(buf, "\"color\"");
-        if (p) {
-            p = strchr(p + 7, '"');
-            if (p) {
-                p++;
-                if (*p == '#') p++;
-                app->color = (uint32_t)strtoul(p, NULL, 16);
-            }
-        }
-
-        /* Parse entry */
-        p = strstr(buf, "\"entry\"");
-        if (p) {
-            p = strchr(p + 7, '"');
-            if (p) {
-                p++;
-                char *end = strchr(p, '"');
-                if (end && (end - p) < sizeof(app->entry)) {
-                    strncpy(app->entry, p, end - p);
-                    app->entry[end - p] = '\0';
-                }
-            }
-        }
-
-        ESP_LOGI(TAG, "Found app: %s (icon=%s, color=0x%06lX, entry=%s)",
-                 app->name, app->icon, (unsigned long)app->color, app->entry);
-        s_sd_app_count++;
-    }
-    closedir(dir);
-    ESP_LOGI(TAG, "Scanned %d apps from SD card", s_sd_app_count);
+    ESP_LOGW(TAG, "SD card scanning disabled (driver not yet integrated)");
 }
 
 /* ========== Reset function ========== */
