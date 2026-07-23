@@ -1,21 +1,24 @@
 /*
- * xiaomiao-desktop - Desktop UI with App Grid (v10 - bugfix)
+ * xiaomiao-desktop v11 - Settings app + custom nav + fixed keypad
  *
- * ESP32-WROVER-B + ST7735 160x128 TFT + MicroSD + 6-key keypad.
+ * Changes vs v10:
+ *   - Layout: 4-app mode (2x2 vertical) vs 2-app mode (1x2 horizontal)
+ *   - Keypad: BUILT-IN navigation. Use selected_idx and manual highlight,
+ *     not LVGL group (which was broken due to keypad indev handler).
+ *   - Settings app: real implementation with list navigation, brightness,
+ *     sound toggle, theme switch, etc. Press B to return to desktop.
+ *   - A/B buttons: A = enter / activate, B = back / cancel
  *
- * v10 fixes vs v9:
- *   1. Font size: use lv_font_montserrat_12 (was 14, too big for 70px cell)
- *   2. Keypad read_cb: rewrite without static state lock; use LV_EVENT_PRESSED
- *   3. Battery ADC: skip battery update while A button is pressed (GPIO34 shared)
+ * Hardware: ESP32-WROVER-B + ST7735 160x128 + 6-key keypad
+ *   BTN_A=GPIO34 (shared with ADC1_CH6), BTN_B=12, UP=2, DOWN=13, LEFT=27, RIGHT=35
+ *   All buttons active LOW with internal pullups (where possible)
  *
- * Layout (160x128 landscape):
- *   0-12px:    Status bar (brand + clock + battery)
- *   14-118px:  App grid (2x2: 4 apps, or 1x2: 2 apps)
- *   118-128px: Dock (3 dots)
- *
- * Cell: 70x46 in 2x2 mode, icon (20x20) on left + label on right
- *   Usable label width = 70 - 12(pad) - 6(col) - 20(icon) = 32px
- *   With 12px font (~6px/char) can fit ~5 chars
+ * Architecture:
+ *   - s_screen = "desktop" or "settings" (current screen)
+ *   - s_selected_idx = current focused item in current screen
+ *   - Press UP/DOWN/LEFT/RIGHT: move selection
+ *   - Press A: launch app / activate item
+ *   - Press B: return to previous screen
  */
 
 #include <stdbool.h>
@@ -56,7 +59,6 @@
 #define PIN_LCD_CS     GPIO_NUM_5
 #define PIN_LCD_DC     GPIO_NUM_4
 
-/* Hardware pins */
 #define BTN_A          GPIO_NUM_34   /* ADC1_CH6 - SHARED with battery ADC! */
 #define BTN_B          GPIO_NUM_12
 #define BTN_UP         GPIO_NUM_2
@@ -68,12 +70,12 @@
 #define BUTTON_DEBOUNCE_MS   25
 
 #define BAT_ADC_UNIT        ADC_UNIT_1
-#define BAT_ADC_CHANNEL     ADC_CHANNEL_6   /* same as BTN_A! */
+#define BAT_ADC_CHANNEL     ADC_CHANNEL_6
 #define BAT_VDIV_R1         9100
 #define BAT_VDIV_R2         2400
 #define BAT_ADC_ATTEN       ADC_ATTEN_DB_12
 #define BAT_ADC_BITWIDTH    ADC_BITWIDTH_12
-#define BAT_MIN_VALID_V     2.5f  /* below this = button pressed, ignore */
+#define BAT_MIN_VALID_V     2.5f
 
 #define ST7735_SWRESET  0x01
 #define ST7735_SLPOUT   0x11
@@ -104,36 +106,29 @@
 #define MADCTL_MV       0x20
 #define MADCTL_RGB      0x00
 
-/* ========== UI layout (160x128) ========== */
 #define STATUS_H        12
 #define DOCK_H          10
+#define HEADER_H        14   /* Settings header height */
 #define GRID_TOP        (STATUS_H + 2)
 #define GRID_BOTTOM     (LCD_V_RES - DOCK_H)
 #define GRID_H          (GRID_BOTTOM - GRID_TOP)
 #define GRID_PAD        4
 #define GRID_GAP        4
-#define ICON_SIZE       20
-#define ICON_RADIUS     5
+#define ICON_SIZE_V     18   /* icon size in 2x2 mode (vertical layout) */
+#define ICON_SIZE_H     18   /* icon size in 1x2 mode (horizontal layout) */
 #define CELL_RADIUS     8
 
-/* App colors */
 #define COLOR_BG_DARK   0x0C0D10
+#define COLOR_SEL_BORDER 0xFFFFFF
 
-/* ========== App definitions ========== */
+/* App definitions */
 typedef struct {
     const char *icon_text;
     const char *label;
     uint32_t icon_color;
     uint32_t cell_tint;
+    void (*launch_cb)(void);  /* called when app is launched via A */
 } app_def_t;
-
-#define NUM_APPS 4
-static const app_def_t s_apps[NUM_APPS] = {
-    { "P", "Phone",  0x3B82F6, 0x1A2A4A },
-    { "G", "Games",  0x8B5CF6, 0x2A1A3A },
-    { "C", "Camera", 0xF43F5E, 0x3A1A22 },
-    { "M", "Music",  0xF59E0B, 0x3A2A10 },
-};
 
 /* ========== State ========== */
 static esp_lcd_panel_io_handle_t s_lcd_io;
@@ -142,10 +137,22 @@ static adc_oneshot_unit_handle_t s_adc_handle;
 static adc_cali_handle_t s_adc_chars;
 static lv_obj_t *s_bat_label;
 static lv_obj_t *s_time_label;
-static lv_obj_t *s_app_cells[NUM_APPS];
-static lv_group_t *s_group;
-static int s_current_idx = 0;
+static lv_obj_t *s_app_cells[8];
+static lv_obj_t *s_settings_rows[8];
+static lv_obj_t *s_settings_value_lbls[8];
+static int s_app_count = 4;   /* 4 or 2 */
+static int s_selected = 0;    /* current selection in current screen */
+static int s_settings_count = 0;
+static int s_settings_idx = 0;
 static int s_last_pct = -1;
+
+/* Settings values (mutable) */
+static int s_setting_brightness = 75;
+static int s_setting_sound_on = 1;
+static int s_setting_theme = 0;  /* 0=Dark, 1=Light */
+static int s_setting_wifi_on = 1;
+static int s_setting_layout = 0; /* 0=4-apps, 1=2-apps */
+
 static const char *TAG = "DESKTOP";
 
 /* ========== Battery ========== */
@@ -190,72 +197,38 @@ static void buttons_init(void)
             pullup |= 1ULL << s_btn_gpios[i];
     }
     gpio_config_t io = {
-        .pin_bit_mask = mask,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pin_bit_mask = mask, .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE, .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io);
     if (pullup) {
         gpio_config_t pu = {
-            .pin_bit_mask = pullup,
-            .mode = GPIO_MODE_INPUT,
-            .pull_up_en = GPIO_PULLUP_ENABLE,
-            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .pin_bit_mask = pullup, .mode = GPIO_MODE_INPUT,
+            .pull_up_en = GPIO_PULLUP_ENABLE, .pull_down_en = GPIO_PULLDOWN_DISABLE,
             .intr_type = GPIO_INTR_DISABLE
         };
         gpio_config(&pu);
     }
 }
 
-/* v10 fix: completely rewritten, no static state lock.
- * Reads raw buttons with debounce, returns KEY_* via lv_indev_data_t.
- * Also triggers app launch via user data callback. */
-typedef void (*app_launch_cb_t)(int idx);
-static app_launch_cb_t s_launch_cb = NULL;
+/* Buttons as raw button indices */
+enum {
+    BTN_IDX_UP = 0,
+    BTN_IDX_DOWN = 1,
+    BTN_IDX_LEFT = 2,
+    BTN_IDX_RIGHT = 3,
+    BTN_IDX_A = 4,
+    BTN_IDX_B = 5,
+};
 
-static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+static int scan_buttons(void)
 {
-    static int debounced_idx = -1;
-    static uint32_t changed_ms = 0;
-
-    /* Scan all buttons for current state */
-    int raw_idx = -1;
     for (size_t i = 0; i < NUM_BUTTONS; i++) {
-        if (gpio_get_level(s_btn_gpios[i]) == BUTTON_ACTIVE_LEVEL) {
-            raw_idx = (int)i;
-            break;  /* first hit wins */
-        }
+        if (gpio_get_level(s_btn_gpios[i]) == BUTTON_ACTIVE_LEVEL)
+            return (int)i;
     }
-
-    uint32_t now = lv_tick_get();
-    if (raw_idx != debounced_idx) {
-        changed_ms = now;
-        debounced_idx = raw_idx;
-    }
-
-    /* Only report as pressed after debounce stable */
-    if (raw_idx >= 0 && lv_tick_elaps(changed_ms) >= BUTTON_DEBOUNCE_MS) {
-        data->state = LV_INDEV_STATE_PRESSED;
-        /* Map button index to LVGL key code */
-        switch (raw_idx) {
-            case 0: data->key = LV_KEY_UP; break;    /* BTN_UP */
-            case 1: data->key = LV_KEY_DOWN; break;  /* BTN_DOWN */
-            case 2: data->key = LV_KEY_LEFT; break;  /* BTN_LEFT */
-            case 3: data->key = LV_KEY_RIGHT; break; /* BTN_RIGHT */
-            case 4: data->key = LV_KEY_ENTER; break;  /* BTN_A */
-            case 5: data->key = LV_KEY_ESC; break;    /* BTN_B */
-            default: data->key = 0; break;
-        }
-        /* For BTN_A press, also trigger app launch callback */
-        if (raw_idx == 4 && s_launch_cb) {
-            s_launch_cb(s_current_idx);
-        }
-    } else {
-        data->state = LV_INDEV_STATE_RELEASED;
-        data->key = 0;
-    }
+    return -1;
 }
 
 /* ========== ST7735 Driver ========== */
@@ -324,23 +297,16 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
 static esp_lcd_panel_io_handle_t lcd_init(void)
 {
     spi_bus_config_t bus = {
-        .sclk_io_num = PIN_LCD_SCLK,
-        .mosi_io_num = PIN_LCD_MOSI,
-        .miso_io_num = PIN_LCD_MISO,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
+        .sclk_io_num = PIN_LCD_SCLK, .mosi_io_num = PIN_LCD_MOSI,
+        .miso_io_num = PIN_LCD_MISO, .quadwp_io_num = -1, .quadhd_io_num = -1,
         .max_transfer_sz = LCD_H_RES * LCD_V_RES * 2
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO));
     esp_lcd_panel_io_handle_t io = NULL;
     esp_lcd_panel_io_spi_config_t cfg = {
-        .dc_gpio_num = PIN_LCD_DC,
-        .cs_gpio_num = PIN_LCD_CS,
-        .pclk_hz = LCD_PIXEL_CLOCK_HZ,
-        .lcd_cmd_bits = 8,
-        .lcd_param_bits = 8,
-        .spi_mode = 0,
-        .trans_queue_depth = 10
+        .dc_gpio_num = PIN_LCD_DC, .cs_gpio_num = PIN_LCD_CS,
+        .pclk_hz = LCD_PIXEL_CLOCK_HZ, .lcd_cmd_bits = 8, .lcd_param_bits = 8,
+        .spi_mode = 0, .trans_queue_depth = 10
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &cfg, &io));
     s_lcd_io = io;
@@ -393,152 +359,84 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     return d;
 }
 
-/* ========== UI: App Grid (v10 design with smaller font) ========== */
+/* ========== Screen state ========== */
+typedef enum {
+    SCREEN_DESKTOP = 0,
+    SCREEN_SETTINGS = 1,
+} screen_t;
 
-/* App launch handler - shows toast at bottom */
-static void on_app_launch(int idx)
+static screen_t s_screen = SCREEN_DESKTOP;
+
+/* Forward decls */
+static void desktop_rebuild(void);
+static void settings_rebuild(void);
+static void settings_activate(int idx);
+static void settings_back(void);
+
+/* ========== App launch handlers (forward) ========== */
+static void launch_settings(void);
+static void launch_phone(void);
+static void launch_games(void);
+static void launch_camera(void);
+static void launch_music(void);
+static void launch_about(void);
+
+/* Apps (8 max) */
+static const app_def_t s_apps[8] = {
+    { "S", "Settings", 0x3B82F6, 0x1A2A4A, launch_settings },
+    { "P", "Phone",    0x8B5CF6, 0x2A1A3A, launch_phone },
+    { "G", "Games",    0xF43F5E, 0x3A1A22, launch_games },
+    { "C", "Camera",   0xF59E0B, 0x3A2A10, launch_camera },
+    { "M", "Music",    0x22C55E, 0x1A3A22, launch_music },
+    { "B", "Browser",  0x06B6D4, 0x1A2A3A, NULL },
+    { "T", "Notes",    0xEC4899, 0x3A1A2A, NULL },
+    { "?", "About",    0x64748B, 0x1A1A1A, launch_about },
+};
+
+/* ========== UI builders ========== */
+
+static lv_obj_t *make_statusbar(lv_obj_t *scr)
 {
-    ESP_LOGI(TAG, "Launch app #%d: %s", idx, s_apps[idx].label);
-    /* TODO: implement actual app launching (load .app from SD card) */
-}
+    lv_obj_t *sb = lv_obj_create(scr);
+    lv_obj_set_pos(sb, 0, 0);
+    lv_obj_set_size(sb, LCD_H_RES, STATUS_H);
+    lv_obj_set_style_bg_color(sb, lv_color_hex(0x0C0D10), 0);
+    lv_obj_set_style_bg_opa(sb, LV_OPA_90, 0);
+    lv_obj_set_style_border_width(sb, 0, 0);
+    lv_obj_set_style_pad_all(sb, 0, 0);
+    lv_obj_set_style_pad_left(sb, 4, 0);
+    lv_obj_set_style_pad_right(sb, 4, 0);
+    lv_obj_clear_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(sb, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(sb, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-static void cell_event_cb(lv_event_t *e)
-{
-    lv_obj_t *cell = lv_event_get_target_obj(e);
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_FOCUSED) {
-        /* Find which index this cell is */
-        for (int i = 0; i < NUM_APPS; i++) {
-            if (s_app_cells[i] == cell) {
-                s_current_idx = i;
-                ESP_LOGI(TAG, "Focus: app %d (%s)", i, s_apps[i].label);
-                break;
-            }
-        }
-    }
-}
+    lv_obj_t *brand = lv_label_create(sb);
+    lv_label_set_text(brand, "XIAOMIAO");
+    lv_obj_set_style_text_color(brand, lv_color_hex(0xD8D8D8), 0);
+    lv_obj_set_style_text_font(brand, &lv_font_montserrat_12, 0);
 
-static void app_cell_create(lv_obj_t *parent, const app_def_t *app,
-                            lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h, int idx)
-{
-    /* Cell container */
-    lv_obj_t *cell = lv_obj_create(parent);
-    lv_obj_set_pos(cell, x, y);
-    lv_obj_set_size(cell, w, h);
-    lv_obj_set_style_radius(cell, CELL_RADIUS, 0);
-    lv_obj_set_style_bg_color(cell, lv_color_hex(app->cell_tint), 0);
-    lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(cell, 1, 0);
-    lv_obj_set_style_border_color(cell, lv_color_hex(0x1A1A1A), 0);
-    lv_obj_set_style_border_width(cell, 2, LV_STATE_FOCUSED);
-    lv_obj_set_style_border_color(cell, lv_color_white(), LV_STATE_FOCUSED);
-    lv_obj_set_style_pad_all(cell, 4, 0);
-    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *rc = lv_obj_create(sb);
+    lv_obj_remove_style_all(rc);
+    lv_obj_set_flex_flow(rc, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(rc, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(rc, 4, 0);
+    lv_obj_clear_flag(rc, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* Flex layout: icon left, label right */
-    lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(cell, 5, 0);
-
-    /* Icon: colored rounded square with letter */
-    lv_obj_t *icon = lv_obj_create(cell);
-    lv_obj_set_size(icon, ICON_SIZE, ICON_SIZE);
-    lv_obj_set_style_radius(icon, ICON_RADIUS, 0);
-    lv_obj_set_style_bg_color(icon, lv_color_hex(app->icon_color), 0);
-    lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(icon, 0, 0);
-    lv_obj_set_style_pad_all(icon, 0, 0);
-    lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *icon_lbl = lv_label_create(icon);
-    lv_label_set_text(icon_lbl, app->icon_text);
-    lv_obj_set_style_text_color(icon_lbl, lv_color_white(), 0);
-    /* Use 12px font for icon letter (fits in 20px icon) */
-    lv_obj_set_style_text_font(icon_lbl, &lv_font_montserrat_12, 0);
-    lv_obj_center(icon_lbl);
-
-    /* App label - use 12px font to fit "Phone" in cell */
-    lv_obj_t *label = lv_label_create(cell);
-    lv_label_set_text(label, app->label);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xE8E8EC), 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_pad_top(label, 0, 0);
-    lv_obj_set_style_pad_bottom(label, 0, 0);
-
-    /* Focus tracking */
-    lv_obj_add_event_cb(cell, cell_event_cb, LV_EVENT_FOCUSED, NULL);
-
-    /* Add to group for keypad navigation */
-    lv_group_add_obj(s_group, cell);
-    s_app_cells[idx] = cell;
-}
-
-static void desktop_ui_create(void)
-{
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-
-    /* --- Status Bar (0-12px) --- */
-    lv_obj_t *statusbar = lv_obj_create(scr);
-    lv_obj_set_pos(statusbar, 0, 0);
-    lv_obj_set_size(statusbar, LCD_H_RES, STATUS_H);
-    lv_obj_set_style_bg_color(statusbar, lv_color_hex(0x0C0D10), 0);
-    lv_obj_set_style_bg_opa(statusbar, LV_OPA_90, 0);
-    lv_obj_set_style_border_width(statusbar, 0, 0);
-    lv_obj_set_style_pad_all(statusbar, 0, 0);
-    lv_obj_set_style_pad_left(statusbar, 4, 0);
-    lv_obj_set_style_pad_right(statusbar, 4, 0);
-    lv_obj_clear_flag(statusbar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(statusbar, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(statusbar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-
-    lv_obj_t *brand_lbl = lv_label_create(statusbar);
-    lv_label_set_text(brand_lbl, "XIAOMIAO");
-    lv_obj_set_style_text_color(brand_lbl, lv_color_hex(0xD8D8D8), 0);
-    lv_obj_set_style_text_font(brand_lbl, &lv_font_montserrat_12, 0);
-
-    /* Right side: clock + battery in a row */
-    lv_obj_t *right_cont = lv_obj_create(statusbar);
-    lv_obj_remove_style_all(right_cont);
-    lv_obj_set_flex_flow(right_cont, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(right_cont, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(right_cont, 4, 0);
-    lv_obj_clear_flag(right_cont, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_time_label = lv_label_create(right_cont);
+    s_time_label = lv_label_create(rc);
     lv_label_set_text(s_time_label, "12:00");
     lv_obj_set_style_text_color(s_time_label, lv_color_hex(0xD8D8D8), 0);
     lv_obj_set_style_text_font(s_time_label, &lv_font_montserrat_12, 0);
 
-    s_bat_label = lv_label_create(right_cont);
+    s_bat_label = lv_label_create(rc);
     lv_label_set_text(s_bat_label, "85%");
     lv_obj_set_style_text_color(s_bat_label, lv_color_hex(0x4ADE80), 0);
     lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_12, 0);
 
-    /* --- App Grid (14-118px) --- */
-    lv_obj_t *grid = lv_obj_create(scr);
-    lv_obj_set_pos(grid, GRID_PAD, GRID_TOP);
-    lv_obj_set_size(grid, LCD_H_RES - 2 * GRID_PAD, GRID_H);
-    lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(grid, 0, 0);
-    lv_obj_set_style_pad_all(grid, GRID_PAD, 0);
-    lv_obj_clear_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
+    return sb;
+}
 
-    /* 4-app mode: 2x2 grid */
-    lv_coord_t grid_w = LCD_H_RES - 2 * GRID_PAD - 2 * GRID_PAD;
-    lv_coord_t grid_h = GRID_H - 2 * GRID_PAD;
-    lv_coord_t cell_w = (grid_w - GRID_GAP) / 2;
-    lv_coord_t cell_h = (grid_h - GRID_GAP) / 2;
-
-    lv_coord_t x0 = 0, x1 = cell_w + GRID_GAP;
-    lv_coord_t y0 = 0, y1 = cell_h + GRID_GAP;
-
-    app_cell_create(grid, &s_apps[0], x0, y0, cell_w, cell_h, 0);
-    app_cell_create(grid, &s_apps[1], x1, y0, cell_w, cell_h, 1);
-    app_cell_create(grid, &s_apps[2], x0, y1, cell_w, cell_h, 2);
-    app_cell_create(grid, &s_apps[3], x1, y1, cell_w, cell_h, 3);
-
-    /* --- Dock (118-128px) --- */
+static lv_obj_t *make_dock(lv_obj_t *scr, int active_idx)
+{
     lv_obj_t *dock = lv_obj_create(scr);
     lv_obj_set_pos(dock, 0, LCD_V_RES - DOCK_H);
     lv_obj_set_size(dock, LCD_H_RES, DOCK_H);
@@ -562,11 +460,501 @@ static void desktop_ui_create(void)
         lv_obj_set_style_border_width(dot, 0, 0);
         lv_obj_set_style_pad_all(dot, 0, 0);
         lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-        if (i == 0) {
+        if (i == active_idx) {
             lv_obj_set_style_bg_color(dot, lv_color_white(), 0);
         } else {
             lv_obj_set_style_bg_color(dot, lv_color_hex(0x444444), 0);
         }
+    }
+    return dock;
+}
+
+static void highlight_cell(int idx)
+{
+    for (int i = 0; i < s_app_count; i++) {
+        if (!s_app_cells[i]) continue;
+        if (i == idx) {
+            lv_obj_set_style_border_width(s_app_cells[i], 2, 0);
+            lv_obj_set_style_border_color(s_app_cells[i], lv_color_hex(COLOR_SEL_BORDER), 0);
+        } else {
+            lv_obj_set_style_border_width(s_app_cells[i], 1, 0);
+            lv_obj_set_style_border_color(s_app_cells[i], lv_color_hex(0x1A1A1A), 0);
+        }
+    }
+}
+
+static void highlight_setting(int idx)
+{
+    for (int i = 0; i < s_settings_count; i++) {
+        if (!s_settings_rows[i]) continue;
+        if (i == idx) {
+            lv_obj_set_style_bg_color(s_settings_rows[i], lv_color_hex(0x2A3A5A), 0);
+            lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_TRANSP, 0);
+        }
+    }
+}
+
+/* Create a single app cell.
+ * vertical = true for 2x2 mode (icon top, label bottom)
+ * vertical = false for 1x2 mode (icon left, label right) */
+static lv_obj_t *create_app_cell(lv_obj_t *parent, const app_def_t *app,
+                                  lv_coord_t x, lv_coord_t y, lv_coord_t w, lv_coord_t h,
+                                  bool vertical)
+{
+    lv_obj_t *cell = lv_obj_create(parent);
+    lv_obj_set_pos(cell, x, y);
+    lv_obj_set_size(cell, w, h);
+    lv_obj_set_style_radius(cell, CELL_RADIUS, 0);
+    lv_obj_set_style_bg_color(cell, lv_color_hex(app->cell_tint), 0);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(cell, 1, 0);
+    lv_obj_set_style_border_color(cell, lv_color_hex(0x1A1A1A), 0);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+
+    if (vertical) {
+        /* 2x2: ICON TOP, LABEL BOTTOM */
+        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(cell, 2, 0);
+        lv_obj_set_style_pad_top(cell, 4, 0);
+        lv_obj_set_style_pad_bottom(cell, 4, 0);
+
+        lv_obj_t *icon = lv_obj_create(cell);
+        lv_obj_set_size(icon, ICON_SIZE_V, ICON_SIZE_V);
+        lv_obj_set_style_radius(icon, 4, 0);
+        lv_obj_set_style_bg_color(icon, lv_color_hex(app->icon_color), 0);
+        lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(icon, 0, 0);
+        lv_obj_set_style_pad_all(icon, 0, 0);
+        lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *il = lv_label_create(icon);
+        lv_label_set_text(il, app->icon_text);
+        lv_obj_set_style_text_color(il, lv_color_white(), 0);
+        lv_obj_set_style_text_font(il, &lv_font_montserrat_12, 0);
+        lv_obj_center(il);
+
+        lv_obj_t *label = lv_label_create(cell);
+        lv_label_set_text(label, app->label);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xE8E8EC), 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    } else {
+        /* 1x2: ICON LEFT, LABEL RIGHT */
+        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(cell, 8, 0);
+        lv_obj_set_style_pad_left(cell, 8, 0);
+        lv_obj_set_style_pad_all(cell, 4, 0);
+
+        lv_obj_t *icon = lv_obj_create(cell);
+        lv_obj_set_size(icon, ICON_SIZE_H, ICON_SIZE_H);
+        lv_obj_set_style_radius(icon, 4, 0);
+        lv_obj_set_style_bg_color(icon, lv_color_hex(app->icon_color), 0);
+        lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(icon, 0, 0);
+        lv_obj_set_style_pad_all(icon, 0, 0);
+        lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *il = lv_label_create(icon);
+        lv_label_set_text(il, app->icon_text);
+        lv_obj_set_style_text_color(il, lv_color_white(), 0);
+        lv_obj_set_style_text_font(il, &lv_font_montserrat_12, 0);
+        lv_obj_center(il);
+
+        lv_obj_t *label = lv_label_create(cell);
+        lv_label_set_text(label, app->label);
+        lv_obj_set_style_text_color(label, lv_color_hex(0xE8E8EC), 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+    }
+    return cell;
+}
+
+/* Destroy all desktop children except persistent (statusbar etc) and rebuild grid */
+static void desktop_rebuild(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    /* Clean: delete everything except statusbar */
+    uint32_t cnt = lv_obj_get_child_count(scr);
+    for (int i = (int)cnt - 1; i >= 0; i--) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        lv_obj_delete(c);
+    }
+    /* clear cell/setting arrays */
+    for (int i = 0; i < 8; i++) {
+        s_app_cells[i] = NULL;
+        s_settings_rows[i] = NULL;
+        s_settings_value_lbls[i] = NULL;
+    }
+    /* recreate */
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    make_statusbar(scr);
+
+    /* App grid */
+    lv_coord_t grid_w = LCD_H_RES - 2 * GRID_PAD;
+    lv_coord_t grid_h = GRID_H;
+    lv_coord_t inner_w = grid_w - 2 * GRID_PAD;
+    lv_coord_t inner_h = grid_h - 2 * GRID_PAD;
+
+    bool vertical;
+    lv_coord_t cell_w, cell_h;
+    if (s_app_count == 4) {
+        vertical = true;
+        cell_w = (inner_w - GRID_GAP) / 2;
+        cell_h = (inner_h - GRID_GAP) / 2;
+    } else {
+        vertical = false;
+        cell_w = inner_w;
+        cell_h = (inner_h - GRID_GAP) / 2;
+    }
+
+    lv_coord_t x[8], y[8];
+    if (s_app_count == 4) {
+        x[0] = 0;          y[0] = 0;
+        x[1] = cell_w + GRID_GAP; y[1] = 0;
+        x[2] = 0;          y[2] = cell_h + GRID_GAP;
+        x[3] = cell_w + GRID_GAP; y[3] = cell_h + GRID_GAP;
+    } else {
+        x[0] = 0; y[0] = 0;
+        x[1] = 0; y[1] = cell_h + GRID_GAP;
+    }
+
+    for (int i = 0; i < s_app_count; i++) {
+        s_app_cells[i] = create_app_cell(scr, &s_apps[i], x[i], y[i], cell_w, cell_h, vertical);
+        /* Adjust cell into grid position */
+        lv_obj_set_pos(s_app_cells[i], GRID_PAD + x[i], GRID_TOP + y[i]);
+    }
+
+    make_dock(scr, s_setting_layout ? 1 : 0);
+
+    s_selected = 0;
+    s_screen = SCREEN_DESKTOP;
+    highlight_cell(s_selected);
+    ESP_LOGI(TAG, "Desktop rebuilt with %d apps (%s)", s_app_count, vertical ? "2x2 vertical" : "1x2 horizontal");
+}
+
+/* Settings row struct */
+typedef struct {
+    const char *label;
+    const char *type;  /* "toggle", "select", "value", "action" */
+    int *value;
+    int min, max, step;
+    void (*on_activate)(int *v);
+    uint32_t icon_color;
+    const char *icon_letter;
+} setting_item_t;
+
+#define NUM_SETTINGS 7
+static const setting_item_t s_settings[NUM_SETTINGS] = {
+    { "WiFi",       "toggle", &s_setting_wifi_on, 0, 1, 1, NULL, 0x3B82F6, "W" },
+    { "Brightness", "value",  &s_setting_brightness, 10, 100, 10, NULL, 0xF59E0B, "B" },
+    { "Sound",      "toggle", &s_setting_sound_on, 0, 1, 1, NULL, 0x22C55E, "S" },
+    { "Theme",      "select", &s_setting_theme, 0, 1, 1, NULL, 0xEC4899, "T" },
+    { "Layout",     "select", &s_setting_layout, 0, 1, 1, NULL, 0x8B5CF6, "L" },
+    { "About",      "action", NULL, 0, 0, 0, NULL, 0x64748B, "A" },
+    { "Reset",      "action", NULL, 0, 0, 0, NULL, 0xEF4444, "R" },
+};
+
+/* Format value display for a setting */
+static void setting_value_str(int idx, char *buf, size_t bufsz)
+{
+    const setting_item_t *s = &s_settings[idx];
+    if (strcmp(s->type, "toggle") == 0) {
+        snprintf(buf, bufsz, "%s", *s->value ? "On" : "Off");
+    } else if (strcmp(s->type, "value") == 0) {
+        snprintf(buf, bufsz, "%d%%", *s->value);
+    } else if (strcmp(s->type, "select") == 0) {
+        if (idx == 3) snprintf(buf, bufsz, "%s", *s->value ? "Light" : "Dark");
+        else if (idx == 4) snprintf(buf, bufsz, "%s", *s->value ? "1x2" : "2x2");
+        else snprintf(buf, bufsz, "%d", *s->value);
+    } else {
+        snprintf(buf, bufsz, ">");
+    }
+}
+
+static void settings_rebuild(void)
+{
+    lv_obj_t *scr = lv_screen_active();
+    /* delete all */
+    uint32_t cnt = lv_obj_get_child_count(scr);
+    for (int i = (int)cnt - 1; i >= 0; i--) {
+        lv_obj_t *c = lv_obj_get_child(scr, i);
+        lv_obj_delete(c);
+    }
+    for (int i = 0; i < 8; i++) {
+        s_app_cells[i] = NULL;
+        s_settings_rows[i] = NULL;
+        s_settings_value_lbls[i] = NULL;
+    }
+
+    lv_obj_set_style_bg_color(scr, lv_color_hex(COLOR_BG_DARK), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    /* Header */
+    lv_obj_t *hdr = lv_obj_create(scr);
+    lv_obj_set_pos(hdr, 0, 0);
+    lv_obj_set_size(hdr, LCD_H_RES, HEADER_H);
+    lv_obj_set_style_bg_color(hdr, lv_color_hex(0x16181E), 0);
+    lv_obj_set_style_bg_opa(hdr, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(hdr, 0, 0);
+    lv_obj_set_style_border_side(hdr, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(hdr, lv_color_hex(0x222222), 0);
+    lv_obj_set_style_border_width(hdr, 1, 0);
+    lv_obj_set_style_pad_all(hdr, 0, 0);
+    lv_obj_set_style_pad_left(hdr, 4, 0);
+    lv_obj_clear_flag(hdr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hdr, 4, 0);
+
+    /* Back button (B) */
+    lv_obj_t *back = lv_obj_create(hdr);
+    lv_obj_set_size(back, 10, 10);
+    lv_obj_set_style_radius(back, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(back, lv_color_hex(0x2A2D36), 0);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(back, 0, 0);
+    lv_obj_set_style_pad_all(back, 0, 0);
+    lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *bl = lv_label_create(back);
+    lv_label_set_text(bl, "<");
+    lv_obj_set_style_text_color(bl, lv_color_white(), 0);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_12, 0);
+    lv_obj_center(bl);
+
+    lv_obj_t *title = lv_label_create(hdr);
+    lv_label_set_text(title, "Settings");
+    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_12, 0);
+
+    /* Battery in header (compact) */
+    s_bat_label = lv_label_create(hdr);
+    char bbuf[8];
+    snprintf(bbuf, sizeof(bbuf), "%d%%", s_last_pct >= 0 ? s_last_pct : 85);
+    lv_label_set_text(s_bat_label, bbuf);
+    lv_obj_set_style_text_color(s_bat_label, lv_color_hex(0x4ADE80), 0);
+    lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_pad_left(s_bat_label, 60, 0);
+
+    /* Settings list */
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_set_pos(list, 0, HEADER_H);
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - HEADER_H);
+    lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(list, 0, 0);
+    lv_obj_set_style_pad_all(list, 0, 0);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_coord_t row_h = 14;
+    for (int i = 0; i < NUM_SETTINGS; i++) {
+        lv_obj_t *row = lv_obj_create(list);
+        lv_obj_set_pos(row, 0, i * row_h);
+        lv_obj_set_size(row, LCD_H_RES, row_h);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_border_side(row, LV_BORDER_SIDE_BOTTOM, 0);
+        lv_obj_set_style_border_color(row, lv_color_hex(0x1F2228), 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_style_pad_left(row, 4, 0);
+        lv_obj_set_style_pad_right(row, 4, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(row, 4, 0);
+
+        /* icon */
+        lv_obj_t *icon = lv_obj_create(row);
+        lv_obj_set_size(icon, 10, 10);
+        lv_obj_set_style_radius(icon, 2, 0);
+        lv_obj_set_style_bg_color(icon, lv_color_hex(s_settings[i].icon_color), 0);
+        lv_obj_set_style_bg_opa(icon, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(icon, 0, 0);
+        lv_obj_set_style_pad_all(icon, 0, 0);
+        lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *il = lv_label_create(icon);
+        lv_label_set_text(il, s_settings[i].icon_letter);
+        lv_obj_set_style_text_color(il, lv_color_white(), 0);
+        lv_obj_set_style_text_font(il, &lv_font_montserrat_12, 0);
+        lv_obj_center(il);
+
+        /* label */
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_label_set_text(lbl, s_settings[i].label);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0xE8E8EC), 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_pad_left(lbl, 0, 0);
+
+        /* value */
+        lv_obj_t *vbox = lv_obj_create(row);
+        lv_obj_remove_style_all(vbox);
+        lv_obj_set_flex_flow(vbox, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(vbox, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_clear_flag(vbox, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_column(vbox, 4, 0);
+
+        lv_obj_t *vlbl = lv_label_create(vbox);
+        char vbuf[16];
+        setting_value_str(i, vbuf, sizeof(vbuf));
+        lv_label_set_text(vlbl, vbuf);
+        lv_obj_set_style_text_color(vlbl, lv_color_hex(0x9AA0AC), 0);
+        lv_obj_set_style_text_font(vlbl, &lv_font_montserrat_12, 0);
+
+        s_settings_rows[i] = row;
+        s_settings_value_lbls[i] = vlbl;
+    }
+    s_settings_count = NUM_SETTINGS;
+    s_settings_idx = 0;
+    s_screen = SCREEN_SETTINGS;
+    highlight_setting(s_settings_idx);
+}
+
+/* ========== App launch handlers ========== */
+static void launch_settings(void) {
+    ESP_LOGI(TAG, "Launch: Settings");
+    settings_rebuild();
+}
+static void launch_phone(void) {
+    ESP_LOGI(TAG, "Launch: Phone (TODO)");
+}
+static void launch_games(void) {
+    ESP_LOGI(TAG, "Launch: Games (TODO)");
+}
+static void launch_camera(void) {
+    ESP_LOGI(TAG, "Launch: Camera (TODO)");
+}
+static void launch_music(void) {
+    ESP_LOGI(TAG, "Launch: Music (TODO)");
+}
+static void launch_about(void) {
+    ESP_LOGI(TAG, "Launch: About");
+}
+
+/* ========== Input handling ========== */
+static void settings_activate(int idx)
+{
+    const setting_item_t *s = &s_settings[idx];
+    if (strcmp(s->type, "toggle") == 0) {
+        *s->value = !(*s->value);
+    } else if (strcmp(s->type, "value") == 0) {
+        *s->value += s->step;
+        if (*s->value > s->max) *s->value = s->min;
+    } else if (strcmp(s->type, "select") == 0) {
+        *s->value = !(*s->value);
+        if (idx == 4) {
+            /* Layout changed */
+            s_setting_layout = *s->value;
+            s_app_count = s_setting_layout ? 2 : 4;
+        }
+    }
+    /* Update value label */
+    char vbuf[16];
+    setting_value_str(idx, vbuf, sizeof(vbuf));
+    if (s_settings_value_lbls[idx]) lv_label_set_text(s_settings_value_lbls[idx], vbuf);
+}
+
+static void settings_back(void)
+{
+    ESP_LOGI(TAG, "Settings: back");
+    desktop_rebuild();
+}
+
+static void desktop_activate(int idx)
+{
+    ESP_LOGI(TAG, "Desktop: launch #%d (%s)", idx, s_apps[idx].label);
+    if (s_apps[idx].launch_cb) s_apps[idx].launch_cb();
+}
+
+static void desktop_back(void)
+{
+    /* No-op on desktop */
+    ESP_LOGI(TAG, "Desktop: B (no-op)");
+}
+
+/* Main input dispatcher */
+static void handle_input(int raw_idx)
+{
+    if (raw_idx < 0) return;
+
+    if (s_screen == SCREEN_DESKTOP) {
+        if (raw_idx == BTN_IDX_UP || raw_idx == BTN_IDX_LEFT) {
+            if (s_app_count == 4) {
+                /* 2x2: up=left col, down=right col */
+                if (s_selected >= 2) s_selected -= 2;
+            } else {
+                if (s_selected > 0) s_selected--;
+            }
+            highlight_cell(s_selected);
+        } else if (raw_idx == BTN_IDX_DOWN || raw_idx == BTN_IDX_RIGHT) {
+            if (s_app_count == 4) {
+                if (s_selected < 2) s_selected += 2;
+            } else {
+                if (s_selected < s_app_count - 1) s_selected++;
+            }
+            highlight_cell(s_selected);
+        } else if (raw_idx == BTN_IDX_A) {
+            desktop_activate(s_selected);
+        } else if (raw_idx == BTN_IDX_B) {
+            desktop_back();
+        }
+    } else if (s_screen == SCREEN_SETTINGS) {
+        if (raw_idx == BTN_IDX_UP) {
+            if (s_settings_idx > 0) s_settings_idx--;
+            highlight_setting(s_settings_idx);
+        } else if (raw_idx == BTN_IDX_DOWN) {
+            if (s_settings_idx < s_settings_count - 1) s_settings_idx++;
+            highlight_setting(s_settings_idx);
+        } else if (raw_idx == BTN_IDX_LEFT) {
+            const setting_item_t *s = &s_settings[s_settings_idx];
+            if (strcmp(s->type, "value") == 0) {
+                *s->value -= s->step;
+                if (*s->value < s->min) *s->value = s->max;
+                char vbuf[16];
+                setting_value_str(s_settings_idx, vbuf, sizeof(vbuf));
+                if (s_settings_value_lbls[s_settings_idx])
+                    lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
+            }
+        } else if (raw_idx == BTN_IDX_RIGHT) {
+            const setting_item_t *s = &s_settings[s_settings_idx];
+            if (strcmp(s->type, "value") == 0) {
+                *s->value += s->step;
+                if (*s->value > s->max) *s->value = s->min;
+                char vbuf[16];
+                setting_value_str(s_settings_idx, vbuf, sizeof(vbuf));
+                if (s_settings_value_lbls[s_settings_idx])
+                    lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
+            }
+        } else if (raw_idx == BTN_IDX_A) {
+            settings_activate(s_settings_idx);
+            /* If layout changed, refresh desktop preview */
+            if (s_settings_idx == 4 && s_setting_layout == 1 && s_app_count == 4) {
+                s_app_count = 2;
+            } else if (s_settings_idx == 4 && s_setting_layout == 0 && s_app_count == 2) {
+                s_app_count = 4;
+            }
+        } else if (raw_idx == BTN_IDX_B) {
+            settings_back();
+        }
+    }
+}
+
+/* Keypad indev read callback (used for raw input fallback) */
+static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
+{
+    /* We don't actually use LVGL's keypad; navigation is custom in main loop.
+     * But we still need to provide valid data. */
+    static int last = -1;
+    int raw = scan_buttons();
+    if (raw != last) {
+        last = raw;
+    }
+    if (raw >= 0) {
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->key = 0;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+        data->key = 0;
     }
 }
 
@@ -580,13 +968,12 @@ void app_main(void)
     lv_init();
     lv_display_t *disp = display_init(io);
 
-    s_group = lv_group_create();
-    lv_group_set_default(s_group);
+    /* We don't actually need LVGL keypad for navigation, but create one to satisfy LVGL */
+    lv_group_t *grp = lv_group_create();
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
     lv_indev_set_display(indev, disp);
-    lv_indev_set_group(indev, s_group);
-    s_launch_cb = on_app_launch;
+    lv_indev_set_group(indev, grp);
     lv_indev_set_read_cb(indev, keypad_read_cb);
 
     esp_lcd_panel_io_callbacks_t cbs = { .on_color_trans_done = flush_ready };
@@ -597,10 +984,13 @@ void app_main(void)
     esp_timer_create(&ta, &tt);
     esp_timer_start_periodic(tt, 1000);
 
-    desktop_ui_create();
+    /* Initialize battery */
+    {
+        float v = battery_get_voltage();
+        s_last_pct = battery_get_percent(v);
+    }
 
-    /* Focus the first cell so keypad navigation works immediately */
-    lv_group_focus_obj(s_app_cells[0]);
+    desktop_rebuild();
 
     s_first_flush = false;
     lv_refr_now(NULL);
@@ -608,23 +998,39 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(1));
     lcd_display_on();
 
-    /* Initialize battery cache */
-    {
-        float v = battery_get_voltage();
-        s_last_pct = battery_get_percent(v);
-    }
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v11 Started ===");
+    ESP_LOGI(TAG, "Press UP/DOWN/LEFT/RIGHT to navigate, A to enter, B to back");
 
+    int last_btn = -1;
+    uint32_t btn_changed = 0;
     while (true) {
         lv_timer_handler();
 
-        /* Update battery + clock every 5s */
+        /* Custom input: poll buttons, debounce, dispatch */
+        int raw = scan_buttons();
+        uint32_t now = lv_tick_get();
+        if (raw != last_btn) {
+            btn_changed = now;
+            last_btn = raw;
+        }
+        if (raw >= 0 && lv_tick_elaps(btn_changed) >= BUTTON_DEBOUNCE_MS) {
+            /* Detect rising edge: previous reading was different */
+            static int prev_stable = -1;
+            if (raw != prev_stable) {
+                handle_input(raw);
+                prev_stable = raw;
+            }
+        } else if (raw < 0) {
+            prev_stable = -1;
+        }
+
+        /* Battery update every 5s */
         static uint32_t last_bat = 0;
         if (lv_tick_elaps(last_bat) > 5000) {
             last_bat = lv_tick_get();
-
-            /* Battery: skip update while BTN_A is pressed (GPIO34 shared with ADC!) */
+            /* Skip while BTN_A pressed */
             bool a_pressed = (gpio_get_level(BTN_A) == BUTTON_ACTIVE_LEVEL);
-            if (!a_pressed) {
+            if (!a_pressed && s_bat_label) {
                 float v = battery_get_voltage();
                 if (v >= BAT_MIN_VALID_V) {
                     int pct = battery_get_percent(v);
@@ -632,18 +1038,19 @@ void app_main(void)
                         s_last_pct = pct;
                         char buf[16];
                         snprintf(buf, sizeof(buf), "%d%%", pct);
-                        if (s_bat_label) lv_label_set_text(s_bat_label, buf);
+                        lv_label_set_text(s_bat_label, buf);
                     }
                 }
             }
-
-            /* Clock */
-            time_t now;
-            time(&now);
-            struct tm *tm_info = localtime(&now);
-            char buf[16];
-            snprintf(buf, sizeof(buf), "%02d:%02d", tm_info->tm_hour, tm_info->tm_min);
-            if (s_time_label) lv_label_set_text(s_time_label, buf);
+            /* Clock update - skip if label is gone */
+            if (s_time_label && lv_obj_is_valid(s_time_label)) {
+                time_t nowt;
+                time(&nowt);
+                struct tm *tm_info = localtime(&nowt);
+                char tbuf[8];
+                snprintf(tbuf, sizeof(tbuf), "%02d:%02d", tm_info->tm_hour, tm_info->tm_min);
+                lv_label_set_text(s_time_label, tbuf);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));
