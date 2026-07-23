@@ -40,6 +40,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "driver/ledc.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
@@ -60,6 +61,12 @@
 #define PIN_LCD_MISO   GPIO_NUM_19
 #define PIN_LCD_CS     GPIO_NUM_5
 #define PIN_LCD_DC     GPIO_NUM_4
+#define PIN_LCD_BL     GPIO_NUM_0      /* Backlight PWM */
+
+#define LEDC_TIMER          LEDC_TIMER_0
+#define LEDC_CHANNEL        LEDC_CHANNEL_0
+#define LEDC_DUTY_RES       LEDC_TIMER_13_BIT  /* 13-bit resolution (0-8191) */
+#define LEDC_FREQ_HZ        5000               /* 5kHz PWM frequency */
 
 #define BTN_A          GPIO_NUM_34   /* ADC1_CH6 - SHARED with battery ADC! */
 #define BTN_B          GPIO_NUM_12
@@ -196,6 +203,42 @@ static int battery_get_percent(float vbat)
     if (vbat >= 4.2f) return 100;
     if (vbat <= 3.0f) return 0;
     return (int)((vbat - 3.0f) / (4.2f - 3.0f) * 100.0f);
+}
+
+/* ========== Backlight Control ========== */
+static void backlight_init(void)
+{
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .timer_num = LEDC_TIMER,
+        .duty_resolution = LEDC_DUTY_RES,
+        .freq_hz = LEDC_FREQ_HZ,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
+
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .channel = LEDC_CHANNEL,
+        .timer_sel = LEDC_TIMER,
+        .intr_type = LEDC_INTR_DISABLE,
+        .gpio_num = PIN_LCD_BL,
+        .duty = 0,
+        .hpoint = 0
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
+}
+
+static void backlight_set_brightness(int percent)
+{
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    
+    uint32_t duty = (8191 * percent) / 100;  /* 13-bit resolution: 0-8191 */
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL, duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL);
+    
+    ESP_LOGI(TAG, "Backlight set to %d%% (duty=%lu)", percent, duty);
 }
 
 /* ========== Buttons ========== */
@@ -1350,6 +1393,10 @@ static void handle_input(int raw_idx)
                 if (s_settings_value_lbls[s_settings_idx])
                     lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
                 save_settings_to_nvs();
+                /* Update backlight if brightness changed */
+                if (s_settings_idx == 1) {
+                    backlight_set_brightness(s_setting_brightness);
+                }
             }
         } else if (raw_idx == BTN_IDX_RIGHT) {
             const setting_item_t *s = &s_settings[s_settings_idx];
@@ -1361,6 +1408,11 @@ static void handle_input(int raw_idx)
                 if (s_settings_value_lbls[s_settings_idx])
                     lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
                 save_settings_to_nvs();
+                /* Update backlight if brightness changed */
+             
+                if (s_settings_idx == 1) {
+                    backlight_set_brightness(s_setting_brightness);
+                }
             }
         } else if (raw_idx == BTN_IDX_A) {
             settings_activate(s_settings_idx);
@@ -1405,6 +1457,10 @@ void app_main(void)
 
     /* Load saved settings from NVS */
     load_settings_from_nvs();
+
+    /* Initialize backlight PWM */
+    backlight_init();
+    backlight_set_brightness(s_setting_brightness);
 
     battery_init();
     buttons_init();
