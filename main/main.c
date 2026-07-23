@@ -40,6 +40,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_vfs_fat.h"
+#include "dirent.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -365,6 +367,7 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 typedef enum {
     SCREEN_DESKTOP = 0,
     SCREEN_SETTINGS = 1,
+    SCREEN_APP_PLACEHOLDER = 2,
 } screen_t;
 
 static screen_t s_screen = SCREEN_DESKTOP;
@@ -504,6 +507,15 @@ static void highlight_setting(int idx)
         if (i == idx) {
             lv_obj_set_style_bg_color(s_settings_rows[i], lv_color_hex(theme_sel_bg()), 0);
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_COVER, 0);
+            /* Scroll to make selected item visible */
+            lv_obj_t *list = lv_obj_get_parent(s_settings_rows[i]);
+            if (list) {
+                lv_coord_t row_h = 18;
+                lv_coord_t list_h = lv_obj_get_height(list);
+                lv_coord_t scroll_y = idx * row_h - list_h / 2 + row_h / 2;
+                if (scroll_y < 0) scroll_y = 0;
+                lv_obj_scroll_to_y(list, scroll_y, LV_ANIM_ON);
+            }
         } else {
             lv_obj_set_style_bg_opa(s_settings_rows[i], LV_OPA_TRANSP, 0);
         }
@@ -623,8 +635,10 @@ static void desktop_rebuild(void)
         cell_h = (inner_h - GRID_GAP) / 2;
     }
 
-    /* Calculate total pages */
-    int total_apps = 8;  /* s_apps array size */
+    /* Calculate total apps: built-in + SD card apps */
+    int total_builtin = 8;  /* s_apps array size */
+    int total_apps = total_builtin + s_sd_app_count;
+    
     s_total_pages = (total_apps + s_app_count - 1) / s_app_count;
     if (s_current_page >= s_total_pages) {
         s_current_page = s_total_pages - 1;
@@ -650,9 +664,31 @@ static void desktop_rebuild(void)
 
     for (int i = 0; i < apps_on_page; i++) {
         int app_idx = start_app + i;
-        s_app_cells[i] = create_app_cell(scr, &s_apps[app_idx], x[i], y[i], cell_w, cell_h, vertical);
+        
+        /* Check if this is a built-in app or SD card app */
+        if (app_idx < total_builtin) {
+            /* Built-in app */
+            s_app_cells[i] = create_app_cell(scr, &s_apps[app_idx], x[i], y[i], cell_w, cell_h, vertical);
+        } else {
+            /* SD card app */
+            int sd_idx = app_idx - total_builtin;
+            if (sd_idx < s_sd_app_count) {
+                /* Create a temporary app_def_t for SD card app */
+                app_def_t sd_app_def;
+                sd_app_def.icon_text = s_sd_apps[sd_idx].icon;
+                sd_app_def.label = s_sd_apps[sd_idx].name;
+                sd_app_def.icon_color = s_sd_apps[sd_idx].color;
+                sd_app_def.cell_tint = (s_sd_apps[sd_idx].color >> 1) & 0x7F7F7F; /* Darker tint */
+                sd_app_def.launch_cb = NULL; /* Will be handled in desktop_activate */
+                
+                s_app_cells[i] = create_app_cell(scr, &sd_app_def, x[i], y[i], cell_w, cell_h, vertical);
+            }
+        }
+        
         /* Adjust cell into grid position */
-        lv_obj_set_pos(s_app_cells[i], GRID_PAD + x[i], GRID_TOP + y[i]);
+        if (s_app_cells[i]) {
+            lv_obj_set_pos(s_app_cells[i], GRID_PAD + x[i], GRID_TOP + y[i]);
+        }
     }
 
     make_dock(scr, s_current_page);
@@ -660,7 +696,11 @@ static void desktop_rebuild(void)
     s_selected = 0;
     s_screen = SCREEN_DESKTOP;
     highlight_cell(s_selected);
-    ESP_LOGI(TAG, "Desktop rebuilt: page %d/%d, %d apps (%s)", s_current_page + 1, s_total_pages, apps_on_page, vertical ? "2x2 vertical" : "1x2 horizontal");
+    ESP_LOGI(TAG, "Desktop rebuilt: page %d/%d, %d apps (%d built-in + %d SD) (%s)", 
+             s_current_page + 1, s_total_pages, apps_on_page, 
+             (start_app < total_builtin) ? (apps_on_page < (total_builtin - start_app) ? apps_on_page : (total_builtin - start_app)) : 0,
+             (start_app >= total_builtin) ? apps_on_page : ((start_app + apps_on_page > total_builtin) ? (start_app + apps_on_page - total_builtin) : 0),
+             vertical ? "2x2 vertical" : "1x2 horizontal");
 }
 
 /* Settings row struct */
@@ -918,7 +958,122 @@ static void app_placeholder_show(const char *title, const char *subtitle, uint32
     lv_obj_set_style_text_color(hint, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
 
-    s_screen = SCREEN_SETTINGS; /* Reuse settings screen state for B button */
+    s_screen = SCREEN_APP_PLACEHOLDER; /* Use dedicated state for app screens */
+}
+
+/* ========== SD card app scanning ========== */
+#define MAX_SD_APPS 16
+#define APPS_DIR "/sdcard/xiaomiao-apps"
+
+typedef struct {
+    char name[32];
+    char icon[8];
+    uint32_t color;
+    char entry[32];
+} sd_app_info_t;
+
+static sd_app_info_t s_sd_apps[MAX_SD_APPS];
+static int s_sd_app_count = 0;
+
+static void scan_sdcard_apps(void)
+{
+    s_sd_app_count = 0;
+    DIR *dir = opendir(APPS_DIR);
+    if (!dir) {
+        ESP_LOGW(TAG, "Cannot open %s", APPS_DIR);
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && s_sd_app_count < MAX_SD_APPS) {
+        if (entry->d_type != DT_DIR) continue;
+        if (entry->d_name[0] == '.') continue;
+
+        /* Try to read app.json */
+        char json_path[128];
+        snprintf(json_path, sizeof(json_path), "%s/%s/app.json", APPS_DIR, entry->d_name);
+
+        FILE *f = fopen(json_path, "r");
+        if (!f) {
+            ESP_LOGW(TAG, "No app.json in %s", entry->d_name);
+            continue;
+        }
+
+        /* Simple JSON parsing (manual) */
+        char buf[256];
+        size_t len = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+        buf[len] = '\0';
+
+        sd_app_info_t *app = &s_sd_apps[s_sd_app_count];
+        strncpy(app->name, entry->d_name, sizeof(app->name) - 1);
+        app->name[sizeof(app->name) - 1] = '\0';
+        strncpy(app->icon, "?", sizeof(app->icon) - 1);
+        app->color = 0x3B82F6;
+        strncpy(app->entry, "main.py", sizeof(app->entry) - 1);
+
+        /* Parse name */
+        char *p = strstr(buf, "\"name\"");
+        if (p) {
+            p = strchr(p + 6, '"');
+            if (p) {
+                p++;
+                char *end = strchr(p, '"');
+                if (end) {
+                    size_t nlen = end - p;
+                    if (nlen < sizeof(app->name)) {
+                        strncpy(app->name, p, nlen);
+                        app->name[nlen] = '\0';
+                    }
+                }
+            }
+        }
+
+        /* Parse icon */
+        p = strstr(buf, "\"icon\"");
+        if (p) {
+            p = strchr(p + 6, '"');
+            if (p) {
+                p++;
+                char *end = strchr(p, '"');
+                if (end && (end - p) < sizeof(app->icon)) {
+                    strncpy(app->icon, p, end - p);
+                    app->icon[end - p] = '\0';
+                }
+            }
+        }
+
+        /* Parse color (hex string) */
+        p = strstr(buf, "\"color\"");
+        if (p) {
+            p = strchr(p + 7, '"');
+            if (p) {
+                p++;
+                if (*p == '#') p++;
+                app->color = (uint32_t)strtoul(p, NULL, 16);
+            }
+        }
+
+        /* Parse entry */
+        p = strstr(buf, "\"entry\"");
+        if (p) {
+            p = strchr(p + 7, '"');
+            if (p) {
+                p++;
+                char *end = strchr(p, '"');
+                if (end && (end - p) < sizeof(app->entry)) {
+                    strncpy(app->entry, p, end - p);
+                    app->entry[end - p] = '\0';
+                }
+            }
+        }
+
+        ESP_LOGI(TAG, "Found app: %s (icon=%s, color=0x%06lX, entry=%s)",
+                 app->name, app->icon, (unsigned long)app->color, app->entry);
+        s_sd_app_count++;
+    }
+    closedir(dir);
+    ESP_LOGI(TAG, "Scanned %d apps from SD card", s_sd_app_count);
 }
 
 /* ========== Reset function ========== */
@@ -1091,8 +1246,30 @@ static void settings_back(void)
 
 static void desktop_activate(int idx)
 {
-    ESP_LOGI(TAG, "Desktop: launch #%d (%s)", idx, s_apps[idx].label);
-    if (s_apps[idx].launch_cb) s_apps[idx].launch_cb();
+    /* Calculate global app index based on current page */
+    int global_idx = s_current_page * s_app_count + idx;
+    ESP_LOGI(TAG, "Desktop: launch #%d (page %d, local #%d, global #%d)", idx, s_current_page, idx, global_idx);
+    
+    int total_builtin = 8;
+    
+    if (global_idx < total_builtin) {
+        /* Built-in app */
+        if (s_apps[global_idx].launch_cb) {
+            s_apps[global_idx].launch_cb();
+        }
+    } else {
+        /* SD card app */
+        int sd_idx = global_idx - total_builtin;
+        if (sd_idx < s_sd_app_count) {
+            sd_app_info_t *app = &s_sd_apps[sd_idx];
+            ESP_LOGI(TAG, "Launch SD app: %s (entry=%s)", app->name, app->entry);
+            
+            /* Show placeholder for SD card app */
+            char subtitle[64];
+            snprintf(subtitle, sizeof(subtitle), "SD card app: %s", app->entry);
+            app_placeholder_show(app->name, subtitle, app->color);
+        }
+    }
 }
 
 static void desktop_back(void)
@@ -1105,6 +1282,15 @@ static void desktop_back(void)
 static void handle_input(int raw_idx)
 {
     if (raw_idx < 0) return;
+
+    /* Handle app placeholder screen - B key returns to desktop */
+    if (s_screen == SCREEN_APP_PLACEHOLDER) {
+        if (raw_idx == BTN_IDX_B) {
+            ESP_LOGI(TAG, "App placeholder: B -> desktop");
+            desktop_rebuild();
+        }
+        return;
+    }
 
     if (s_screen == SCREEN_DESKTOP) {
         if (raw_idx == BTN_IDX_LEFT) {
@@ -1245,6 +1431,9 @@ void app_main(void)
         float v = battery_get_voltage();
         s_last_pct = battery_get_percent(v);
     }
+
+    /* Scan SD card for apps */
+    scan_sdcard_apps();
 
     desktop_rebuild();
 
