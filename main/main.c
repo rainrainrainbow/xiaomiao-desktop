@@ -8,12 +8,10 @@
  * - 驱动层：drv_lcd, drv_button, drv_battery, drv_backlight
  * - 系统层：sys_nvs
  *
- * v18 (2026-07-23): 修复按键绑定
- *   - 新增 drv_button_scan_debounced()（带去抖+边沿检测）
- *   - 新增 ui_stack_current_callbacks()（获取当前页面回调）
- *   - 主循环修复按键分发到当前页面 on_key
- *   - app_manager_launch() 改为推入页面栈
- *   - 电池更新真正显示到状态栏
+ * v20 (2026-07-23): 修复背光黑屏问题
+ *   - 背光初始化时直接设置为100%亮度
+ *   - 修复PWM极性反转（duty越大越暗）
+ *   - 确保屏幕启动时可见
  */
 
 #include <stdbool.h>
@@ -418,7 +416,7 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGW(TAG, "=== Xiaomiao Desktop v19 (Button Task + Event Queue) ===");
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v20 (Backlight Fix) ===");
     
     // 初始化系统服务
     sys_nvs_init();
