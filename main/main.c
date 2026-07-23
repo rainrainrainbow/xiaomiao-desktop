@@ -40,6 +40,9 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_partition.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -383,6 +386,8 @@ static void desktop_rebuild(void);
 static void settings_rebuild(void);
 static void settings_activate(int idx);
 static void settings_back(void);
+static void save_settings_to_nvs(void);
+static void load_settings_from_nvs(void);
 
 /* ========== App launch handlers (forward) ========== */
 static void launch_settings(void);
@@ -983,6 +988,47 @@ static void scan_sdcard_apps(void)
 }
 
 /* ========== Reset function ========== */
+static void save_settings_to_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("xiaomiao", NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open failed");
+        return;
+    }
+    nvs_set_i32(h, "brightness", s_setting_brightness);
+    nvs_set_i32(h, "sound_on", s_setting_sound_on);
+    nvs_set_i32(h, "theme", s_setting_theme);
+    nvs_set_i32(h, "wifi_on", s_setting_wifi_on);
+    nvs_set_i32(h, "layout", s_setting_layout);
+    nvs_set_i32(h, "page", s_current_page);
+    nvs_commit(h);
+    nvs_close(h);
+    ESP_LOGI(TAG, "Settings saved to NVS");
+}
+
+static void load_settings_from_nvs(void)
+{
+    nvs_handle_t h;
+    if (nvs_open("xiaomiao", NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGI(TAG, "NVS not initialized, using defaults");
+        return;
+    }
+    int32_t v;
+    if (nvs_get_i32(h, "brightness", &v) == ESP_OK) s_setting_brightness = v;
+    if (nvs_get_i32(h, "sound_on", &v) == ESP_OK) s_setting_sound_on = v;
+    if (nvs_get_i32(h, "theme", &v) == ESP_OK) s_setting_theme = v;
+    if (nvs_get_i32(h, "wifi_on", &v) == ESP_OK) s_setting_wifi_on = v;
+    if (nvs_get_i32(h, "layout", &v) == ESP_OK) {
+        s_setting_layout = v;
+        s_app_count = v ? 2 : 4;
+    }
+    if (nvs_get_i32(h, "page", &v) == ESP_OK) s_current_page = v;
+    nvs_close(h);
+    ESP_LOGI(TAG, "Settings loaded: brightness=%d sound=%d theme=%d wifi=%d layout=%d page=%d",
+             s_setting_brightness, s_setting_sound_on, s_setting_theme, s_setting_wifi_on,
+             s_setting_layout, s_current_page);
+}
+
 static void reset_settings(void)
 {
     s_setting_brightness = 75;
@@ -990,7 +1036,9 @@ static void reset_settings(void)
     s_setting_theme = 0;
     s_setting_wifi_on = 1;
     s_setting_layout = 0;
+    s_app_count = 4;
     s_current_page = 0;
+    save_settings_to_nvs();
     ESP_LOGI(TAG, "Settings reset to defaults");
 }
 
@@ -1142,6 +1190,9 @@ static void settings_activate(int idx)
     char vbuf[16];
     setting_value_str(idx, vbuf, sizeof(vbuf));
     if (s_settings_value_lbls[idx]) lv_label_set_text(s_settings_value_lbls[idx], vbuf);
+
+    /* Auto-save settings to NVS after every change */
+    save_settings_to_nvs();
 }
 
 static void settings_back(void)
@@ -1209,6 +1260,7 @@ static void handle_input(int raw_idx)
                     s_current_page--;
                     s_selected = s_app_count - 1;
                     desktop_rebuild();
+                    save_settings_to_nvs();
                     return;
                 }
             } else {
@@ -1225,6 +1277,7 @@ static void handle_input(int raw_idx)
                     s_current_page++;
                     s_selected = 0;
                     desktop_rebuild();
+                    save_settings_to_nvs();
                     return;
                 }
             } else {
@@ -1268,6 +1321,7 @@ static void handle_input(int raw_idx)
                 setting_value_str(s_settings_idx, vbuf, sizeof(vbuf));
                 if (s_settings_value_lbls[s_settings_idx])
                     lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
+                save_settings_to_nvs();
             }
         } else if (raw_idx == BTN_IDX_RIGHT) {
             const setting_item_t *s = &s_settings[s_settings_idx];
@@ -1278,6 +1332,7 @@ static void handle_input(int raw_idx)
                 setting_value_str(s_settings_idx, vbuf, sizeof(vbuf));
                 if (s_settings_value_lbls[s_settings_idx])
                     lv_label_set_text(s_settings_value_lbls[s_settings_idx], vbuf);
+                save_settings_to_nvs();
             }
         } else if (raw_idx == BTN_IDX_A) {
             settings_activate(s_settings_idx);
@@ -1310,6 +1365,18 @@ static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data)
 void app_main(void)
 {
     return_to_loader_setup();
+
+    /* Initialize NVS for persistent settings */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    /* Load saved settings from NVS */
+    load_settings_from_nvs();
+
     battery_init();
     buttons_init();
     esp_lcd_panel_io_handle_t io = lcd_init();
