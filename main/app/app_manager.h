@@ -82,4 +82,11 @@ page_callbacks_t app_manager_get_callbacks(const app_def_t *app);
  */
 void app_builtin_register_all(void);
 
+/**
+ * 根据应用名获取内置应用页面回调
+ * @param app_name 应用名（"Settings", "Phone" 等）
+ * @return 页面回调指针，未找到返回 NULL
+ */
+const page_callbacks_t* app_builtin_get_callbacks(const char *app_name);
+
 #endif /* APP_MANAGER_H */
