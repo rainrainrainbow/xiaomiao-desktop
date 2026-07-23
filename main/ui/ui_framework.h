@@ -87,6 +87,12 @@ bool ui_stack_pop(void);
 page_type_t ui_stack_current(void);
 
 /**
+ * 获取当前页面的回调函数集
+ * @return 回调函数集指针（栈空时返回NULL）
+ */
+const page_callbacks_t* ui_stack_current_callbacks(void);
+
+/**
  * 获取页面栈深度
  * @return 栈中页面数量
  */
