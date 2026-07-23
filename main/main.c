@@ -40,6 +40,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -1000,17 +1002,61 @@ static void scan_sdcard_apps(void)
     ESP_LOGW(TAG, "SD card scanning disabled (driver not yet integrated)");
 }
 
-/* ========== Reset function ========== */
-/* NOTE: Persistent settings (NVS) deferred to v14.
- * The infrastructure (save/load/reset) is in place but the NVS component
- * needs proper CMakeLists.txt configuration. For now we just log. */
+/* ========== NVS Persistence ========== */
+#define NVS_NAMESPACE "xiaomiao"
+
 static void save_settings_to_nvs(void)
 {
-    /* v14: re-enable NVS persistence */
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open failed: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    nvs_set_i32(handle, "brightness", s_setting_brightness);
+    nvs_set_i32(handle, "sound", s_setting_sound_on);
+    nvs_set_i32(handle, "theme", s_setting_theme);
+    nvs_set_i32(handle, "wifi", s_setting_wifi_on);
+    nvs_set_i32(handle, "layout", s_setting_layout);
+    
+    err = nvs_commit(handle);
+    nvs_close(handle);
+    
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Settings saved to NVS");
+    }
 }
+
 static void load_settings_from_nvs(void)
 {
-    /* v14: re-enable NVS persistence */
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open failed (first run?): %s", esp_err_to_name(err));
+        return;
+    }
+    
+    int32_t val;
+    if (nvs_get_i32(handle, "brightness", &val) == ESP_OK) {
+        s_setting_brightness = val;
+    }
+    if (nvs_get_i32(handle, "sound", &val) == ESP_OK) {
+        s_setting_sound_on = val;
+    }
+    if (nvs_get_i32(handle, "theme", &val) == ESP_OK) {
+        s_setting_theme = val;
+    }
+    if (nvs_get_i32(handle, "wifi", &val) == ESP_OK) {
+        s_setting_wifi_on = val;
+    }
+    if (nvs_get_i32(handle, "layout", &val) == ESP_OK) {
+        s_setting_layout = val;
+    }
+    
+    nvs_close(handle);
+    ESP_LOGI(TAG, "Settings loaded from NVS: brightness=%d, theme=%d, layout=%d", 
+             s_setting_brightness, s_setting_theme, s_setting_layout);
 }
 static void reset_settings(void)
 {
@@ -1348,7 +1394,16 @@ void app_main(void)
 {
     return_to_loader_setup();
 
-    /* Load saved settings from NVS (currently stubbed - v14 TODO) */
+    /* Initialize NVS flash */
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS init error, erasing: %s", esp_err_to_name(ret));
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    /* Load saved settings from NVS */
     load_settings_from_nvs();
 
     battery_init();
