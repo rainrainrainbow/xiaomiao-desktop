@@ -144,6 +144,14 @@ page_type_t ui_stack_current(void)
     return s_page_stack[s_stack_top].type;
 }
 
+const page_callbacks_t* ui_stack_current_callbacks(void)
+{
+    if (s_stack_top < 0) {
+        return NULL;
+    }
+    return s_page_stack[s_stack_top].callbacks;
+}
+
 int ui_stack_depth(void)
 {
     return s_stack_top + 1;
