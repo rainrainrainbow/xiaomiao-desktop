@@ -5,6 +5,7 @@
 
 #include "drv_button.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char *TAG = "DRV_BTN";
 
@@ -15,11 +16,16 @@ static const gpio_num_t s_btn_gpios[] = {
 
 #define NUM_BUTTONS (sizeof(s_btn_gpios) / sizeof(s_btn_gpios[0]))
 
+/* ========== 去抖状态 ========== */
+static int      s_last_raw       = -1;     /* 上次读取的原始值 */
+static int      s_stable         = -1;     /* 去抖稳定后的按键 */
+static int64_t  s_change_time_us = 0;      /* 状态改变时间（微秒） */
+
 /* ========== 初始化按键驱动 ========== */
 void drv_button_init(void)
 {
     uint64_t mask = 0, pullup = 0;
-    
+
     // 计算GPIO掩码
     for (size_t i = 0; i < NUM_BUTTONS; i++) {
         mask |= 1ULL << s_btn_gpios[i];
@@ -28,7 +34,7 @@ void drv_button_init(void)
             pullup |= 1ULL << s_btn_gpios[i];
         }
     }
-    
+
     // 配置所有按键为输入模式
     gpio_config_t io = {
         .pin_bit_mask = mask,
@@ -38,7 +44,7 @@ void drv_button_init(void)
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io);
-    
+
     // 为支持的GPIO启用内部上拉
     if (pullup) {
         gpio_config_t pu = {
@@ -50,8 +56,13 @@ void drv_button_init(void)
         };
         gpio_config(&pu);
     }
-    
-    ESP_LOGI(TAG, "Button driver initialized (%d buttons)", NUM_BUTTONS);
+
+    s_last_raw = -1;
+    s_stable = -1;
+    s_change_time_us = esp_timer_get_time();
+
+    ESP_LOGI(TAG, "Button driver initialized (%d buttons, debounce=%dms)",
+             NUM_BUTTONS, BUTTON_DEBOUNCE_MS);
 }
 
 /* ========== 扫描按键状态 ========== */
@@ -63,6 +74,26 @@ int drv_button_scan(void)
         }
     }
     return -1;
+}
+
+/* ========== 带去抖的按键扫描 ========== */
+int drv_button_scan_debounced(void)
+{
+    int raw = drv_button_scan();
+    int64_t now = esp_timer_get_time();
+
+    if (raw != s_last_raw) {
+        s_last_raw = raw;
+        s_change_time_us = now;
+        return s_stable;  /* 状态变化中，返回旧的稳定值 */
+    }
+
+    /* 状态稳定超过去抖时间 */
+    if ((now - s_change_time_us) >= (int64_t)BUTTON_DEBOUNCE_MS * 1000) {
+        s_stable = raw;
+    }
+
+    return s_stable;
 }
 
 /* ========== 获取按键GPIO电平 ========== */
