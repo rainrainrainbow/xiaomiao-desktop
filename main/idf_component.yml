@@ -2,5 +2,4 @@
 ## Declares external dependencies managed by the IDF Component Registry.
 ## These are resolved by `idf.py reconfigure` before building.
 dependencies:
-  mr9you/micropython-helper: "^1.22.1"
   lvgl/lvgl: "^9.2.0"

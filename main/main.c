@@ -25,14 +25,12 @@
 #include "sdmmc_cmd.h"
 #include "lvgl.h"
 #include "sdkconfig.h"
-#include "esp_heap_caps.h"
 
 #include "return_to_loader.h"
 #include "xiaomiao_desktop.h"
 #include "ui_widgets.h"
 #include "app_launcher.h"
 #include "task_manager.h"
-#include "mpy/mpy_engine.h"
 
 static const char *TAG = "xiaomiao-desktop";
 
@@ -229,21 +227,6 @@ static void lvgl_task(void *arg)
     app_launcher_init();
     ui_main_init();
 
-    /* Initialize MicroPython runtime */
-    esp_err_t mpy_err = mpy_init();
-    if (mpy_err != ESP_OK) {
-        ESP_LOGW(TAG, "MicroPython init failed (%s), continuing without Python runtime",
-                 esp_err_to_name(mpy_err));
-    } else {
-        /* Scan for installed .app packages — use heap allocation to avoid stack overflow */
-        mpy_app_t *apps = heap_caps_malloc(sizeof(mpy_app_t) * MPY_MAX_APPS, MALLOC_CAP_SPIRAM);
-        if (apps) {
-            int app_count = mpy_scan_apps("/sdcard/apps", apps, MPY_MAX_APPS);
-            ESP_LOGI(TAG, "Found %d MicroPython apps", app_count);
-            free(apps);
-        }
-    }
-
     /* Start with boot screen, then auto-switch to desktop */
     nav_to(PAGE_BOOT);
 
@@ -265,9 +248,6 @@ static void lvgl_task(void *arg)
     while (true) {
         uint32_t delay = lv_timer_handler();
         delay = MAX(MIN(delay, 16), 1);
-
-        /* Process MicroPython pending events (scheduled callbacks, etc.) */
-        mpy_process_events();
 
         usleep(delay * 1000);
     }

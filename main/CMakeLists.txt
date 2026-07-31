@@ -12,14 +12,12 @@ idf_component_register(
         "apps/snake.c"
         "apps/calc.c"
         "apps/music_player.c"
-        "mpy/mpy_engine.c"
     INCLUDE_DIRS
         "."
         "ui"
         "input"
         "system"
         "apps"
-        "mpy"
     REQUIRES
         lvgl__lvgl
         driver
@@ -28,5 +26,4 @@ idf_component_register(
         fatfs
         sdmmc
         nvs_flash
-        mr9you__micropython-helper
 )
