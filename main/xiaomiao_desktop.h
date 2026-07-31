@@ -2,6 +2,7 @@
 #define XIAOMIAO_DESKTOP_H
 
 #include "esp_err.h"
+#include "esp_lcd_panel_io.h"
 #include "lvgl.h"
 
 /* ===== Hardware Constants ===== */
