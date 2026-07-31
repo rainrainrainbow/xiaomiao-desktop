@@ -88,17 +88,17 @@ jobs:
           ls -lh build/
           ls -lh xiaomiao-desktop-merged.bin
           echo "--- Build Summary ---"
-          python3 -c "
-            import os
-            elf = 'build/${{ env.PROJECT_NAME }}.elf'
-            if os.path.exists(elf):
+          python3 << 'EOF'
+          import os
+          elf = 'build/xiaomiao-desktop.elf'
+          if os.path.exists(elf):
               size = os.path.getsize(elf)
               print(f'Firmware ELF: {size // 1024} KB')
-            mb = 'xiaomiao-desktop-merged.bin'
-            if os.path.exists(mb):
+          mb = 'xiaomiao-desktop-merged.bin'
+          if os.path.exists(mb):
               size = os.path.getsize(mb)
               print(f'Merged binary: {size // 1024} KB ({size} bytes)')
-          "
+          EOF
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
