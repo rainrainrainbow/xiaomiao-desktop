@@ -205,9 +205,9 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
     size_t sz = stride * LCD_V_RES;
 
-    void *b1 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
-    void *b2 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
-    void *b3 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
+    void *b1 = heap_caps_calloc(1, sz, MALLOC_CAP_DMA);
+    void *b2 = heap_caps_calloc(1, sz, MALLOC_CAP_DMA);
+    void *b3 = heap_caps_calloc(1, sz, MALLOC_CAP_DMA);
     assert(b1 && b2 && b3);
 
     lv_display_set_color_format(d, cf);
