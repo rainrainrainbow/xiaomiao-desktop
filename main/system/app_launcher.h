@@ -21,6 +21,4 @@ int app_launcher_get_count(void);
 const app_entry_t *app_launcher_get_app(int index);
 void app_launcher_launch(int index);
 
-extern const app_entry_t g_builtin_apps[];
-
 #endif /* APP_LAUNCHER_H */

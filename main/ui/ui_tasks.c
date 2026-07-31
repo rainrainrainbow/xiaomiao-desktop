@@ -15,26 +15,11 @@ static void task_click_cb(lv_event_t *e)
     ui_tasks_create(scr);
 }
 
-static void task_clean_cb(lv_event_t *e)
-{
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
-    if (task_manager_is_locked(idx)) {
-        ui_show_toast("已锁定，无法清理");
-        return;
-    }
-    task_entry_t *t = task_manager_get_task(idx);
-    if (t) {
-        task_manager_remove_task(idx);
-        lv_obj_t *scr = lv_screen_active();
-        lv_obj_clean(scr);
-        ui_tasks_create(scr);
-    }
-}
+static void task_key_cb(lv_event_t *e);
 
 static void clean_all_cb(lv_event_t *e)
 {
-    int locked = task_manager_get_locked_count();
-    int total = task_manager_get_count();
+    (void)e;
     task_manager_clean_all();
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);

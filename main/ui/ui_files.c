@@ -37,7 +37,7 @@ static const fs_entry_t s_music[] = {
 
 static const fs_entry_t *s_current_dir = s_root;
 static int s_current_count = 4;
-static char s_current_path[32] = "/sdcard";
+static char s_current_path[64] = "/sdcard";
 static int s_path_depth = 0;
 
 static void file_item_cb(lv_event_t *e)

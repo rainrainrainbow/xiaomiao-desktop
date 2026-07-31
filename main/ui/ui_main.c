@@ -135,9 +135,8 @@ lv_obj_t *ui_create_standard_layout(lv_obj_t *parent, const char *title,
         if (start_x < 0) start_x = 0;
         int x = start_x;
         for (int i = 0; i < hint_count; i++) {
-            lv_obj_align(hint_bar->child_cnt > 0 ? 
-                lv_obj_get_child(hint_bar, lv_obj_get_child_cnt(hint_bar) - (hint_count - i)) : NULL,
-                LV_ALIGN_LEFT_MID, x, 0);
+            lv_obj_t *hint = lv_obj_get_child(hint_bar, i);
+            lv_obj_align(hint, LV_ALIGN_LEFT_MID, x, 0);
             x += widths[i];
         }
         free(widths);
