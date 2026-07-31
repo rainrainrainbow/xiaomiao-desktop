@@ -60,24 +60,20 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: Install IDF Component Manager (inside container)
+      - name: Build firmware (ESP-IDF v5.3)
         run: |
-          pip install --upgrade idf-component-manager
+          # Source ESP-IDF environment
+          . /opt/esp/idf/export.sh
+
+          # Install component manager
+          pip3 install --upgrade idf-component-manager
           idf.py --version
 
-      - name: Resolve component dependencies
-        run: |
+          # Resolve and build
           idf.py reconfigure
-
-      - name: Build firmware
-        run: |
           idf.py build
-        env:
-          IDF_TARGET: ${{ env.IDF_TARGET }}
 
-      - name: Generate merged binary
-        run: |
-          cd ${{ github.workspace }}
+          # Generate merged binary
           python3 -m esptool merge_bin \
             --flash_mode qio \
             --flash_freq 80m \
@@ -89,7 +85,6 @@ jobs:
 
       - name: Show build artifacts
         run: |
-          cd ${{ github.workspace }}
           ls -lh build/
           ls -lh xiaomiao-desktop-merged.bin
           echo "--- Build Summary ---"
