@@ -49,6 +49,10 @@ jobs:
     # Timeout: ESP-IDF builds can take 15-30 minutes
     timeout-minutes: 45
 
+    container:
+      image: espressif/idf:release-v5.3
+      options: --user root
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,25 +60,17 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: Install ESP-IDF
-        uses: espressif/esp-idf-action@v1
-        with:
-          esp_idf_version: ${{ env.IDF_VERSION }}
-          target: ${{ env.IDF_TARGET }}
-
-      - name: Install IDF Component Manager
+      - name: Install IDF Component Manager (inside container)
         run: |
           pip install --upgrade idf-component-manager
           idf.py --version
 
       - name: Resolve component dependencies
         run: |
-          cd ${{ github.workspace }}
           idf.py reconfigure
 
       - name: Build firmware
         run: |
-          cd ${{ github.workspace }}
           idf.py build
         env:
           IDF_TARGET: ${{ env.IDF_TARGET }}
