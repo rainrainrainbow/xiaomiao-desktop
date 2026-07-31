@@ -21,12 +21,12 @@ idf_component_register(
         "apps"
         "mpy"
     REQUIRES
-        lvgl
+        lvgl__lvgl
         driver
         esp_lcd
         esp_timer
         fatfs
         sdmmc
         nvs_flash
-        micropython
+        mr9you__micropython-helper
 )
