@@ -26,4 +26,5 @@ idf_component_register(
         fatfs
         sdmmc
         nvs_flash
+        return_to_loader
 )
