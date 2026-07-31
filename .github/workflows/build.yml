@@ -1,0 +1,342 @@
+# =============================================================================
+# XiaoMiao Desktop OS — CI/CD Pipeline
+# 
+# Builds the ESP-IDF firmware for ESP32-WROVER-B, produces merged binaries,
+# and creates GitHub Releases with auto-generated changelogs.
+#
+# Triggered on:
+#   - push/PR to main, develop
+#   - tags matching v*.*.* (for releases)
+#   - manual workflow_dispatch
+# =============================================================================
+
+name: XiaoMiao Desktop CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+env:
+  # ESP-IDF version (see https://github.com/espressif/esp-idf)
+  IDF_VERSION: v5.3.2
+  # IDF component registry URL
+  IDF_COMPONENT_REGISTRY_URL: https://components.espressif.com
+  # Project name
+  PROJECT_NAME: xiaomiao-desktop
+  # Target chip
+  IDF_TARGET: esp32
+
+jobs:
+  # ===========================================================================
+  # Job 1: Build Firmware
+  # ===========================================================================
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-24.04
+    # Timeout: ESP-IDF builds can take 15-30 minutes
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Install ESP-IDF
+        uses: espressif/esp-idf-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: ${{ env.IDF_TARGET }}
+
+      - name: Install IDF Component Manager
+        run: |
+          pip install --upgrade idf-component-manager
+          idf.py --version
+
+      - name: Resolve component dependencies
+        run: |
+          cd ${{ github.workspace }}
+          idf.py reconfigure
+
+      - name: Build firmware
+        run: |
+          cd ${{ github.workspace }}
+          idf.py build
+        env:
+          IDF_TARGET: ${{ env.IDF_TARGET }}
+
+      - name: Generate merged binary
+        run: |
+          cd ${{ github.workspace }}
+          python3 -m esptool merge_bin \
+            --flash_mode qio \
+            --flash_freq 80m \
+            --flash_size 4MB \
+            --output xiaomiao-desktop-merged.bin \
+            0x1000 build/bootloader/bootloader.bin \
+            0x8000 build/partition_table/partition-table.bin \
+            0x12000 build/xiaomiao-desktop.bin
+
+      - name: Show build artifacts
+        run: |
+          cd ${{ github.workspace }}
+          ls -lh build/
+          ls -lh xiaomiao-desktop-merged.bin
+          echo "--- Build Summary ---"
+          python3 -c "
+            import os
+            elf = 'build/${{ env.PROJECT_NAME }}.elf'
+            if os.path.exists(elf):
+              size = os.path.getsize(elf)
+              print(f'Firmware ELF: {size // 1024} KB')
+            mb = 'xiaomiao-desktop-merged.bin'
+            if os.path.exists(mb):
+              size = os.path.getsize(mb)
+              print(f'Merged binary: {size // 1024} KB ({size} bytes)')
+          "
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomiao-desktop-firmware
+          path: |
+            ${{ github.workspace }}/build/bootloader/bootloader.bin
+            ${{ github.workspace }}/build/partition_table/partition-table.bin
+            ${{ github.workspace }}/build/${{ env.PROJECT_NAME }}.bin
+            ${{ github.workspace }}/build/${{ env.PROJECT_NAME }}.elf
+            ${{ github.workspace }}/build/build_info.json
+            ${{ github.workspace }}/xiaomiao-desktop-merged.bin
+            ${{ github.workspace }}/build/flash_args
+            ${{ github.workspace }}/build/config/sdkconfig.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ${{ github.workspace }}/build/**/build.log
+            ${{ github.workspace }}/build/flash_project_args
+          retention-days: 7
+
+  # ===========================================================================
+  # Job 2: Code Quality Checks
+  # ===========================================================================
+  lint:
+    name: Code Quality
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check file naming conventions
+        run: |
+          echo "Checking C source files..."
+          errors=0
+          while IFS= read -r -d '' f; do
+            name=$(basename "$f")
+            # Require lowercase with underscores
+            if ! echo "$name" | grep -qE '^[a-z0-9_]+\.(c|h)$'; then
+              echo "⚠️  Non-standard filename: $f"
+              errors=$((errors + 1))
+            fi
+          done < <(find . -name '*.c' -o -name '*.h' -print0)
+          echo "Found $errors naming issues"
+          exit $errors
+
+      - name: Check for hardcoded paths
+        run: |
+          echo "Checking for hardcoded GPIO numbers outside config..."
+          errors=0
+          while IFS= read -r -d '' f; do
+            if grep -n 'GPIO_NUM_' "$f" > /dev/null 2>&1; then
+              # Only allow GPIO references in xiaomiao_desktop.h and keypad.c
+              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c)$'; then
+                echo "⚠️  GPIO reference outside config files: $f"
+                grep -n 'GPIO_NUM_' "$f"
+                errors=$((errors + 1))
+              fi
+            fi
+          done < <(find . -name '*.c' -o -name '*.h' -print0)
+          echo "Found $errors GPIO path issues"
+          exit $errors
+
+      - name: Check include guard consistency
+        run: |
+          echo "Checking include guards..."
+          errors=0
+          while IFS= read -r -d '' f; do
+            guard=$(basename "$f" | tr '[:lower:]' '[:upper:]' | sed 's/\./_/g')
+            if ! grep -q "ifndef ${guard}" "$f" 2>/dev/null; then
+              # Try alternative naming
+              guard2=$(basename "$f" | tr '[:lower:]' '[:upper:]' | sed 's/\./__/g')
+              if ! grep -q "ifndef ${guard2}" "$f" 2>/dev/null; then
+                echo "⚠️  Non-standard include guard in: $f"
+                head -5 "$f"
+                errors=$((errors + 1))
+              fi
+            fi
+          done < <(find . -name '*.h' -print0)
+          echo "Found $errors include guard issues"
+          exit $errors
+
+  # ===========================================================================
+  # Job 3: GitHub Release (tagged versions only)
+  # ===========================================================================
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, lint]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: xiaomiao-desktop-firmware
+          path: ./artifacts
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG_NAME#v}"
+          
+          # Build a changelog from git log
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --oneline "${PREV_TAG}..HEAD" 2>/dev/null || echo "Initial release")
+          else
+            CHANGES="Initial release"
+          fi
+          
+          # Get firmware size
+          FIRMWARE_SIZE=$(stat -c%s ./artifacts/xiaomiao-desktop-merged.bin 2>/dev/null || echo "0")
+          FIRMWARE_SIZE_KB=$((FIRMWARE_SIZE / 1024))
+          
+          # Generate release notes body
+          cat > release-notes.md << EOF
+          ## XiaoMiao Desktop OS v${VERSION}
+          
+          ### 📦 Firmware
+          - **Merged binary**: \`xiaomiao-desktop-merged.bin\` (${FIRMWARE_SIZE_KB} KB)
+          - **Target**: ESP32-WROVER-B (4MB Flash + 8MB PSRAM)
+          - **Display**: ST7735 160x128 TFT
+          
+          ### 🔧 Flashing
+          \`\`\`bash
+          esptool.py write_flash 0x0 xiaomiao-desktop-merged.bin
+          \`\`\`
+          
+          ### 📋 Changelog
+          \`\`\`
+          ${CHANGES}
+          \`\`\`
+          
+          ### 🚀 Installation
+          1. Download \`xiaomiao-desktop-merged.bin\` from Assets
+          2. Connect ESP32-WROVER-B via USB-UART
+          3. Flash with esptool (see above)
+          4. Power cycle and enjoy!
+          EOF
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_notes.outputs.tag }}
+          name: XiaoMiao Desktop OS v${{ steps.release_notes.outputs.version }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          files: |
+            ./artifacts/xiaomiao-desktop-merged.bin
+            ./artifacts/bootloader.bin
+            ./artifacts/partition-table.bin
+            ./artifacts/${{ env.PROJECT_NAME }}.bin
+            ./artifacts/flash_args
+          fail_on_unmatched_files: false
+
+  # ===========================================================================
+  # Job 4: SD Card App Package Validation
+  # ===========================================================================
+  validate-apps:
+    name: Validate App Packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for app packages
+        run: |
+          # Check if there are any .app example packages in the repo
+          # Examples are in examples/apps/ — check both locations
+          apps_dir="./examples/apps"
+          if [ -d "$apps_dir" ]; then
+            echo "Found app packages:"
+            for app in "$apps_dir"/*.app/; do
+              if [ -d "$app" ]; then
+                name=$(basename "$app")
+                echo "  - $name"
+                # Validate manifest.json
+                if [ -f "$app/manifest.json" ]; then
+                  echo "    ✅ manifest.json exists"
+                  python3 -c "
+                    import json
+                    with open('$app/manifest.json') as f:
+                      m = json.load(f)
+                    assert 'id' in m, 'Missing id'
+                    assert 'name' in m, 'Missing name'
+                    print(f'    ID: {m.get(\"id\")}  Name: {m.get(\"name\")}  v{m.get(\"version\",\"?\")}')
+                  " || echo "    ❌ Invalid manifest.json"
+                else
+                  echo "    ❌ Missing manifest.json"
+                fi
+                # Validate main.py
+                if [ -f "$app/main.py" ]; then
+                  echo "    ✅ main.py exists"
+                  python3 -c "
+                    with open('$app/main.py') as f:
+                      code = f.read()
+                    compile(code, '$app/main.py', 'exec')
+                    print(f'    ✅ Python syntax OK ({len(code)} bytes)')
+                  " || echo "    ❌ Python syntax error"
+                else
+                  echo "    ❌ Missing main.py"
+                fi
+              fi
+            done
+          else
+            echo "No app packages directory found (optional)"
+          fi

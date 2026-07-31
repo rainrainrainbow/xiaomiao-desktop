@@ -1,0 +1,38 @@
+# =============================================================================
+# XiaoMiao Desktop OS — .gitignore
+# =============================================================================
+
+# ESP-IDF Build
+build/
+**/build/
+build_cmake_test/
+sdkconfig.old
+sdkconfig.defaults
+dependencies.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated
+*.bin
+*.elf
+*.map
+*.hex
+*.o
+*.d
+
+# IDF Component Manager
+managed_components/

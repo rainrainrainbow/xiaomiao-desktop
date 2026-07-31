@@ -1,0 +1,32 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "ui/ui_main.c"
+        "ui/ui_desktop.c"
+        "ui/ui_tasks.c"
+        "ui/ui_settings.c"
+        "ui/ui_files.c"
+        "input/keypad.c"
+        "system/task_manager.c"
+        "system/app_launcher.c"
+        "apps/snake.c"
+        "apps/calc.c"
+        "apps/music_player.c"
+        "mpy/mpy_engine.c"
+    INCLUDE_DIRS
+        "."
+        "ui"
+        "input"
+        "system"
+        "apps"
+        "mpy"
+    REQUIRES
+        lvgl
+        driver
+        esp_lcd
+        esp_timer
+        fatfs
+        sdmmc
+        nvs_flash
+        micropython
+)

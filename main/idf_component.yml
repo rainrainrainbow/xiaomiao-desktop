@@ -1,0 +1,6 @@
+## IDF Component Manager Manifest
+## Declares external dependencies managed by the IDF Component Registry.
+## These are resolved by `idf.py reconfigure` before building.
+dependencies:
+  espressif/micropython: "^1.26.0"
+  lvgl/lvgl: "^9.2.0"
