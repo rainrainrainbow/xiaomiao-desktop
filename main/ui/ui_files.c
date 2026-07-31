@@ -72,7 +72,7 @@ static void file_item_cb(lv_event_t *e)
 
 void ui_files_create(lv_obj_t *scr)
 {
-    char title[32];
+    char title[72];
     snprintf(title, sizeof(title), "文件: %s", s_current_path);
     static const char *hints[] = {"↑↓选择", "A打开", "B返回"};
     lv_obj_t *content = ui_create_standard_layout(scr, title, hints, 3);
