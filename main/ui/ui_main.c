@@ -69,7 +69,7 @@ lv_obj_t *ui_create_standard_layout(lv_obj_t *parent, const char *title,
     lv_obj_set_style_bg_opa(status_bar, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_all(status_bar, 0, 0);
     lv_obj_set_style_border_width(status_bar, 0, 0);
-    lv_obj_set_style_border_side(status_bar, LV_BORDER_SIDE_TOP);
+    lv_obj_set_style_border_side(status_bar, LV_BORDER_SIDE_TOP, 0);
     lv_obj_set_style_border_color(status_bar, lv_color_hex(0x4A3218), 0);
     lv_obj_set_style_border_width(status_bar, 1, 0);
     lv_obj_set_flex_grow(status_bar, 0);
