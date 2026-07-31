@@ -74,7 +74,7 @@ jobs:
           idf.py build
 
           # Generate merged binary
-          python3 -m esptool merge_bin \
+          python3 -m esptool --chip esp32 merge_bin \
             --flash_mode qio \
             --flash_freq 80m \
             --flash_size 4MB \
