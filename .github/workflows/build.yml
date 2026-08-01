@@ -105,14 +105,15 @@ jobs:
         with:
           name: xiaomiao-desktop-firmware
           path: |
-            ${{ github.workspace }}/build/bootloader/bootloader.bin
-            ${{ github.workspace }}/build/partition_table/partition-table.bin
-            ${{ github.workspace }}/build/${{ env.PROJECT_NAME }}.bin
-            ${{ github.workspace }}/build/${{ env.PROJECT_NAME }}.elf
-            ${{ github.workspace }}/build/build_info.json
-            ${{ github.workspace }}/xiaomiao-desktop-merged.bin
-            ${{ github.workspace }}/build/flash_args
-            ${{ github.workspace }}/build/config/sdkconfig.json
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/${{ env.PROJECT_NAME }}.bin
+            build/${{ env.PROJECT_NAME }}.elf
+            build/${{ env.PROJECT_NAME }}.map
+            xiaomiao-desktop-merged.bin
+            build/flash_args
+            build/ota_data_initial.bin
+            build/config/sdkconfig.json
           if-no-files-found: warn
           retention-days: 30
 
