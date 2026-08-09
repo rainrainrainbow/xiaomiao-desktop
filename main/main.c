@@ -307,7 +307,7 @@ static void desktop_page_init(void *data)
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_7, 0);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_8, 0);
         lv_obj_align(name, LV_ALIGN_BOTTOM_MID, 0, -2);
         
         s_app_cells[i] = cell;
