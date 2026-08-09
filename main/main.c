@@ -422,7 +422,7 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v27 (Backlight 100% Default) ===");
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v27 (Backlight 100 Default) ===");
 
     // 初始化系统服务
     sys_nvs_init();
