@@ -126,16 +126,18 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     const uint8_t pwctr3[] = {0x0A, 0x00};
     const uint8_t pwctr4[] = {0x8A, 0x2A};
     const uint8_t pwctr5[] = {0x8A, 0xEE};
-    const uint8_t madctl[] = {MADCTL_MX | MADCTL_MY | MADCTL_RGB};
+    // 横屏模式：MX+MV 配合 128x160 native，呈现 160x128 逻辑分辨率
     const uint8_t madctl_r[] = {MADCTL_MX | MADCTL_MV | MADCTL_RGB};
     const uint8_t gp[] = {0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10};
     const uint8_t gn[] = {0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10};
-    
+
     st7735_tx(io, ST7735_DISPOFF, NULL, 0);
     st7735_tx(io, ST7735_SWRESET, NULL, 0);
     st7735_delay(150);
     st7735_tx(io, ST7735_SLPOUT, NULL, 0);
     st7735_delay(500);
+
+    // 帧率/电源/伽马
     st7735_tx(io, ST7735_FRMCTR1, frmctr, sizeof(frmctr));
     st7735_tx(io, ST7735_FRMCTR2, frmctr, sizeof(frmctr));
     st7735_tx(io, ST7735_INVCTR, (uint8_t[]){0x07}, 1);
@@ -146,15 +148,24 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     st7735_tx(io, ST7735_PWCTR5, pwctr5, sizeof(pwctr5));
     st7735_tx(io, ST7735_VMCTR1, (uint8_t[]){0x0E}, 1);
     st7735_tx(io, ST7735_INVOFF, NULL, 0);
-    st7735_tx(io, ST7735_MADCTL, madctl, sizeof(madctl));
+
+    // 颜色模式 RGB565
     st7735_tx(io, ST7735_COLMOD, (uint8_t[]){0x05}, 1);
-    st7735_tx(io, ST7735_CASET, (uint8_t[]){0,0,0,LCD_NATIVE_H_RES-1}, 4);
-    st7735_tx(io, ST7735_RASET, (uint8_t[]){0,0,0,LCD_NATIVE_V_RES-1}, 4);
+
+    // 伽马
     st7735_tx(io, ST7735_GMCTRP1, gp, sizeof(gp));
     st7735_tx(io, ST7735_GMCTRN1, gn, sizeof(gn));
+
+    // 关键：先设 MADCTL（横屏），再设 CASET/RASET 窗口（160x128）
+    st7735_tx(io, ST7735_MADCTL, madctl_r, sizeof(madctl_r));
+    st7735_tx(io, ST7735_CASET, (uint8_t[]){0,0,0,LCD_H_RES-1}, 4);
+    st7735_tx(io, ST7735_RASET, (uint8_t[]){0,0,0,LCD_V_RES-1}, 4);
+
+    // 正常显示模式
     st7735_tx(io, ST7735_NORON, NULL, 0);
     st7735_delay(10);
-    st7735_tx(io, ST7735_MADCTL, madctl_r, sizeof(madctl_r));
+
+    // 用背景色清屏（避免白屏闪现）
     st7735_clear_black(io);
 }
 
@@ -206,6 +217,13 @@ static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px)
 {
     esp_lcd_panel_io_handle_t io = lv_display_get_user_data(d);
     uint16_t x1 = area->x1, x2 = area->x2, y1 = area->y1, y2 = area->y2;
+
+    // 限制在 [0, LCD_H_RES-1] x [0, LCD_V_RES-1] 范围内
+    if (x1 >= LCD_H_RES) x1 = LCD_H_RES - 1;
+    if (x2 >= LCD_H_RES) x2 = LCD_H_RES - 1;
+    if (y1 >= LCD_V_RES) y1 = LCD_V_RES - 1;
+    if (y2 >= LCD_V_RES) y2 = LCD_V_RES - 1;
+
     esp_lcd_panel_io_tx_param(io, ST7735_CASET, (uint8_t[]){x1>>8,x1&0xFF,x2>>8,x2&0xFF}, 4);
     esp_lcd_panel_io_tx_param(io, ST7735_RASET, (uint8_t[]){y1>>8,y1&0xFF,y2>>8,y2&0xFF}, 4);
     int sz = (x2-x1+1)*(y2-y1+1)*2;
@@ -447,11 +465,15 @@ void app_main(void)
     
     // 初始化LCD
     esp_lcd_panel_io_handle_t io = lcd_init();
-    
+
     // 初始化LVGL
     lv_init();
     lv_display_t *disp = display_init(io);
-    
+
+    // 立即注册 LCD 完成回调（关键！否则 flush_cb 永远收不到 on_color_trans_done）
+    esp_lcd_panel_io_callbacks_t cbs = { .on_color_trans_done = flush_ready };
+    esp_lcd_panel_io_register_event_callbacks(io, &cbs, disp);
+
     // 创建按键输入设备
     lv_group_t *group = lv_group_create();
     lv_group_set_default(group);
@@ -459,10 +481,6 @@ void app_main(void)
     lv_indev_set_type(indev, LV_INDEV_TYPE_KEYPAD);
     lv_indev_set_display(indev, disp);
     lv_indev_set_group(indev, group);
-    
-    // 注册LCD回调
-    esp_lcd_panel_io_callbacks_t cbs = { .on_color_trans_done = flush_ready };
-    esp_lcd_panel_io_register_event_callbacks(io, &cbs, disp);
     
     // 启动LVGL定时器
     esp_timer_create_args_t ta = { .callback = tick_cb, .name = "lv" };
