@@ -105,61 +105,50 @@ static const page_callbacks_t s_about_callbacks = {
     .on_key = about_on_key,
 };
 
-/* ========== 内置应用定义 ========== */
+/* ========== 内置应用定义 ==========
+ * 模拟器风格：emoji glyph + 简短中文/英文名
+ * 名称尽量短以适配 8px 字符高度（160×128 屏幕）
+ */
 static const app_def_t s_builtin_app_defs[] = {
     {
         .name = "Settings",
-        .icon_text = "S",
+        .icon_text = LV_SYMBOL_SETTINGS,
         .icon_color = 0x3B82F6,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,  // 由app_manager处理
     },
     {
         .name = "Phone",
-        .icon_text = "P",
+        .icon_text = LV_SYMBOL_CALL,
         .icon_color = 0x8B5CF6,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "Games",
-        .icon_text = "G",
+        .icon_text = LV_SYMBOL_PLAY,
         .icon_color = 0xF43F5E,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "Camera",
-        .icon_text = "C",
+        .icon_text = LV_SYMBOL_VIDEO,
         .icon_color = 0xF59E0B,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "Music",
-        .icon_text = "M",
+        .icon_text = LV_SYMBOL_AUDIO,
         .icon_color = 0x22C55E,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "Browser",
-        .icon_text = "B",
+        .icon_text = LV_SYMBOL_LIST,
         .icon_color = 0x06B6D4,
-        .type = APP_TYPE_BUILTIN,
-        .launch_cb = NULL,
-    },
-    {
-        .name = "Notes",
-        .icon_text = "N",
-        .icon_color = 0xEC4899,
-        .type = APP_TYPE_BUILTIN,
-        .launch_cb = NULL,
-    },
-    {
-        .name = "About",
-        .icon_text = "?",
-        .icon_color = 0x64748B,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
