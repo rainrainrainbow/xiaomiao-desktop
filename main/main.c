@@ -54,7 +54,7 @@ static const char *TAG = "MAIN";
 
 /* ========== LCD驱动（保留在main.c，因为与LVGL紧密耦合） ========== */
 #define LCD_HOST            SPI2_HOST
-#define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ  (60 * 1000 * 1000)  /* xiaomiao-os 原厂: 60MHz */
 #define LCD_NATIVE_H_RES    128
 #define LCD_NATIVE_V_RES    160
 
@@ -104,42 +104,36 @@ static void st7735_tx(esp_lcd_panel_io_handle_t io, int cmd, const void *param, 
 
 static void st7735_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
-static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
-{
-    uint16_t line[LCD_H_RES * 8];
-    const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
-    memset(line, 0, sizeof(line));
-    st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
-    for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
-        const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
-        const uint8_t raset[] = {(uint8_t)(y>>8), (uint8_t)(y&0xFF), (uint8_t)(y2>>8), (uint8_t)(y2&0xFF)};
-        st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
-        st7735_tx(io, ST7735_RAMWR, line, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
-    }
-}
+/* st7735_clear_black 已移除——参考 xiaomiao-os 原厂，初始化不需清屏，
+ * 由 lvgl 在 disp on 时通过 flush_cb 自动刷出黑底桌面 */
 
 static void st7735_init(esp_lcd_panel_io_handle_t io)
 {
-    const uint8_t frmctr[] = {0x01, 0x2C, 0x2D};
-    const uint8_t pwctr1[] = {0xA2, 0x02, 0x84};
-    const uint8_t pwctr2[] = {0xC5};
-    const uint8_t pwctr3[] = {0x0A, 0x00};
-    const uint8_t pwctr4[] = {0x8A, 0x2A};
-    const uint8_t pwctr5[] = {0x8A, 0xEE};
-    // 横屏模式：MX+MV 配合 128x160 native，呈现 160x128 逻辑分辨率
+    /* 参考 xiaomiao-os/components/xiaomiao_hal/xiaomiao_hal.c 原厂驱动 */
+    const uint8_t frmctr[]  = {0x01, 0x2C, 0x2D};
+    const uint8_t frmctr3[] = {0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D};
+    const uint8_t pwctr1[]  = {0xA2, 0x02, 0x84};
+    const uint8_t pwctr2[]  = {0xC5};
+    const uint8_t pwctr3[]  = {0x0A, 0x00};
+    const uint8_t pwctr4[]  = {0x8A, 0x2A};
+    const uint8_t pwctr5[]  = {0x8A, 0xEE};
+    /* 先设 MX+MY（竖屏 native 128x160），完成所有寄存器写入，
+       最后再切到 MX+MV 横屏（实际显示 160x128）。*/
+    const uint8_t madctl_d[] = {MADCTL_MX | MADCTL_MY | MADCTL_RGB};
     const uint8_t madctl_r[] = {MADCTL_MX | MADCTL_MV | MADCTL_RGB};
-    const uint8_t gp[] = {0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10};
-    const uint8_t gn[] = {0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10};
+    const uint8_t gp[] = {0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D,
+                          0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10};
+    const uint8_t gn[] = {0x03, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D,
+                          0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10};
 
     st7735_tx(io, ST7735_DISPOFF, NULL, 0);
     st7735_tx(io, ST7735_SWRESET, NULL, 0);
     st7735_delay(150);
     st7735_tx(io, ST7735_SLPOUT, NULL, 0);
     st7735_delay(500);
-
-    // 帧率/电源/伽马
     st7735_tx(io, ST7735_FRMCTR1, frmctr, sizeof(frmctr));
     st7735_tx(io, ST7735_FRMCTR2, frmctr, sizeof(frmctr));
+    st7735_tx(io, ST7735_FRMCTR3, frmctr3, sizeof(frmctr3));
     st7735_tx(io, ST7735_INVCTR, (uint8_t[]){0x07}, 1);
     st7735_tx(io, ST7735_PWCTR1, pwctr1, sizeof(pwctr1));
     st7735_tx(io, ST7735_PWCTR2, pwctr2, sizeof(pwctr2));
@@ -148,25 +142,16 @@ static void st7735_init(esp_lcd_panel_io_handle_t io)
     st7735_tx(io, ST7735_PWCTR5, pwctr5, sizeof(pwctr5));
     st7735_tx(io, ST7735_VMCTR1, (uint8_t[]){0x0E}, 1);
     st7735_tx(io, ST7735_INVOFF, NULL, 0);
-
-    // 颜色模式 RGB565
+    st7735_tx(io, ST7735_MADCTL, madctl_d, sizeof(madctl_d));
     st7735_tx(io, ST7735_COLMOD, (uint8_t[]){0x05}, 1);
-
-    // 伽马
+    st7735_tx(io, ST7735_CASET, (uint8_t[]){0, 0, 0, LCD_NATIVE_H_RES - 1}, 4);
+    st7735_tx(io, ST7735_RASET, (uint8_t[]){0, 0, 0, LCD_NATIVE_V_RES - 1}, 4);
     st7735_tx(io, ST7735_GMCTRP1, gp, sizeof(gp));
     st7735_tx(io, ST7735_GMCTRN1, gn, sizeof(gn));
-
-    // 关键：先设 MADCTL（横屏），再设 CASET/RASET 窗口（160x128）
-    st7735_tx(io, ST7735_MADCTL, madctl_r, sizeof(madctl_r));
-    st7735_tx(io, ST7735_CASET, (uint8_t[]){0,0,0,LCD_H_RES-1}, 4);
-    st7735_tx(io, ST7735_RASET, (uint8_t[]){0,0,0,LCD_V_RES-1}, 4);
-
-    // 正常显示模式
     st7735_tx(io, ST7735_NORON, NULL, 0);
     st7735_delay(10);
-
-    // 用背景色清屏（避免白屏闪现）
-    st7735_clear_black(io);
+    /* 切换到横屏模式（MV=1）：128x160 native → 160x128 显示 */
+    st7735_tx(io, ST7735_MADCTL, madctl_r, sizeof(madctl_r));
 }
 
 static esp_lcd_panel_io_handle_t lcd_init(void)
@@ -238,8 +223,10 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
     uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
     size_t sz = stride * LCD_V_RES;
-    void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
-    void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    /* 参考 xiaomiao-os 原厂：用 spi_bus_dma_memory_alloc 申请 DMA 内存 */
+    void *b1 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
+    void *b2 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
+    assert(b1 && b2);
     lv_display_set_color_format(d, cf);
     lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_user_data(d, io);
@@ -440,7 +427,7 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v27 (Backlight 100 Default) ===");
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v28 (xiaomiao-os HAL reference) ===");
 
     // 初始化系统服务
     sys_nvs_init();
