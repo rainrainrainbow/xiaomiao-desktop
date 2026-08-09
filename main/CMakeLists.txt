@@ -1,30 +1,15 @@
 idf_component_register(
-    SRCS
+    SRCS 
         "main.c"
-        "ui/ui_main.c"
-        "ui/ui_desktop.c"
-        "ui/ui_tasks.c"
-        "ui/ui_settings.c"
-        "ui/ui_files.c"
-        "input/keypad.c"
-        "system/task_manager.c"
-        "system/app_launcher.c"
-        "apps/snake.c"
-        "apps/calc.c"
-        "apps/music_player.c"
-    INCLUDE_DIRS
-        "."
-        "ui"
-        "input"
-        "system"
-        "apps"
-    REQUIRES
-        lvgl__lvgl
-        driver
-        esp_lcd
-        esp_timer
-        fatfs
-        sdmmc
-        nvs_flash
-        return_to_loader
+        "ui/ui_framework.c"
+        "app/app_manager.c"
+        "app/app_builtin.c"
+        "app/app_micropython.c"
+        "driver/drv_button.c"
+        "driver/drv_backlight.c"
+        "driver/drv_battery.c"
+        "system/sys_nvs.c"
+        "return_to_loader.c"
+    INCLUDE_DIRS "." "ui" "app" "driver" "system"
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer
 )
