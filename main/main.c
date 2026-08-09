@@ -309,11 +309,11 @@ static void desktop_page_init(void *data)
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
         lv_obj_align(icon, LV_ALIGN_CENTER, 0, -4);
 
-        // 名称（短标签）
+        // 名称（短标签，LVGL 最小可用字体为 10px）
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_8, 0);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_10, 0);
         lv_obj_align(name, LV_ALIGN_BOTTOM_MID, 0, -2);
 
         s_app_cells[i] = cell;
