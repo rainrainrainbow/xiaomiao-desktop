@@ -422,14 +422,14 @@ void app_main(void)
 {
     return_to_loader_setup();
     
-    ESP_LOGI(TAG, "=== Xiaomiao Desktop v20 (Backlight Fix) ===");
-    
+    ESP_LOGI(TAG, "=== Xiaomiao Desktop v27 (Backlight 100% Default) ===");
+
     // 初始化系统服务
     sys_nvs_init();
-    
+
     // 重要：先初始化按键，再初始化电池（因为GPIO34共享）
     drv_button_init();
-    drv_backlight_init();
+    drv_backlight_init();  // 默认 80% 亮度
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
     
     // 启动按键任务（独立任务，5ms扫描周期）
