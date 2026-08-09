@@ -38,7 +38,7 @@ void drv_backlight_init(void)
     // 默认 80% 亮度，保证首屏可见
     drv_backlight_set_brightness(80);
 
-    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit, default=80%%)",
+    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit, default=80 percent)",
              PIN_LCD_BL, LEDC_FREQ_HZ);
 }
 
