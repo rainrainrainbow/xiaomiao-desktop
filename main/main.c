@@ -223,9 +223,9 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
     uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
     size_t sz = stride * LCD_V_RES;
-    /* 参考 xiaomiao-os 原厂：用 spi_bus_dma_memory_alloc 申请 DMA 内存 */
-    void *b1 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
-    void *b2 = spi_bus_dma_memory_alloc(LCD_HOST, sz, 0);
+    /* ESP-IDF v5.3.1 没有 spi_bus_dma_memory_alloc，用 heap_caps_aligned_alloc */
+    void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
     assert(b1 && b2);
     lv_display_set_color_format(d, cf);
     lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_FULL);
