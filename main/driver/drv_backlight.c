@@ -10,7 +10,9 @@
 static const char *TAG = "DRV_BL";
 static int s_current_brightness = 75;
 
-/* ========== 初始化背光PWM ========== */
+/* ========== 初始化背光PWM ==========
+ * v27 修复：初始化时直接设为 80% 亮度，避免首屏黑屏
+ */
 void drv_backlight_init(void)
 {
     ledc_timer_config_t ledc_timer = {
@@ -32,8 +34,11 @@ void drv_backlight_init(void)
         .hpoint = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel));
-    
-    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit)", 
+
+    // 默认 80% 亮度，保证首屏可见
+    drv_backlight_set_brightness(80);
+
+    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit, default=80%%)",
              PIN_LCD_BL, LEDC_FREQ_HZ);
 }
 
@@ -42,15 +47,16 @@ void drv_backlight_set_brightness(int percent)
 {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
-    
+
     s_current_brightness = percent;
-    
+
     // 13-bit resolution: 0-8191
+    // 高电平点亮：duty 越大越亮
     uint32_t duty = (8191 * percent) / 100;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL);
-    
-    ESP_LOGI(TAG, "Backlight set to %d%% (duty=%lu)", percent, duty);
+
+    ESP_LOGI(TAG, "Backlight set to %d%% (duty=%lu/8191)", percent, duty);
 }
 
 /* ========== 获取当前亮度 ========== */
