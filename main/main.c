@@ -247,7 +247,7 @@ static const page_callbacks_t s_desktop_callbacks = {
 // 桌面状态
 static int s_desktop_selected = 0;
 static int s_desktop_page = 0;
-static int s_desktop_total_pages = 1;
+static int s_desktop_total_pages = 2;
 static lv_obj_t *s_app_cells[8] = {0};
 
 static void desktop_page_init(void *data)
@@ -265,16 +265,15 @@ static void desktop_page_init(void *data)
     // 创建状态栏
     ui_statusbar_create(scr);
     
-    // 创建应用网格 - 3列×2行 = 每页6个应用
-    int app_count = 6;  // 固定6个应用每页
-    int cols = 3;       // 3列
-    int rows = 2;       // 2行
+    // 创建应用网格
+    int app_count = (state->layout == 0) ? 4 : 2;
+    int cols = (state->layout == 0) ? 2 : 1;
     
-    lv_coord_t grid_top = 14;   // STATUS_H + 2
-    lv_coord_t grid_bottom = LCD_V_RES - 8;  // LCD_V_RES - DOCK_H
+    lv_coord_t grid_top = 14;  // STATUS_H + 2
+    lv_coord_t grid_bottom = LCD_V_RES - 10;  // LCD_V_RES - DOCK_H
     lv_coord_t grid_h = grid_bottom - grid_top;
-    lv_coord_t cell_w = (LCD_H_RES - 5 * 4) / cols;  // 左右各留4px，中间3个间隙
-    lv_coord_t cell_h = (grid_h - 3 * 2) / rows;     // 上下各留2px，中间1个间隙
+    lv_coord_t cell_w = (LCD_H_RES - 3 * 4) / cols;
+    lv_coord_t cell_h = (grid_h - 3 * 4) / 2;
     
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
@@ -286,17 +285,17 @@ static void desktop_page_init(void *data)
         int col = i % cols;
         
         lv_obj_t *cell = lv_obj_create(scr);
-        lv_obj_set_pos(cell, 4 + col * (cell_w + 4), grid_top + 2 + row * (cell_h + 2));
+        lv_obj_set_pos(cell, 4 + col * (cell_w + 4), grid_top + 2 + row * (cell_h + 4));
         lv_obj_set_size(cell, cell_w, cell_h);
-        lv_obj_set_style_radius(cell, 4, 0);
+        lv_obj_set_style_radius(cell, 8, 0);
         lv_obj_set_style_bg_color(cell, lv_color_hex(app->icon_color), 0);
         lv_obj_set_style_bg_opa(cell, LV_OPA_30, 0);
-        lv_obj_set_style_border_width(cell, 1, 0);
+        lv_obj_set_style_border_width(cell, 2, 0);
         lv_obj_set_style_border_color(cell, lv_color_hex(colors->border), 0);
         lv_obj_set_style_border_opa(cell, LV_OPA_50, 0);
         lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
         
-        // 图标（使用 emoji glyph）
+        // 图标
         lv_obj_t *icon = lv_label_create(cell);
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
@@ -307,25 +306,20 @@ static void desktop_page_init(void *data)
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_8, 0);
+        lv_obj_set_style_text_font(name, &lv_font_montserrat_12, 0);
         lv_obj_align(name, LV_ALIGN_BOTTOM_MID, 0, -2);
         
         s_app_cells[i] = cell;
     }
     
-    // 计算总页数
-    s_desktop_total_pages = (builtin_count + app_count - 1) / app_count;
-    
-    // 创建底部导航栏（圆点指示器）
+    // 创建底部导航栏
     ui_dock_create(scr, s_desktop_total_pages, s_desktop_page);
     
     // 高亮选中项
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_bg_color(s_app_cells[s_desktop_selected], 
-                                   lv_color_hex(colors->sel_bg), 0);
-        lv_obj_set_style_bg_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(s_app_cells[s_desktop_selected], 1), 
-                                     lv_color_hex(colors->sel_border), 0);
+        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected], 
+                                       lv_color_hex(colors->sel_border), 0);
+        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
     }
 }
 
@@ -345,8 +339,7 @@ static void desktop_page_destroy(void)
 static bool desktop_page_on_key(int key)
 {
     ui_state_t *state = ui_state_get();
-    int app_count = 6;  // 固定6个应用每页（3列×2行）
-    int cols = 3;       // 3列
+    int app_count = (state->layout == 0) ? 4 : 2;
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
     const theme_colors_t *colors = ui_theme_colors();
@@ -358,42 +351,50 @@ static bool desktop_page_on_key(int key)
     
     // 取消当前高亮
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_bg_color(s_app_cells[s_desktop_selected], 
-                                   lv_color_hex(colors->bg), 0);
-        lv_obj_set_style_bg_opa(s_app_cells[s_desktop_selected], LV_OPA_30, 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(s_app_cells[s_desktop_selected], 1), 
-                                     lv_color_hex(colors->text), 0);
+        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected], 
+                                       lv_color_hex(colors->border), 0);
+        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_50, 0);
     }
     
     bool handled = true;
-    int page_apps = builtin_count - s_desktop_page * app_count;
-    if (page_apps > app_count) page_apps = app_count;
     
     if (key == KEY_UP) {
-        if (s_desktop_selected >= cols) {
-            s_desktop_selected -= cols;
+        if (state->layout == 0 && s_desktop_selected >= 2) {
+            s_desktop_selected -= 2;
+        } else if (state->layout == 1 && s_desktop_selected > 0) {
+            s_desktop_selected--;
         }
     } else if (key == KEY_DOWN) {
-        if (s_desktop_selected + cols < page_apps) {
-            s_desktop_selected += cols;
+        if (state->layout == 0 && s_desktop_selected < 2) {
+            s_desktop_selected += 2;
+        } else if (state->layout == 1 && s_desktop_selected < app_count - 1) {
+            s_desktop_selected++;
         }
     } else if (key == KEY_LEFT) {
-        if (s_desktop_selected % cols > 0) {
-            s_desktop_selected--;
-        } else if (s_desktop_page > 0) {
-            s_desktop_page--;
-            s_desktop_selected = app_count - 1;
-            desktop_page_init(NULL);  // 重建页面
-            return true;
+        if (state->layout == 0) {
+            if (s_desktop_selected % 2 == 1) {
+                s_desktop_selected--;
+            } else if (s_desktop_page > 0) {
+                s_desktop_page--;
+                s_desktop_selected = app_count - 1;
+                desktop_page_init(NULL);  // 重建页面
+                return true;
+            }
+        } else {
+            if (s_desktop_selected > 0) s_desktop_selected--;
         }
     } else if (key == KEY_RIGHT) {
-        if (s_desktop_selected % cols < cols - 1 && s_desktop_selected + 1 < page_apps) {
-            s_desktop_selected++;
-        } else if (s_desktop_page < s_desktop_total_pages - 1) {
-            s_desktop_page++;
-            s_desktop_selected = 0;
-            desktop_page_init(NULL);  // 重建页面
-            return true;
+        if (state->layout == 0) {
+            if (s_desktop_selected % 2 == 0) {
+                s_desktop_selected++;
+            } else if (s_desktop_page < s_desktop_total_pages - 1) {
+                s_desktop_page++;
+                s_desktop_selected = 0;
+                desktop_page_init(NULL);  // 重建页面
+                return true;
+            }
+        } else {
+            if (s_desktop_selected < app_count - 1) s_desktop_selected++;
         }
     } else if (key == KEY_A) {
         // 启动应用
@@ -409,16 +410,14 @@ static bool desktop_page_on_key(int key)
     }
     
     // 边界检查
-    if (s_desktop_selected >= page_apps) s_desktop_selected = page_apps - 1;
+    if (s_desktop_selected >= app_count) s_desktop_selected = app_count - 1;
     if (s_desktop_selected < 0) s_desktop_selected = 0;
     
     // 高亮新选中项
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_bg_color(s_app_cells[s_desktop_selected], 
-                                   lv_color_hex(colors->sel_bg), 0);
-        lv_obj_set_style_bg_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(s_app_cells[s_desktop_selected], 1), 
-                                     lv_color_hex(colors->sel_border), 0);
+        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected], 
+                                       lv_color_hex(colors->sel_border), 0);
+        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
     }
     
     return handled;
