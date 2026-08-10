@@ -15,7 +15,7 @@ idf_component_register(
                   esp_driver_gpio
                   esp_driver_spi
                   esp_driver_ledc
-                  esp_driver_adc
+                  esp_adc
                   esp_hw_support
                   heap
                   spi_flash
