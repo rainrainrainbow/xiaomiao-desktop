@@ -81,7 +81,7 @@ jobs:
             --output xiaomiao-desktop-merged.bin \
             0x1000 build/bootloader/bootloader.bin \
             0x8000 build/partition_table/partition-table.bin \
-            0xC0000 build/xiaomiao-desktop.bin
+            0xA0000 build/xiaomiao-desktop.bin
 
       - name: Show build artifacts
         run: |
