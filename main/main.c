@@ -128,12 +128,6 @@ static void st7735_tx_cmd(int cmd)
     esp_lcd_panel_io_tx_param(s_lcd_io, cmd, NULL, 0);
 }
 
-static void st7735_tx_data(const void *data, size_t len)
-{
-    esp_lcd_panel_io_tx_param(s_lcd_io, 0, data, len); /* cmd=0 ?? */
-    /* Actually tx_param takes cmd + data, so for data we use RAMWR */
-}
-
 static void st7735_init(esp_lcd_panel_io_handle_t io)
 {
     const uint8_t frmctr[]  = {0x01,0x2C,0x2D};
@@ -261,22 +255,6 @@ static void lcd_test_4colors(esp_lcd_panel_io_handle_t io)
             esp_lcd_panel_io_tx_color(io, ST7735_RAMWR, line_buf, sizeof(line_buf));
         }
         ESP_LOGI(TAG, "Drew %s in [%d,%d]-[%d,%d]", names[q], x0, y0, x1, y1);
-    }
-}
-
-/* 画简单 5x7 字体（仅 ASCII 字符）*/
-static const uint8_t font5x7_chars[][5] = {
-    /* Space (0x20) - Z (0x5A) - 简化版本只画基本字符 */
-};
-
-static void lcd_draw_char(esp_lcd_panel_io_handle_t io, int x, int y, char c, uint16_t fg, uint16_t bg)
-{
-    /* 简化：直接画一个 8x8 色块作为占位 */
-    lcd_set_window(io, x, y, x+7, y+7);
-    uint16_t line[8];
-    for (int i = 0; i < 8; i++) line[i] = fg;
-    for (int r = 0; r < 8; r++) {
-        esp_lcd_panel_io_tx_color(io, ST7735_RAMWR, line, sizeof(line));
     }
 }
 
