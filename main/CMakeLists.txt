@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS 
+    SRCS
         "main.c"
         "ui/ui_framework.c"
         "app/app_manager.c"
@@ -9,7 +9,19 @@ idf_component_register(
         "driver/drv_backlight.c"
         "driver/drv_battery.c"
         "system/sys_nvs.c"
-
     INCLUDE_DIRS "." "ui" "app" "driver" "system"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer app_update
+    PRIV_REQUIRES esp_lcd
+                  esp_timer
+                  esp_driver_gpio
+                  esp_driver_spi
+                  esp_driver_ledc
+                  esp_driver_adc
+                  esp_hw_support
+                  heap
+                  spi_flash
+                  lvgl
+                  nvs_flash
+                  app_update
+    REQUIRES driver
 )
+target_link_libraries(${COMPONENT_LIB} PRIVATE m)

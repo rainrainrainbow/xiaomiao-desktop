@@ -1,8 +1,14 @@
-# ESP32 Partition Table (4MB Flash)
-# All app partition offsets must be 64KB-aligned (0x10000)
-nvs,        data, nvs,      0x9000,  0x5000,
-otadata,    data, ota,      0xE000,  0x2000,
-phy_init,   data, phy,      0x10000, 0x1000,
-factory,    app,  factory,  0x20000, 0x80000,
-launcher,   app,  ota_0,   0xA0000, 0x220000,
-retro_core, app,  ota_1,   0x2C0000,0x140000,
+# Xiaomiao ROM Loader partition table
+# Flash: 4MB QIO 80MHz, partition table at 0x9000
+#
+# factory  - Loader firmware (persistent, never overwritten by OTA)
+# ota_0    - ROM slot (loader writes selected ROM app image here)
+# otadata  - Boot selection (loader sets to ota_0 before reboot;
+#            ROM sets back to factory on startup for return-to-loader)
+
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0xA000,   0x5000,
+phy_init, data, phy,     0xF000,   0x1000,
+factory,  app,  factory, 0x10000,  0xAE000,
+otadata,  data, ota,     0xBE000,  0x2000,
+ota_0,    app,  ota_0,   0xC0000,  0x340000,
