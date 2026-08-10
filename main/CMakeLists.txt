@@ -11,5 +11,5 @@ idf_component_register(
         "system/sys_nvs.c"
 
     INCLUDE_DIRS "." "ui" "app" "driver" "system"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer esp_app_update
 )

@@ -1,16 +1,20 @@
 /*
- * return_to_loader.h — drop-in for ROM firmware (xiaomiao-os compatible)
+ * return_to_loader.h — drop-in for xiaomao-loader (jsfaint) compatible ROM.
  *
  * Include this header and call return_to_loader_setup() as the very
  * first line of app_main().  It points the OTA boot partition back to
  * the factory (loader) partition, so that any reset, power-cycle, or
- * esp_restart() returns to the ROM Loader instead of re-entering this
+ * esp_restart() returns to xiaomao-loader instead of re-entering this
  * ROM.
  *
- * Compatible with xiaomiao-os / xiaomao-loader partition layout:
- *   - factory @ 0x10000  (Loader firmware, persistent)
- *   - ota_0    @ 0xC0000 (OS slot — this firmware)
- *   - otadata  @ 0xBE000 (boot selection)
+ * Compatible with jsfaint/xiaomiao-loader partition layout:
+ *   - factory    @ 0x10000  (Loader firmware, persistent)
+ *   - launcher   @ 0xA0000  (subtype=ota_0, this OS firmware)
+ *   - retro-core @ 0x2C0000 (subtype=ota_1, optional second slot)
+ *   - otadata    @ 0x9E000  (boot selection)
+ *
+ * Combined with CONFIG_BOOTLOADER_FACTORY_RESET=GPIO12, holding the
+ * B button while powering on boots the loader directly.
  */
 
 #pragma once

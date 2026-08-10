@@ -1,15 +1,20 @@
-# Xiaomiao OS Partition Table
-# Flash: 4MB QIO 80MHz, partition table at 0x9000
+# Xiaomiao ROM Loader partition table
+# Flash: 4MB QIO 80MHz, partition table at 0x8000
 #
-# factory  - Loader firmware (persistent, never overwritten by OTA)
-# ota_0    - OS slot (loader writes OS image here)
-# otadata  - Boot selection
-# spiffs   - System config storage (app list, desktop layout)
+# factory      - Loader firmware (persistent, never overwritten by OTA)
+# launcher     - ROM slot 0 (xiaomiao-desktop OS lives here, subtype=ota_0)
+# retro-core   - ROM slot 1 (subtype=ota_1, for retro-go / other cores)
+# otadata      - Boot selection (loader sets to ota_0 before reboot;
+#                ROM sets back to factory on startup for return-to-loader)
+#
+# Note: xiaomao-loader looks up the OS partition by SUBTYPE ota_0, so
+# our desktop firmware must be flashed to the "launcher" partition
+# (offset 0xA0000).  This is what the user means by "burn to ota_0".
 
-# Name,     Type, SubType, Offset,   Size,     Flags
-nvs,        data, nvs,     0xA000,   0x5000,
-phy_init,   data, phy,     0xF000,   0x1000,
-factory,    app,  factory, 0x10000,  0xAE000,
-otadata,    data, ota,     0xBE000,  0x2000,
-ota_0,      app,  ota_0,   0xC0000,  0x300000,
-spiffs,     data, spiffs,  0x3C0000, 0x40000,
+# Name,       Type, SubType, Offset,   Size,     Flags
+nvs,          data, nvs,     0xA000,   0x5000,
+phy_init,     data, phy,     0xF000,   0x1000,
+factory,      app,  factory, 0x10000,  0x8E000,
+otadata,      data, ota,     0x9E000,  0x2000,
+launcher,     app,  ota_0,   0xA0000,  0x220000,
+retro-core,   app,  ota_1,   0x2C0000, 0x140000,

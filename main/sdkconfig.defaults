@@ -1,23 +1,44 @@
-# Xiaomiao Desktop - ESP-IDF defaults
-# Flash: 4MB QIO 80MHz, custom partition table at 0x9000
+# Xiaomiao Desktop — ESP-IDF defaults
+# Compatible with jsfaint/xiaomiao-loader partition layout.
+# Flash: 4MB QIO 80MHz, partition table at 0x8000.
+#
+# To install via xiaomao-loader:
+#   1. Build → xiaomiao-desktop-merged.bin
+#   2. In loader menu, "Flash OS" → select merged.bin
+#   3. Loader writes to launcher partition (offset 0xA0000, subtype=ota_0)
+#   4. On reboot, loader switches boot partition to launcher
+#   5. Desktop boots. Hold B (GPIO12) on reset to return to loader.
 
+# ── Flash ────────────────────────────────────────────────────────────
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+# CONFIG_ESPTOOLPY_FLASHMODE_DIO is not set
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_ESPTOOLPY_FLASHFREQ="80m"
+# CONFIG_ESPTOOLPY_FLASHSIZE_2MB is not set
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
 
-# Custom partition table (matches xiaomiao-os / xiaomao-loader)
+# ── Custom partition table (xiaomao-loader compatible) ────────────────
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
-CONFIG_PARTITION_TABLE_OFFSET=0x9000
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
 
-# Performance
+# ── CPU / performance ────────────────────────────────────────────────
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_PERF=y
 
-# LVGL
+# ── Bootloader: hold B (GPIO12) on reset → boot loader ───────────────
+CONFIG_BOOTLOADER_FACTORY_RESET=y
+CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET=12
+# Loader relies on GPIO factory reset, NOT OTA rollback
+# CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE is not set
+CONFIG_BOOTLOADER_OTA_DATA_ERASE=y
+
+# ── LVGL ──────────────────────────────────────────────────────────────
 CONFIG_LV_CONF_SKIP=y
 CONFIG_LV_COLOR_DEPTH_16=y
 CONFIG_LV_DEF_REFR_PERIOD=16
@@ -31,11 +52,6 @@ CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_10=y
 CONFIG_LV_USE_PERF_MONITOR_LOG_MODE=n
 
-# FreeRTOS
-CONFIG_FREERTOS_HZ=1000
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
-
-# SPI master (better LCD performance)
+# ── SPI master (better LCD throughput) ───────────────────────────────
 CONFIG_SPI_MASTER_IN_IRAM=y
 CONFIG_SPI_MASTER_ISR_IN_IRAM=y
