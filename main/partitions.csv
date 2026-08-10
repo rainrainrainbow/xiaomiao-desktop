@@ -1,0 +1,15 @@
+# Xiaomiao OS Partition Table
+# Flash: 4MB QIO 80MHz, partition table at 0x9000
+#
+# factory  - Loader firmware (persistent, never overwritten by OTA)
+# ota_0    - OS slot (loader writes OS image here)
+# otadata  - Boot selection
+# spiffs   - System config storage (app list, desktop layout)
+
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0xA000,   0x5000,
+phy_init,   data, phy,     0xF000,   0x1000,
+factory,    app,  factory, 0x10000,  0xAE000,
+otadata,    data, ota,     0xBE000,  0x2000,
+ota_0,      app,  ota_0,   0xC0000,  0x300000,
+spiffs,     data, spiffs,  0x3C0000, 0x40000,
