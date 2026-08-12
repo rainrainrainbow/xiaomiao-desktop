@@ -303,6 +303,7 @@ void app_main(void)
         .clock_speed_hz = LCD_PIXEL_CLOCK_HZ,
         .spics_io_num = PIN_LCD_CS,
         .queue_size = 10,
+        .flags = SPI_DEVICE_HALFDUPLEX,  /* LCD 只发送不接收，半双工模式支持 60MHz */
     };
     ESP_ERROR_CHECK(spi_bus_add_device(LCD_HOST, &devcfg, &s_spi_dev));
 
