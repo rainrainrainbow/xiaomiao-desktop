@@ -149,6 +149,25 @@ static void lcd_cmd_data(uint8_t cmd, const uint8_t *data, size_t len)
 static void lcd_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 /* ═══════════════════════════════════════════════════════════════════════
+ * 清屏 — 照抄 loader 的 st7735_clear_black()
+ * 按 8 行分块发送，避免一次性发送整屏导致 DMA 问题
+ * ═══════════════════════════════════════════════════════════════════════*/
+static void st7735_clear_black(void)
+{
+    static uint16_t line[LCD_H_RES * 8];
+    const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};  /* 160 */
+    memset(line, 0, sizeof(line));
+    lcd_cmd_data(ST7735_CASET, caset, sizeof(caset));
+    for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
+        const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
+        const uint8_t raset[] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
+        lcd_cmd_data(ST7735_RASET, raset, sizeof(raset));
+        lcd_cmd(ST7735_RAMWR);
+        lcd_data((uint8_t*)line, (y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
  * ST7735 初始化 — 精确照抄 loader 的 st7735_init_black_tab_rot90()
  * ═══════════════════════════════════════════════════════════════════════*/
 static void st7735_init(void)
@@ -203,25 +222,6 @@ static void st7735_init(void)
     st7735_clear_black();
 
     ESP_LOGI(TAG, "ST7735 init complete (loader timing, direct SPI)");
-}
-
-/* ═══════════════════════════════════════════════════════════════════════
- * 清屏 — 照抄 loader 的 st7735_clear_black()
- * 按 8 行分块发送，避免一次性发送整屏导致 DMA 问题
- * ═══════════════════════════════════════════════════════════════════════*/
-static void st7735_clear_black(void)
-{
-    static uint16_t line[LCD_H_RES * 8];
-    const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};  /* 160 */
-    memset(line, 0, sizeof(line));
-    lcd_cmd_data(ST7735_CASET, caset, sizeof(caset));
-    for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
-        const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
-        const uint8_t raset[] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
-        lcd_cmd_data(ST7735_RASET, raset, sizeof(raset));
-        lcd_cmd(ST7735_RAMWR);
-        lcd_data((uint8_t*)line, (y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
-    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
