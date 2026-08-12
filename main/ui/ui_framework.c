@@ -46,15 +46,13 @@ static const theme_colors_t s_themes[THEME_MAX] = {
     },
 };
 
-/* ========== UI全局状态 ==========
- * v27 修复：默认亮度 100，避免首屏太暗
- */
+/* ========== UI全局状态 ========== */
 static ui_state_t s_ui_state = {
     .statusbar = NULL,
     .time_label = NULL,
     .bat_label = NULL,
     .theme = THEME_DARK,
-    .brightness = 100,
+    .brightness = 75,
     .sound_on = true,
     .wifi_on = true,
     .layout = 0,
