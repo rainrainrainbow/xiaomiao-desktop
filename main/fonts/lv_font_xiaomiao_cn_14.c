@@ -4,11 +4,9 @@
  * Opts: --no-compress --no-prefilter --bpp 4 --size 14 --format lvgl --lv-font-name lv_font_xiaomiao_cn_14 --font /sdcard/Download/operit_cache/NotoSansSC-Regular.otf -r 0x20-0x7E --symbols %—…。一上下不与丢个中为主久义之乐乱事于享亮仅从他代以们件任伏优传似位低住体作使供侧保信修值储充先光免兜入全共关其具兼内册再冲出击函分切列创初删判到制刷前功加务动化区单占卡即历压原去反发取变口只可台右号吃合同名后向否含启周命和品响商喵器回因图圆在地坐块型域塞填增声处备复外多大失头奶如始子字存完定实容密寸对导射将小尺局层居屏崩工左已布带常幕平并序库应底店度建开式引弹归当录形径待循心志态性总恢息意戏成我或户所手打执扫找抖拉拟持指按换据掉接控推掩描插支改放敬数整文断新方无旧时明映是显景暂暗曲更替最有服期木未本机松板极构析果架柄查标栈栏样核根格框桌检棕模横次正此毁每比毫池油注活浅测浏消深清游溃源溢满激点父版牌特状独环现理生用由电画界留百的盖盘目直相短码确示秒积称移程稳空立笔符第等签简算管类系索紧红约级纯线组结给统续绿缓编网置耦背能脚自致航色若获蓝蛇行表要覆见览解触计认记设访证试话请读调象败贪资起超越距跟路跳踪转载较辑输边过运近返这进退送选透递通逻遍道避部配采释里重量针销锂键长问闲间阈队阻际除集静非靠面音页顶项题颜风首驱高黄黑默％，： --font /sdcard/Download/operit_cache/fa-solid-900.ttf -r 0xF001,0xF00B,0xF013,0xF019,0xF04B,0xF304 -o /sdcard/Download/operit_cache/lv_font_xiaomiao_cn_14.c
  ******************************************************************************/
 
-#ifdef LV_LVGL_H_INCLUDE_SIMPLE
+// ESP-IDF lvgl 组件通过 include path 直接暴露 lvgl.h
+// 修改原生成文件的 lvgl/lvgl.h 引用为 lvgl.h 以适配 ESP-IDF 构建系统
 #include "lvgl.h"
-#else
-#include "lvgl/lvgl.h"
-#endif
 
 #ifndef LV_FONT_XIAOMIAO_CN_14
 #define LV_FONT_XIAOMIAO_CN_14 1
