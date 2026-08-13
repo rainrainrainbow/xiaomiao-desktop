@@ -5,6 +5,7 @@
 
 #include "drv_button.h"
 #include "drv_battery.h"   // 复用电池ADC读取A键(GPIO34)
+#include "ui/event_bus.h"  // 事件总线
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -144,8 +145,17 @@ void drv_button_task(void *pvParameters)
                     btn_event_t evt = { .key = raw, .is_long_press = false };
                     if (s_btn_queue != NULL) {
                         xQueueSend(s_btn_queue, &evt, 0);
-                        ESP_LOGI(TAG, "Button short-press: %d", evt.key);
                     }
+                    
+                    // 通过事件总线发布按键事件
+                    key_event_data_t key_evt = {
+                        .key = raw,
+                        .is_long_press = false,
+                        .timestamp = lv_tick_get(),
+                    };
+                    event_publish(EVENT_KEY_PRESS, &key_evt, sizeof(key_evt));
+                    
+                    ESP_LOGI(TAG, "Button short-press: %d", evt.key);
                 }
                 last_stable = raw;
                 press_time = now;
@@ -164,8 +174,17 @@ void drv_button_task(void *pvParameters)
             btn_event_t evt = { .key = last_stable, .is_long_press = true };
             if (s_btn_queue != NULL) {
                 xQueueSend(s_btn_queue, &evt, 0);
-                ESP_LOGI(TAG, "Button LONG-press: %d", evt.key);
             }
+            
+            // 通过事件总线发布长按事件
+            key_event_data_t key_evt = {
+                .key = last_stable,
+                .is_long_press = true,
+                .timestamp = lv_tick_get(),
+            };
+            event_publish(EVENT_KEY_LONG_PRESS, &key_evt, sizeof(key_evt));
+            
+            ESP_LOGI(TAG, "Button LONG-press: %d", evt.key);
         }
 
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms 扫描周期
