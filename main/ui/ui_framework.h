@@ -2,11 +2,14 @@
  * @file ui_framework.h
  * @brief 小喵桌面 UI框架核心 - 页面栈管理、导航、主题系统
  * 
- * 架构设计：
+ * 架构设计（v59 重构，借鉴 X-TRACK）：
  * - 页面栈模式：支持多级导航，B键返回上一级
- * - 页面生命周期：init → activate → deactivate → destroy
+ * - 页面生命周期：IDLE → LOAD → WILL_APPEAR → DID_APPEAR → ACTIVITY 
+ *                → WILL_DISAPPEAR → DID_DISAPPEAR → UNLOAD
  * - 统一输入处理：on_key事件分发到当前页面
  * - 主题系统：颜色、字体、间距统一管理
+ * - 页面缓存：可选缓存机制，提升切换性能
+ * - Stash数据传递：页面间参数传递
  */
 
 #ifndef UI_FRAMEWORK_H
@@ -14,6 +17,7 @@
 
 #include "lvgl.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 /* ========== 屏幕尺寸定义 ========== */
 #define LCD_H_RES           160
@@ -35,28 +39,60 @@ typedef enum {
     PAGE_MAX
 } page_type_t;
 
-/* ========== 页面生命周期回调 ========== */
+/* ========== 页面生命周期状态（借鉴 X-TRACK） ========== */
+typedef enum {
+    PAGE_STATE_IDLE,            // 空闲
+    PAGE_STATE_LOAD,            // 加载中
+    PAGE_STATE_WILL_APPEAR,     // 即将显示
+    PAGE_STATE_DID_APPEAR,      // 已显示
+    PAGE_STATE_ACTIVITY,        // 活动中
+    PAGE_STATE_WILL_DISAPPEAR,  // 即将隐藏
+    PAGE_STATE_DID_DISAPPEAR,   // 已隐藏
+    PAGE_STATE_UNLOAD,          // 卸载中
+    PAGE_STATE_MAX
+} page_state_t;
+
+/* ========== Stash 数据传递（简化版） ========== */
+#define PAGE_STASH_SIZE 64  // Stash 缓冲区大小（字节）
+
+typedef struct {
+    uint8_t data[PAGE_STASH_SIZE];
+    uint32_t size;
+    bool valid;
+} page_stash_t;
+
+/* ========== 页面生命周期回调（v59 重构） ========== */
 typedef struct {
     /**
-     * 页面初始化
+     * 页面加载开始（创建 LVGL 对象）
      * @param data 传递给页面的数据（如应用信息）
      */
-    void (*init)(void *data);
+    void (*on_load)(void *data);
     
     /**
-     * 页面激活（进入前台）
+     * 页面即将显示（动画开始前）
      */
-    void (*activate)(void);
+    void (*on_will_appear)(void);
     
     /**
-     * 页面失活（进入后台）
+     * 页面已显示（动画结束后，可启动定时任务）
      */
-    void (*deactivate)(void);
+    void (*on_did_appear)(void);
     
     /**
-     * 页面销毁
+     * 页面即将隐藏（动画开始前，可暂停任务）
      */
-    void (*destroy)(void);
+    void (*on_will_disappear)(void);
+    
+    /**
+     * 页面已隐藏（动画结束后）
+     */
+    void (*on_did_disappear)(void);
+    
+    /**
+     * 页面卸载（销毁 LVGL 对象）
+     */
+    void (*on_unload)(void);
     
     /**
      * 按键事件处理
@@ -64,9 +100,24 @@ typedef struct {
      * @return true 表示已处理，false 表示未处理
      */
     bool (*on_key)(int key);
+    
+    /**
+     * 页面缓存配置（可选）
+     * @return true 启用缓存，false 不缓存
+     */
+    bool (*should_cache)(void);
+} page_callbacks_v2_t;
+
+/* 兼容旧版回调结构体 */
+typedef struct {
+    void (*init)(void *data);
+    void (*activate)(void);
+    void (*deactivate)(void);
+    void (*destroy)(void);
+    bool (*on_key)(int key);
 } page_callbacks_t;
 
-/* ========== 页面栈管理 ========== */
+/* ========== 页面栈管理（v59 重构） ========== */
 
 /**
  * 初始化页面栈
@@ -76,8 +127,14 @@ void ui_stack_init(void);
 /**
  * 推入新页面到栈顶
  * @param type 页面类型
- * @param callbacks 页面回调函数集
+ * @param callbacks 页面回调函数集（v2 版本）
  * @param data 传递给页面的数据
+ */
+void ui_stack_push_v2(page_type_t type, const page_callbacks_v2_t *callbacks, void *data);
+
+/**
+ * 推入新页面到栈顶（兼容旧版）
+ * @deprecated 请使用 ui_stack_push_v2
  */
 void ui_stack_push(page_type_t type, const page_callbacks_t *callbacks, void *data);
 
@@ -88,6 +145,11 @@ void ui_stack_push(page_type_t type, const page_callbacks_t *callbacks, void *da
 bool ui_stack_pop(void);
 
 /**
+ * 返回桌面主页（清除所有页面栈）
+ */
+void ui_stack_back_home(void);
+
+/**
  * 获取当前页面类型
  * @return 当前页面类型
  */
@@ -96,6 +158,12 @@ page_type_t ui_stack_current(void);
 /**
  * 获取当前页面的回调函数集
  * @return 回调函数集指针（栈空时返回NULL）
+ */
+const page_callbacks_v2_t* ui_stack_current_callbacks_v2(void);
+
+/**
+ * 获取当前页面的回调函数集（兼容旧版）
+ * @deprecated 请使用 ui_stack_current_callbacks_v2
  */
 const page_callbacks_t* ui_stack_current_callbacks(void);
 
@@ -109,6 +177,18 @@ int ui_stack_depth(void);
  * 清空页面栈，只保留桌面
  */
 void ui_stack_clear(void);
+
+/**
+ * 设置 Stash 数据（用于页面间传递参数）
+ * @param stash Stash 数据指针
+ */
+void ui_stash_set(const page_stash_t *stash);
+
+/**
+ * 获取并清除 Stash 数据
+ * @return Stash 数据指针（调用后 stash 失效）
+ */
+page_stash_t* ui_stash_pop(void);
 
 /* ========== 主题系统 ========== */
 
