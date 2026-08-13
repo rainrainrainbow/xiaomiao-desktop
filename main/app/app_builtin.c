@@ -278,10 +278,12 @@ static bool settings_on_key(int key)
     ui_state_t *st = ui_state_get();
 
     if (key == KEY_B) {
-        // 保存并退出
-        sys_nvs_save_settings(st->brightness, st->sound_on,
-                              (int)st->theme, st->wifi_on, st->layout);
-        ui_stack_pop();
+        // 保存并退出（仅当栈深>1时，避免弹出桌面导致崩溃）
+        if (ui_stack_depth() > 1) {
+            sys_nvs_save_settings(st->brightness, st->sound_on,
+                                  (int)st->theme, st->wifi_on, st->layout);
+            ui_stack_pop();
+        }
         return true;
     }
 
@@ -391,7 +393,10 @@ static void applist_destroy(void)
 
 static bool applist_on_key(int key)
 {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
 
     int builtin_count;
     const app_def_t *apps = app_manager_get_builtin(&builtin_count);
@@ -496,7 +501,10 @@ static void editor_destroy(void)
 
 static bool editor_on_key(int key)
 {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
     if (key == KEY_LEFT) { s_editor_pane = 0; return true; }
     if (key == KEY_RIGHT) { s_editor_pane = 1; return true; }
     return true;
@@ -536,7 +544,10 @@ static void store_destroy(void)
 
 static bool store_on_key(int key)
 {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
     return true;
 }
 
@@ -560,7 +571,10 @@ static void snake_init(void *data)
 
 static void snake_destroy(void) { ESP_LOGI(TAG, "Snake destroy"); }
 static bool snake_on_key(int key) {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
     return true;
 }
 
@@ -584,6 +598,9 @@ static void music_init(void *data)
 
 static void music_destroy(void) { ESP_LOGI(TAG, "Music destroy"); }
 static bool music_on_key(int key) {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
     return true;
 }
