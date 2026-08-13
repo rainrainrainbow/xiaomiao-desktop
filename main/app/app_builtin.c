@@ -84,48 +84,48 @@ static const page_callbacks_t s_music_callbacks = {
 };
 
 /* ========== 内置应用定义 ==========
- * 图标用 LVGL 内置符号，名称用英文（8px montserrat 不支持中文）
- * 标题栏等大字号处使用中文（CJK 14px 字体）
+ * 名称用中文（LVGL 内置图形符号 + CJK 中文字体）
+ * 图标用 LVGL 内置符号（LV_SYMBOL_* 支持，无乱码）
  * 模拟器 6 个应用/屏
  */
 static const app_def_t s_builtin_app_defs[] = {
     {
-        .name = "Apps",
+        .name = "应用",
         .icon_text = LV_SYMBOL_LIST,
         .icon_color = 0xF6D34A,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "Settings",
+        .name = "设置",
         .icon_text = LV_SYMBOL_SETTINGS,
         .icon_color = 0x5C4220,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "Blocks",
+        .name = "积木",
         .icon_text = LV_SYMBOL_EDIT,
         .icon_color = 0x2DD466,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "Store",
+        .name = "商店",
         .icon_text = LV_SYMBOL_DOWNLOAD,
         .icon_color = 0xE64B3C,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "Snake",
+        .name = "贪吃蛇",
         .icon_text = LV_SYMBOL_PLAY,
         .icon_color = 0x22C55E,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "Music",
+        .name = "音乐",
         .icon_text = LV_SYMBOL_AUDIO,
         .icon_color = 0x8B5CF6,
         .type = APP_TYPE_BUILTIN,
@@ -147,12 +147,12 @@ void app_builtin_register_all(void)
 /* ========== 获取应用页面回调 ========== */
 const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
 {
-    if (strcmp(app_name, "Settings") == 0) return &s_settings_callbacks;
-    if (strcmp(app_name, "Apps") == 0) return &s_applist_callbacks;
-    if (strcmp(app_name, "Blocks") == 0) return &s_editor_callbacks;
-    if (strcmp(app_name, "Store") == 0) return &s_store_callbacks;
-    if (strcmp(app_name, "Snake") == 0) return &s_snake_callbacks;
-    if (strcmp(app_name, "Music") == 0) return &s_music_callbacks;
+    if (strcmp(app_name, "设置") == 0) return &s_settings_callbacks;
+    if (strcmp(app_name, "应用") == 0) return &s_applist_callbacks;
+    if (strcmp(app_name, "积木") == 0) return &s_editor_callbacks;
+    if (strcmp(app_name, "商店") == 0) return &s_store_callbacks;
+    if (strcmp(app_name, "贪吃蛇") == 0) return &s_snake_callbacks;
+    if (strcmp(app_name, "音乐") == 0) return &s_music_callbacks;
     return NULL;
 }
 
@@ -161,12 +161,12 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
 #define SETTINGS_ITEM_H  14
 
 static const char *s_settings_items[] = {
-    "Brightness",
-    "Theme",
-    "Sound",
+    "亮度",
+    "主题",
+    "声音",
     "WiFi",
-    "Layout",
-    "Save & Exit",
+    "布局",
+    "保存并退出",
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
@@ -179,16 +179,16 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "Brightness", "Theme", "Sound", "WiFi", "Layout", "Save & Exit"
+        "亮度", "主题", "声音", "WiFi", "布局", "保存并退出"
     };
     char buf[40];
     switch (idx) {
     case 0: snprintf(buf, sizeof(buf), "%s: %d%%", items[0], st->brightness); break;
     case 1: snprintf(buf, sizeof(buf), "%s: %s", items[1],
-                     st->theme == THEME_DARK ? "Dark" : "Light"); break;
-    case 2: snprintf(buf, sizeof(buf), "%s: %s", items[2], st->sound_on ? "On" : "Off"); break;
-    case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "On" : "Off"); break;
-    case 4: snprintf(buf, sizeof(buf), "%s: %d per page",
+                     st->theme == THEME_DARK ? "深色" : "浅色"); break;
+    case 2: snprintf(buf, sizeof(buf), "%s: %s", items[2], st->sound_on ? "开" : "关"); break;
+    case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
+    case 4: snprintf(buf, sizeof(buf), "%s: %d 每页",
                      items[4], st->layout == 0 ? 4 : 2); break;
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
     }
@@ -247,7 +247,9 @@ static void settings_init(void *data)
 
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_8, 0);
+        // 设置项含中文，使用 CJK 字体
+        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[i] = lbl;
         settings_refresh_label(i);
@@ -368,10 +370,12 @@ static void applist_init(void *data)
 
         lv_obj_t *lbl = lv_label_create(row);
         char buf[32];
-        snprintf(buf, sizeof(buf), "%s  %s", apps[i].icon_text, apps[i].name);
+        snprintf(buf, sizeof(buf), "%s %s", apps[i].icon_text, apps[i].name);
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_8, 0);
+        // 应用名为中文，使用 CJK 字体
+        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 
@@ -458,7 +462,8 @@ static void editor_init(void *data)
     lv_obj_t *hdr_l = lv_label_create(pane_l);
     lv_label_set_text(hdr_l, "积木库");
     lv_obj_set_style_text_color(hdr_l, lv_color_hex(0x5C4220), 0);
-    lv_obj_set_style_text_font(hdr_l, &lv_font_montserrat_8, 0);
+    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+    lv_obj_set_style_text_font(hdr_l, &lv_font_source_han_sans_sc_14_cjk, 0);
     lv_obj_set_style_text_align(hdr_l, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hdr_l, 76);
 
@@ -472,9 +477,10 @@ static void editor_init(void *data)
     lv_obj_set_style_pad_row(pane_r, 1, 0);
 
     lv_obj_t *hdr_r = lv_label_create(pane_r);
-    lv_label_set_text(hdr_r, "程序 main.py");
+    lv_label_set_text(hdr_r, "程序区");
     lv_obj_set_style_text_color(hdr_r, lv_color_hex(0x5C4220), 0);
-    lv_obj_set_style_text_font(hdr_r, &lv_font_montserrat_8, 0);
+    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+    lv_obj_set_style_text_font(hdr_r, &lv_font_source_han_sans_sc_14_cjk, 0);
     lv_obj_set_style_text_align(hdr_r, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hdr_r, 76);
 
@@ -543,11 +549,13 @@ static void snake_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0xF6D34A), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
+    ui_titlebar_create(scr, 14, "贪吃蛇");
     lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "贪吃蛇\n Coming Soon");
+    lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+    lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
 static void snake_destroy(void) { ESP_LOGI(TAG, "Snake destroy"); }
@@ -565,11 +573,13 @@ static void music_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0xF6D34A), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
+    ui_titlebar_create(scr, 14, "音乐");
     lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "音乐\n Coming Soon");
+    lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+    lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
 static void music_destroy(void) { ESP_LOGI(TAG, "Music destroy"); }

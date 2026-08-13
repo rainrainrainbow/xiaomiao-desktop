@@ -89,4 +89,28 @@ void app_builtin_register_all(void);
  */
 const page_callbacks_t* app_builtin_get_callbacks(const char *app_name);
 
+/* ========== 最近任务（Recents） ========== */
+
+#define MAX_RECENTS  6
+
+/**
+ * 记录一个最近打开的应用
+ * @param app 应用定义
+ */
+void app_manager_add_recents(const app_def_t *app);
+
+/**
+ * 获取最近打开的应用列表（最近优先）
+ * @param count 输出数量
+ * @return 应用数组指针（最多 MAX_RECENTS 个）
+ */
+const app_def_t* app_manager_get_recents(int *count);
+
+/**
+ * 获取最近任务的第 i 个应用指针
+ * @param i 索引（0=最近打开）
+ * @return 应用指针，越界返回 NULL
+ */
+const app_def_t* app_manager_get_recents_at(int i);
+
 #endif /* APP_MANAGER_H */

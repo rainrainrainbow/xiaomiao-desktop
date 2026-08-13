@@ -30,6 +30,7 @@ typedef enum {
     PAGE_APP_RUNNING,       // 运行中App全屏
     PAGE_EDITOR,            // 积木编辑器
     PAGE_STORE,             // 应用商店
+    PAGE_RECENTS,           // 最近任务
     PAGE_CUSTOM,            // 自定义应用页
     PAGE_MAX
 } page_type_t;

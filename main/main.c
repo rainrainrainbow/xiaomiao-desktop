@@ -260,6 +260,17 @@ static const page_callbacks_t s_desktop_callbacks = {
     .on_key = desktop_page_on_key,
 };
 
+/* ========== 最近任务（Recents）页面实现 ========== */
+static void recents_page_init(void *data);
+static void recents_page_destroy(void);
+static bool recents_page_on_key(int key);
+
+static const page_callbacks_t s_recents_callbacks = {
+    .init = recents_page_init,
+    .destroy = recents_page_destroy,
+    .on_key = recents_page_on_key,
+};
+
 // 桌面状态
 // 模拟器风格：3列×2行 = 每页 6 个应用
 static int s_desktop_selected = 0;
@@ -337,10 +348,12 @@ static void desktop_page_init(void *data)
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
 
         // 名称标签（模拟器：font-size:7px, color:var(--black)）
+        // 应用名为中文，使用 CJK 14px 字体（LVGL 9.5 无更小 CJK 字体）
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, &lv_font_montserrat_8, 0);
+        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+        lv_obj_set_style_text_font(name, &lv_font_source_han_sans_sc_14_cjk, 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
@@ -370,9 +383,10 @@ static void desktop_page_destroy(void)
 
 static bool desktop_page_on_key(int key)
 {
-    // B 键：让主循环兜底做返回（不要在此吞掉）
+    // B 键在桌面页：返回true，不执行返回（避免弹出桌面页导致崩溃）
+    // 长按B进入最近任务的逻辑在主循环中由按键驱动事件处理
     if (key == KEY_B) {
-        return false;
+        return true;
     }
 
     ui_state_t *state = ui_state_get();
@@ -435,6 +449,102 @@ static bool desktop_page_on_key(int key)
         ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], true);
     }
 
+    return true;
+}
+
+/* ========== 最近任务（Recents）页面实现 ========== */
+static lv_obj_t *s_recents_obj = NULL;
+static int s_recents_sel = 0;
+
+static void recents_page_init(void *data)
+{
+    ESP_LOGI(TAG, "Recents page init");
+    lv_obj_t *scr = lv_screen_active();
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(scr);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    // 状态栏
+    ui_statusbar_create(scr);
+    // 标题栏（中文，CJK 字体）
+    ui_titlebar_create(scr, 14, "最近任务");
+
+    int rec_count = 0;
+    app_manager_get_recents(&rec_count);
+    if (rec_count > 0) {
+        lv_obj_t *list = lv_obj_create(scr);
+        lv_obj_remove_style_all(list);
+        lv_obj_set_pos(list, 0, 26);
+        lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+        lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+        int max_show = (rec_count < 6) ? rec_count : 6;
+        int item_h = 14;
+        for (int i = 0; i < max_show; i++) {
+            lv_obj_t *row = lv_obj_create(list);
+            lv_obj_remove_style_all(row);
+            lv_obj_set_pos(row, 0, i * item_h);
+            lv_obj_set_size(row, LCD_H_RES, item_h);
+            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+            const app_def_t *app = app_manager_get_recents_at(i);
+            if (!app) break;
+            lv_obj_t *lbl = lv_label_create(row);
+            char buf[40];
+            snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app->name);
+            lv_label_set_text(lbl, buf);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            // 应用名为中文，使用 CJK 字体
+            LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+            lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        }
+        s_recents_obj = list;
+    } else {
+        lv_obj_t *lbl = lv_label_create(scr);
+        lv_label_set_text(lbl, "暂无最近任务");
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
+        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+    }
+
+    s_recents_sel = 0;
+    ui_dock_create(scr, 1, 0);
+}
+
+static void recents_page_destroy(void)
+{
+    ESP_LOGI(TAG, "Recents page destroy");
+    s_recents_obj = NULL;
+}
+
+static bool recents_page_on_key(int key)
+{
+    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_A) {
+        int rec_count = 0;
+        app_manager_get_recents(&rec_count);
+        if (rec_count > 0 && s_recents_sel < rec_count) {
+            const app_def_t *app = app_manager_get_recents_at(s_recents_sel);
+            if (app) {
+                app_manager_launch(app);
+                return true;
+            }
+        }
+        return true;
+    }
+    if (key == KEY_UP || key == KEY_DOWN) {
+        int rec_count = 0;
+        app_manager_get_recents(&rec_count);
+        if (rec_count <= 0) return true;
+        // 简单高亮切换
+        if (key == KEY_DOWN) s_recents_sel = (s_recents_sel + 1) % rec_count;
+        else s_recents_sel = (s_recents_sel - 1 + rec_count) % rec_count;
+        return true;
+    }
     return true;
 }
 
@@ -556,24 +666,32 @@ void app_main(void)
         lv_timer_handler();
         
         // 从队列获取按键事件（非阻塞）
-        int btn_event = drv_button_get_event();
-        
-        if (btn_event >= 0) {
-            ESP_LOGI(TAG, "KEY EVENT: idx=%d (UP=0,DOWN=1,LEFT=2,RIGHT=3,A=4,B=5)", btn_event);
+        btn_event_t btn_evt;
+        if (drv_button_get_event(&btn_evt)) {
+            int btn_event = btn_evt.key;
+            bool is_long = btn_evt.is_long_press;
+            ESP_LOGI(TAG, "KEY EVENT: idx=%d long=%d (UP=0,DOWN=1,LEFT=2,RIGHT=3,A=4,B=5)", 
+                     btn_event, is_long);
+            
+            // 全局处理：长按B → 进入最近任务页面
+            if (is_long && btn_event == BTN_IDX_B) {
+                ui_stack_push(PAGE_RECENTS, &s_recents_callbacks, NULL);
+                continue;
+            }
             
             // 分发按键事件到当前页面的 on_key 回调
             const page_callbacks_t *cbs = ui_stack_current_callbacks();
             if (cbs && cbs->on_key) {
                 bool handled = cbs->on_key(btn_event);
                 if (!handled) {
-                    // 全局兜底：B键=返回上一级
-                    if (btn_event == BTN_IDX_B) {
+                    // 全局兜底：B键=返回上一级（仅当栈深>1时，避免弹出桌面导致崩溃）
+                    if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
                         ui_stack_pop();
                     }
                 }
             } else {
-                // 无回调时的兜底：B键=返回
-                if (btn_event == BTN_IDX_B) {
+                // 无回调时的兜底：B键=返回（仅当栈深>1时）
+                if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
                     ui_stack_pop();
                 }
             }

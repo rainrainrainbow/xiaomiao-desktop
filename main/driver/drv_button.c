@@ -30,13 +30,17 @@ typedef struct {
     int stable;             // 稳定后的值
     int64_t change_time;    // 状态变化时间
     bool debounce_done;     // 去抖完成标志
+    int64_t press_time;     // 当前按键按下时间（连续稳定被按下）
+    bool long_sent;         // 长按事件是否已发送
 } btn_state_t;
 
 static btn_state_t s_btn_state = {
     .last_raw = -1,
     .stable = -1,
     .change_time = 0,
-    .debounce_done = true
+    .debounce_done = true,
+    .press_time = 0,
+    .long_sent = false
 };
 
 /* ========== 初始化按键驱动 ========== */
@@ -75,9 +79,9 @@ void drv_button_init(void)
         gpio_config(&pu);
     }
 
-    // 创建事件队列
+    // 创建事件队列（存储 btn_event_t）
     if (s_btn_queue == NULL) {
-        s_btn_queue = xQueueCreate(10, sizeof(int));
+        s_btn_queue = xQueueCreate(16, sizeof(btn_event_t));
     }
 
     ESP_LOGI(TAG, "Button driver initialized (%d buttons, debounce=%dms)",
@@ -118,8 +122,6 @@ void drv_button_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Button task started");
     
-    int last_event = -1;  // 上次触发的事件
-    
     while (1) {
         int raw = drv_button_scan_raw();
         int64_t now = esp_timer_get_time();
@@ -129,25 +131,47 @@ void drv_button_task(void *pvParameters)
             s_btn_state.last_raw = raw;
             s_btn_state.change_time = now;
             s_btn_state.debounce_done = false;
+            // 按键变化时如果之前有按下的键，说明按键状态改变了
         }
         
         // 去抖完成检测
         if (!s_btn_state.debounce_done && 
             (now - s_btn_state.change_time) >= (int64_t)BUTTON_DEBOUNCE_MS * 1000) {
-            s_btn_state.stable = raw;
             s_btn_state.debounce_done = true;
             
-            // 检测到按键按下（边沿触发）
-            if (raw >= 0 && raw != last_event) {
-                // 发送事件到队列
-                if (s_btn_queue != NULL) {
-                    xQueueSend(s_btn_queue, &raw, 0);
-                    ESP_LOGD(TAG, "Button event: %d", raw);
+            // 状态从"有按键"切换到"新按键"或"无按键"
+            if (raw != s_btn_state.stable) {
+                // 如果之前有按键稳定按下，且现在变为无按键 → 短按事件（释放）
+                if (s_btn_state.stable >= 0 && raw < 0) {
+                    // 仅在未触发过长按时发送短按事件（长按后释放不再重复）
+                    if (!s_btn_state.long_sent) {
+                        btn_event_t evt = { .key = s_btn_state.stable, .is_long_press = false };
+                        if (s_btn_queue != NULL) {
+                            xQueueSend(s_btn_queue, &evt, 0);
+                            ESP_LOGI(TAG, "Button short-press: %d", evt.key);
+                        }
+                    }
                 }
-                last_event = raw;
-            } else if (raw < 0) {
-                // 按键释放，重置事件状态
-                last_event = -1;
+                
+                // 更新稳定状态
+                s_btn_state.stable = raw;
+                s_btn_state.long_sent = false;
+                
+                // 记录按下起始时间
+                if (raw >= 0) {
+                    s_btn_state.press_time = now;
+                }
+            }
+        }
+        
+        // 长按检测：持续按住同一按键超过 LONG_PRESS_MS
+        if (s_btn_state.stable >= 0 && !s_btn_state.long_sent &&
+            (now - s_btn_state.press_time) >= (int64_t)LONG_PRESS_MS * 1000) {
+            s_btn_state.long_sent = true;
+            btn_event_t evt = { .key = s_btn_state.stable, .is_long_press = true };
+            if (s_btn_queue != NULL) {
+                xQueueSend(s_btn_queue, &evt, 0);
+                ESP_LOGI(TAG, "Button LONG-press: %d", evt.key);
             }
         }
         
@@ -156,21 +180,19 @@ void drv_button_task(void *pvParameters)
 }
 
 /* ========== 获取按键事件（非阻塞） ========== */
-int drv_button_get_event(void)
+bool drv_button_get_event(btn_event_t *evt)
 {
-    int event = -1;
-    if (s_btn_queue != NULL) {
-        xQueueReceive(s_btn_queue, &event, 0);
+    if (s_btn_queue != NULL && evt != NULL) {
+        return xQueueReceive(s_btn_queue, evt, 0) == pdTRUE;
     }
-    return event;
+    return false;
 }
 
 /* ========== 获取当前按下的按键（阻塞版本） ========== */
-int drv_button_wait_press(uint32_t timeout_ms)
+bool drv_button_wait_press(uint32_t timeout_ms, btn_event_t *evt)
 {
-    int event = -1;
-    if (s_btn_queue != NULL) {
-        xQueueReceive(s_btn_queue, &event, pdMS_TO_TICKS(timeout_ms));
+    if (s_btn_queue != NULL && evt != NULL) {
+        return xQueueReceive(s_btn_queue, evt, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
     }
-    return event;
+    return false;
 }

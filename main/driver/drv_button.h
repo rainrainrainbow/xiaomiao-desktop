@@ -31,6 +31,15 @@ typedef enum {
     BTN_IDX_MAX
 } btn_idx_t;
 
+/* ========== 按键事件 ========== */
+typedef struct {
+    int key;            // 按键索引 (0-5)
+    bool is_long_press; // 是否为长按（按住 > LONG_PRESS_MS）
+} btn_event_t;
+
+/* 长按阈值（毫秒） */
+#define LONG_PRESS_MS  500
+
 /* ========== 按键驱动接口 ========== */
 
 /**
@@ -46,17 +55,19 @@ void drv_button_task(void *pvParameters);
 
 /**
  * 获取按键事件（非阻塞）
- * @return 按下的按键索引（0-5），-1表示无事件
- * 
+ * @param evt 输出事件指针
+ * @return true 表示有事件，false 表示无事件
+ *
  * 注意：每个按键事件只返回一次，直到按键释放后再次按下
  */
-int drv_button_get_event(void);
+bool drv_button_get_event(btn_event_t *evt);
 
 /**
  * 获取当前按下的按键（阻塞版本，用于调试）
  * @param timeout_ms 超时时间（毫秒）
- * @return 按下的按键索引，-1表示超时
+ * @param evt 输出事件指针
+ * @return true 表示有事件，false 表示超时
  */
-int drv_button_wait_press(uint32_t timeout_ms);
+bool drv_button_wait_press(uint32_t timeout_ms, btn_event_t *evt);
 
 #endif /* DRV_BUTTON_H */

@@ -218,11 +218,12 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_set_style_text_font(s_ui_state.time_label, 
                                 &lv_font_montserrat_8, 0);
     
-    // 品牌名（中）
+    // 品牌名（中）- 使用中文"CJK"字体
     lv_obj_t *brand = lv_label_create(sb);
-    lv_label_set_text(brand, "XiaoMiaoOS");
+    lv_label_set_text(brand, "小喵OS");
     lv_obj_set_style_text_color(brand, lv_color_hex(0xFFF3B0), 0);
-    lv_obj_set_style_text_font(brand, &lv_font_montserrat_8, 0);
+    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
+    lv_obj_set_style_text_font(brand, &lv_font_source_han_sans_sc_14_cjk, 0);
     
     // 右侧容器（电池图标）
     lv_obj_t *rc = lv_obj_create(sb);
