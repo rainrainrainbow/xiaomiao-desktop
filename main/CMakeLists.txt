@@ -2,6 +2,7 @@ idf_component_register(
     SRCS 
         "main.c"
         "ui/ui_framework.c"
+        "ui/event_bus.c"
         "app/app_manager.c"
         "app/app_builtin.c"
         "app/app_micropython.c"
