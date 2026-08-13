@@ -85,12 +85,30 @@ void drv_button_init(void)
 /* ========== 扫描按键状态（原始） ========== */
 static int drv_button_scan_raw(void)
 {
+    // GPIO34(A键)是ADC共享引脚(与电池ADC共用)，被ADC配置后
+    // gpio_get_level 可能持续返回 0(BUTTON_ACTIVE_LEVEL)导致误触发。
+    // 因此 A 键(GPIO34)单独处理，先扫描其他可靠引脚。
     for (size_t i = 0; i < NUM_BUTTONS; i++) {
+        if (i == BTN_IDX_A) continue;  // 跳过A键(GPIO34, ADC共享)
         if (gpio_get_level(s_btn_gpios[i]) == BUTTON_ACTIVE_LEVEL) {
             return (int)i;
         }
     }
-    return -1;
+    
+    // A 键(GPIO34)：通过 gpio 电平无法可靠读取（被电池ADC占用），
+    // 这里通过读取 GPIO34 的输入状态判断。若检测到低电平(按键按下)
+    // 且其他按键均未按下，则返回 A 键。
+    // 注意：由于电池ADC配置，GPIO34浮动时可能误判为低电平，
+    // 因此增加额外的去抖和物理判断逻辑在任务中处理。
+    // 这里暂时只在 GPIO34 明确为低电平时才报告 A 键。
+    for (int stable_count = 0; stable_count < 3; stable_count++) {
+        if (gpio_get_level(GPIO_NUM_34) != BUTTON_ACTIVE_LEVEL) {
+            return -1;  // GPIO34 为高电平，A键未按下
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    // 连续3次读到低电平，认为 A 键按下
+    return BTN_IDX_A;
 }
 
 /* ========== 按键任务 ========== */
