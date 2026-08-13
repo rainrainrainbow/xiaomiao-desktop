@@ -62,3 +62,12 @@ int drv_battery_get_percent(float vbat)
     if (vbat <= 3.0f) return 0;
     return (int)((vbat - 3.0f) / (4.2f - 3.0f) * 100.0f);
 }
+
+/* ========== 读取ADC通道原始值（供按键等复用） ========== */
+esp_err_t drv_battery_read_raw(adc_channel_t channel, int *out_raw)
+{
+    if (!s_adc_handle || !out_raw) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return adc_oneshot_read(s_adc_handle, channel, out_raw);
+}
