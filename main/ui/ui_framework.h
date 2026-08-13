@@ -25,6 +25,10 @@
 #define STATUS_H            12   // 状态栏高度
 #define DOCK_H              8    // 底部导航栏高度
 
+/* ========== 系统版本信息 ========== */
+#define XIAOMIAO_VERSION    "v61"
+#define XIAOMIAO_BUILD      "2026-08-14"
+
 /* ========== 页面类型 ========== */
 typedef enum {
     PAGE_DESKTOP = 0,       // 桌面主页
