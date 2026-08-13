@@ -500,8 +500,14 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（独立任务，128KB 栈在 PSRAM 上，避免 main 任务栈溢出）
-    xTaskCreate(ui_init_task, "ui_init", 131072, NULL, 5, NULL);
+    // 创建 UI 初始化任务（独立任务，32KB 栈，避免 main 任务栈溢出）
+    TaskHandle_t ui_task_handle = NULL;
+    BaseType_t ret = xTaskCreate(ui_init_task, "ui_init", 32768, NULL, 5, &ui_task_handle);
+    if (ret != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create ui_init_task! ret=%d", ret);
+    } else {
+        ESP_LOGI(TAG, "ui_init_task created successfully (handle=%p)", ui_task_handle);
+    }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
     
