@@ -166,12 +166,14 @@ static const char *s_settings_items[] = {
     "声音",
     "WiFi",
     "布局",
+    "关于系统",
+    "恢复默认",
     "保存并退出",
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[6] = {0};
+static lv_obj_t *s_settings_labels[8] = {0};
 static int s_settings_sel = 0;
 
 static void settings_refresh_label(int idx)
@@ -179,9 +181,9 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "声音", "WiFi", "布局", "保存并退出"
+        "亮度", "主题", "声音", "WiFi", "布局", "关于系统", "恢复默认", "保存并退出"
     };
-    char buf[40];
+    char buf[64];
     switch (idx) {
     case 0: snprintf(buf, sizeof(buf), "%s: %d%%", items[0], st->brightness); break;
     case 1: snprintf(buf, sizeof(buf), "%s: %s", items[1],
@@ -190,6 +192,8 @@ static void settings_refresh_label(int idx)
     case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
     case 4: snprintf(buf, sizeof(buf), "%s: %d 每页",
                      items[4], st->layout == 0 ? 4 : 2); break;
+    case 5: snprintf(buf, sizeof(buf), "%s", items[5]); break;  // 关于系统
+    case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;  // 恢复默认
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
     }
     lv_label_set_text(s_settings_labels[idx], buf);
@@ -269,7 +273,7 @@ static void settings_activate(void)
 static void settings_destroy(void)
 {
     ESP_LOGI(TAG, "Settings app destroy");
-    for (int i = 0; i < 6; i++) s_settings_labels[i] = NULL;
+    for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) s_settings_labels[i] = NULL;
     s_settings_list = NULL;
 }
 
@@ -321,7 +325,20 @@ static bool settings_on_key(int key)
         case 4: // 布局
             st->layout = (st->layout == 0) ? 1 : 0;
             break;
-        case 5: // Save & Exit
+        case 5: // 关于系统 - 显示版本信息（暂不处理，仅作占位）
+            ESP_LOGI(TAG, "About system: version=%s, build=%s", XIAOMIAO_VERSION, XIAOMIAO_BUILD);
+            break;
+        case 6: // 恢复默认设置
+            st->brightness = 50;
+            st->theme = THEME_DARK;
+            st->sound_on = true;
+            st->wifi_on = false;
+            st->layout = 0;
+            drv_backlight_set_brightness(st->brightness);
+            ui_theme_set(st->theme);
+            ESP_LOGI(TAG, "Settings reset to defaults");
+            break;
+        case 7: // Save & Exit
             sys_nvs_save_settings(st->brightness, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             ui_stack_pop();
