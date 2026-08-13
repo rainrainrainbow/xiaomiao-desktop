@@ -25,24 +25,26 @@ static stack_entry_t s_page_stack[MAX_STACK_DEPTH];
 static int s_stack_top = -1;
 
 /* ========== 主题定义 ========== */
+// 小喵OS 特色配色：黄色主题（模拟器风格）
+// 黄:#F6D34A  黑:#1B1713  棕:#5C4220  红:#E64B3C  奶:#FFF3B0  绿:#2DD466
 static const theme_colors_t s_themes[THEME_MAX] = {
     [THEME_DARK] = {
-        .bg = 0x0C0D10,
-        .text = 0xE8E8EC,
-        .text_dim = 0x9AA0AC,
-        .header_bg = 0x16181E,
-        .border = 0x222222,
-        .sel_bg = 0x2A3A5A,
-        .sel_border = 0xFFFFFF,
+        .bg = 0xF6D34A,         // 黄色背景
+        .text = 0x1B1713,       // 黑色文字
+        .text_dim = 0x5C4220,   // 棕色次要文字
+        .header_bg = 0x5C4220,  // 棕色状态栏/标题栏
+        .border = 0x5C4220,     // 棕色边框
+        .sel_bg = 0x5C4220,     // 棕色选中背景
+        .sel_border = 0x5C4220, // 棕色选中边框
     },
     [THEME_LIGHT] = {
-        .bg = 0xF0F0F0,
-        .text = 0x1A1A1A,
-        .text_dim = 0x666666,
-        .header_bg = 0xD8D8D8,
-        .border = 0xCCCCCC,
-        .sel_bg = 0xD0E0FF,
-        .sel_border = 0x000000,
+        .bg = 0xF6D34A,         // 黄色背景（同色，不区分）
+        .text = 0x1B1713,
+        .text_dim = 0x5C4220,
+        .header_bg = 0x5C4220,
+        .border = 0x5C4220,
+        .sel_bg = 0x5C4220,
+        .sel_border = 0x5C4220,
     },
 };
 
@@ -198,47 +200,47 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_t *sb = lv_obj_create(parent);
     lv_obj_set_pos(sb, 0, 0);
     lv_obj_set_size(sb, LCD_H_RES, STATUS_H);
-    lv_obj_set_style_bg_color(sb, lv_color_hex(colors->bg), 0);
-    lv_obj_set_style_bg_opa(sb, LV_OPA_90, 0);
+    lv_obj_set_style_bg_color(sb, lv_color_hex(colors->header_bg), 0);
+    lv_obj_set_style_bg_opa(sb, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(sb, 0, 0);
     lv_obj_set_style_pad_all(sb, 0, 0);
-    lv_obj_set_style_pad_left(sb, 4, 0);
-    lv_obj_set_style_pad_right(sb, 4, 0);
+    lv_obj_set_style_pad_left(sb, 3, 0);
+    lv_obj_set_style_pad_right(sb, 3, 0);
     lv_obj_clear_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(sb, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(sb, LV_FLEX_ALIGN_SPACE_BETWEEN, 
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     
-    // 品牌名
-    lv_obj_t *brand = lv_label_create(sb);
-    lv_label_set_text(brand, "XIAOMIAO");
-    lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(brand, &lv_font_montserrat_12, 0);
+    // 时间（左）
+    s_ui_state.time_label = lv_label_create(sb);
+    lv_label_set_text(s_ui_state.time_label, "12:00");
+    lv_obj_set_style_text_color(s_ui_state.time_label, 
+                                 lv_color_hex(0xFFF3B0), 0);  // 奶油色
+    lv_obj_set_style_text_font(s_ui_state.time_label, 
+                                &lv_font_montserrat_8, 0);
     
-    // 右侧容器
+    // 品牌名（中）
+    lv_obj_t *brand = lv_label_create(sb);
+    lv_label_set_text(brand, "小喵OS");
+    lv_obj_set_style_text_color(brand, lv_color_hex(0xFFF3B0), 0);
+    lv_obj_set_style_text_font(brand, &lv_font_montserrat_8, 0);
+    
+    // 右侧容器（电池图标）
     lv_obj_t *rc = lv_obj_create(sb);
     lv_obj_remove_style_all(rc);
     lv_obj_set_flex_flow(rc, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(rc, LV_FLEX_ALIGN_END, 
                           LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(rc, 4, 0);
+    lv_obj_set_style_pad_column(rc, 2, 0);
     lv_obj_clear_flag(rc, LV_OBJ_FLAG_SCROLLABLE);
     
-    // 时间标签
-    s_ui_state.time_label = lv_label_create(rc);
-    lv_label_set_text(s_ui_state.time_label, "12:00");
-    lv_obj_set_style_text_color(s_ui_state.time_label, 
-                                 lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(s_ui_state.time_label, 
-                                &lv_font_montserrat_12, 0);
-    
-    // 电池标签
+    // 电池百分比
     s_ui_state.bat_label = lv_label_create(rc);
     lv_label_set_text(s_ui_state.bat_label, "85%");
     lv_obj_set_style_text_color(s_ui_state.bat_label, 
-                                 lv_color_hex(0x4ADE80), 0);
+                                 lv_color_hex(0x2DD466), 0);  // 绿色
     lv_obj_set_style_text_font(s_ui_state.bat_label, 
-                                &lv_font_montserrat_12, 0);
+                                &lv_font_montserrat_8, 0);
     
     s_ui_state.statusbar = sb;
     return sb;
