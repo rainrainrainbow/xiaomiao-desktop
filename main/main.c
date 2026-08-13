@@ -417,6 +417,20 @@ static bool desktop_page_on_key(int key)
     return true;
 }
 
+/* ========== UI 初始化任务（独立任务，避免 main 任务栈溢出） ========== */
+static void ui_init_task(void *arg)
+{
+    ESP_LOGI(TAG, "UI init task started");
+    
+    // 推入桌面页面
+    ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
+    
+    ESP_LOGI(TAG, "Desktop page pushed successfully");
+    
+    // 任务完成，删除自己
+    vTaskDelete(NULL);
+}
+
 /* ========== 主函数 ========== */
 void app_main(void)
 {
@@ -477,17 +491,19 @@ void app_main(void)
     app_manager_init();
     app_builtin_register_all();
     
-    // 推入桌面页面
-    ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
-    
-    // 首次刷新并开启显示
+    // 首次刷新并开启显示（先显示黑屏）
     s_first_flush = false;
     lv_refr_now(NULL);
     for (int i = 0; i < 100 && !s_first_flush; i++)
         vTaskDelay(pdMS_TO_TICKS(1));
     lcd_display_on();
     
-    ESP_LOGI(TAG, "Desktop started - waiting for button events...");
+    ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
+    
+    // 创建 UI 初始化任务（独立任务，避免 main 任务栈溢出）
+    xTaskCreate(ui_init_task, "ui_init", 8192, NULL, 5, NULL);
+    
+    ESP_LOGI(TAG, "Main loop started - waiting for button events...");
     
     // 主循环 - 从事件队列获取按键
     while (true) {
