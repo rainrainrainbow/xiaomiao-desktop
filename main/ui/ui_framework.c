@@ -1,6 +1,11 @@
 /**
  * @file ui_framework.c
- * @brief UI框架核心实现
+ * @brief UI框架核心实现（v59 重构版）
+ * 
+ * 架构设计：
+ * - 统一栈数组支持 v1 和 v2 回调
+ * - 页面生命周期状态机（8个状态）
+ * - v1 兼容层自动映射旧回调到新生命周期
  */
 
 #include "ui_framework.h"
@@ -11,18 +16,26 @@
 
 static const char *TAG = "UI_FW";
 
-/* ========== 页面栈实现 ========== */
+/* ========== 统一栈结构（支持 v1/v2） ========== */
 #define MAX_STACK_DEPTH 8
 
 typedef struct {
     page_type_t type;
-    const page_callbacks_t *callbacks;
+    const page_callbacks_v2_t *callbacks_v2;  // v2 回调
+    const page_callbacks_t *callbacks_v1;     // v1 回调（兼容）
     void *data;
-    bool active;
-} stack_entry_t;
+    page_state_t state;
+    bool cached;
+} stack_entry_v2_t;
 
-static stack_entry_t s_page_stack[MAX_STACK_DEPTH];
+static stack_entry_v2_t s_page_stack_v2[MAX_STACK_DEPTH];
 static int s_stack_top = -1;
+
+/* ========== Stash 全局缓冲区 ========== */
+static page_stash_t s_stash_global = {
+    .valid = false,
+    .size = 0,
+};
 
 /* ========== 主题定义 ========== */
 // 小喵OS 特色配色：黄色主题（模拟器风格）
@@ -60,309 +73,8 @@ static ui_state_t s_ui_state = {
     .layout = 0,
 };
 
-/* ========== 页面栈管理 ========== */
+/* ========== v1 兼容辅助函数 ========== */
 
-void ui_stack_init(void)
-{
-    s_stack_top = -1;
-    memset(s_page_stack, 0, sizeof(s_page_stack));
-    ESP_LOGI(TAG, "Page stack initialized");
-}
-
-void ui_stack_push(page_type_t type, const page_callbacks_t *callbacks, void *data)
-{
-    if (s_stack_top >= MAX_STACK_DEPTH - 1) {
-        ESP_LOGE(TAG, "Page stack overflow!");
-        return;
-    }
-    
-    // 失活当前页面
-    if (s_stack_top >= 0 && s_page_stack[s_stack_top].active) {
-        if (s_page_stack[s_stack_top].callbacks && 
-            s_page_stack[s_stack_top].callbacks->deactivate) {
-            s_page_stack[s_stack_top].callbacks->deactivate();
-        }
-        s_page_stack[s_stack_top].active = false;
-    }
-    
-    // 推入新页面
-    s_stack_top++;
-    s_page_stack[s_stack_top].type = type;
-    s_page_stack[s_stack_top].callbacks = callbacks;
-    s_page_stack[s_stack_top].data = data;
-    s_page_stack[s_stack_top].active = true;
-    
-    // 初始化并激活新页面
-    if (callbacks && callbacks->init) {
-        callbacks->init(data);
-    }
-    if (callbacks && callbacks->activate) {
-        callbacks->activate();
-    }
-    
-    ESP_LOGI(TAG, "Push page type=%d, stack depth=%d", type, s_stack_top + 1);
-}
-
-bool ui_stack_pop(void)
-{
-    if (s_stack_top < 0) {
-        ESP_LOGW(TAG, "Page stack is empty, cannot pop");
-        return false;
-    }
-    
-    // 销毁当前页面
-    if (s_page_stack[s_stack_top].callbacks) {
-        if (s_page_stack[s_stack_top].callbacks->deactivate) {
-            s_page_stack[s_stack_top].callbacks->deactivate();
-        }
-        if (s_page_stack[s_stack_top].callbacks->destroy) {
-            s_page_stack[s_stack_top].callbacks->destroy();
-        }
-    }
-    s_page_stack[s_stack_top].active = false;
-    s_stack_top--;
-    
-    // 激活上一页面
-    if (s_stack_top >= 0) {
-        s_page_stack[s_stack_top].active = true;
-        if (s_page_stack[s_stack_top].callbacks && 
-            s_page_stack[s_stack_top].callbacks->activate) {
-            s_page_stack[s_stack_top].callbacks->activate();
-        }
-        ESP_LOGI(TAG, "Pop page, now type=%d, depth=%d", 
-                 s_page_stack[s_stack_top].type, s_stack_top + 1);
-    } else {
-        ESP_LOGI(TAG, "Page stack is now empty");
-    }
-    
-    return true;
-}
-
-page_type_t ui_stack_current(void)
-{
-    if (s_stack_top < 0) {
-        return PAGE_DESKTOP;  // 默认返回桌面
-    }
-    return s_page_stack[s_stack_top].type;
-}
-
-const page_callbacks_t* ui_stack_current_callbacks(void)
-{
-    if (s_stack_top < 0) {
-        return NULL;
-    }
-    return s_page_stack[s_stack_top].callbacks;
-}
-
-int ui_stack_depth(void)
-{
-    return s_stack_top + 1;
-}
-
-void ui_stack_clear(void)
-{
-    while (s_stack_top > 0) {
-        ui_stack_pop();
-    }
-}
-
-/* ========== 主题系统 ========== */
-
-void ui_theme_set(theme_type_t theme)
-{
-    if (theme >= THEME_MAX) {
-        ESP_LOGW(TAG, "Invalid theme: %d", theme);
-        return;
-    }
-    s_ui_state.theme = theme;
-    ESP_LOGI(TAG, "Theme set to %s", theme == THEME_DARK ? "Dark" : "Light");
-}
-
-theme_type_t ui_theme_get(void)
-{
-    return s_ui_state.theme;
-}
-
-const theme_colors_t* ui_theme_colors(void)
-{
-    return &s_themes[s_ui_state.theme];
-}
-
-/* ========== 通用UI组件 ========== */
-
-// STATUS_H 和 DOCK_H 定义在 ui_framework.h 中
-
-lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
-{
-    const theme_colors_t *colors = ui_theme_colors();
-    
-    lv_obj_t *sb = lv_obj_create(parent);
-    lv_obj_set_pos(sb, 0, 0);
-    lv_obj_set_size(sb, LCD_H_RES, STATUS_H);
-    lv_obj_set_style_bg_color(sb, lv_color_hex(colors->header_bg), 0);
-    lv_obj_set_style_bg_opa(sb, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(sb, 0, 0);
-    lv_obj_set_style_pad_all(sb, 0, 0);
-    lv_obj_set_style_pad_left(sb, 3, 0);
-    lv_obj_set_style_pad_right(sb, 3, 0);
-    lv_obj_clear_flag(sb, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(sb, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(sb, LV_FLEX_ALIGN_SPACE_BETWEEN, 
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    
-    // 时间（左）
-    s_ui_state.time_label = lv_label_create(sb);
-    lv_label_set_text(s_ui_state.time_label, "12:00");
-    lv_obj_set_style_text_color(s_ui_state.time_label, 
-                                 lv_color_hex(0xFFF3B0), 0);  // 奶油色
-    lv_obj_set_style_text_font(s_ui_state.time_label, 
-                                &lv_font_montserrat_8, 0);
-    
-    // 品牌名（中）- 使用中文"CJK"字体
-    lv_obj_t *brand = lv_label_create(sb);
-    lv_label_set_text(brand, "小喵OS");
-    lv_obj_set_style_text_color(brand, lv_color_hex(0xFFF3B0), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(brand, &lv_font_xiaomiao_cn_14, 0);
-    
-    // 右侧容器（电池图标）
-    lv_obj_t *rc = lv_obj_create(sb);
-    lv_obj_remove_style_all(rc);
-    lv_obj_set_flex_flow(rc, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(rc, LV_FLEX_ALIGN_END, 
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(rc, 2, 0);
-    lv_obj_clear_flag(rc, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // 电池百分比
-    s_ui_state.bat_label = lv_label_create(rc);
-    lv_label_set_text(s_ui_state.bat_label, "85%");
-    lv_obj_set_style_text_color(s_ui_state.bat_label, 
-                                 lv_color_hex(0x2DD466), 0);  // 绿色
-    lv_obj_set_style_text_font(s_ui_state.bat_label, 
-                                &lv_font_montserrat_8, 0);
-    
-    s_ui_state.statusbar = sb;
-    return sb;
-}
-
-void ui_statusbar_update_time(void)
-{
-    if (!s_ui_state.time_label || !lv_obj_is_valid(s_ui_state.time_label)) {
-        return;
-    }
-    
-    time_t nowt;
-    time(&nowt);
-    struct tm *tm_info = localtime(&nowt);
-    char tbuf[16];
-    snprintf(tbuf, sizeof(tbuf), "%02d:%02d", 
-             tm_info->tm_hour, tm_info->tm_min);
-    lv_label_set_text(s_ui_state.time_label, tbuf);
-}
-
-void ui_statusbar_update_battery(void)
-{
-    // 电池更新由外部驱动调用，这里只更新显示
-    // 具体实现在 drv_battery.c 中
-}
-
-lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
-{
-    const theme_colors_t *colors = ui_theme_colors();
-    
-    lv_obj_t *dock = lv_obj_create(parent);
-    lv_obj_set_pos(dock, 0, LCD_V_RES - DOCK_H);
-    lv_obj_set_size(dock, LCD_H_RES, DOCK_H);
-    lv_obj_set_style_bg_color(dock, lv_color_hex(colors->bg), 0);
-    lv_obj_set_style_bg_opa(dock, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(dock, 0, 0);
-    lv_obj_set_style_pad_all(dock, 0, 0);
-    lv_obj_clear_flag(dock, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(dock, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(dock, LV_FLEX_ALIGN_CENTER, 
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(dock, 3, 0);
-    
-    // 页面指示器圆点（模拟器样式）
-    // .dot{width:3px;height:3px;border-radius:50%;background:var(--brown);opacity:.35}
-    // .dot.on{opacity:1}
-    int dot_count = (total_pages > 0) ? total_pages : 1;
-    for (int i = 0; i < dot_count; i++) {
-        lv_obj_t *dot = lv_obj_create(dock);
-        lv_obj_set_size(dot, 3, 3);
-        lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(dot, 0, 0);
-        lv_obj_set_style_pad_all(dot, 0, 0);
-        lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-        
-        if (i == active_idx) {
-            lv_obj_set_style_bg_color(dot, lv_color_hex(0x5C4220), 0); // brown
-            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);            // opacity:1
-        } else {
-            lv_obj_set_style_bg_color(dot, lv_color_hex(0x5C4220), 0); // brown
-            lv_obj_set_style_bg_opa(dot, LV_OPA_30, 0);               // opacity:.35 (use .30 as closest)
-        }
-    }
-    
-    return dock;
-}
-
-ui_state_t* ui_state_get(void)
-{
-    return &s_ui_state;
-}
-
-/* ========== 通用标题栏 ========== */
-lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
-{
-    const theme_colors_t *colors = ui_theme_colors();
-    
-    lv_obj_t *tb = lv_obj_create(parent);
-    lv_obj_set_pos(tb, 0, y);
-    lv_obj_set_size(tb, LCD_H_RES, 12);
-    lv_obj_set_style_bg_color(tb, lv_color_hex(colors->header_bg), 0);
-    lv_obj_set_style_bg_opa(tb, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(tb, 0, 0);
-    lv_obj_set_style_pad_all(tb, 0, 0);
-    lv_obj_set_style_pad_left(tb, 4, 0);
-    lv_obj_clear_flag(tb, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(tb, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(tb, LV_FLEX_ALIGN_START, 
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    
-    lv_obj_t *lbl = lv_label_create(tb);
-    lv_label_set_text(lbl, text);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFF3B0), 0);  // 奶油色
-    // 标题栏使用 CJK 14px 字体以支持中文显示
-    // 在 sdkconfig 中启用 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_14_CJK
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
-    
-    return tb;
-}
-/* ========== v59 重构：页面生命周期管理（借鉴 X-TRACK） ========== */
-
-/* 页面状态枚举已在头文件中定义 */
-
-/* Stash 全局缓冲区 */
-static page_stash_t s_stash_global = {0};
-
-/* v2 页面栈条目 */
-typedef struct {
-    page_type_t type;
-    const page_callbacks_v2_t *callbacks_v2;
-    const page_callbacks_t *callbacks_v1;
-    void *data;
-    page_state_t state;
-    bool cached;
-} stack_entry_v2_t;
-
-/* 使用统一的栈数组（兼容 v1 和 v2） */
-static stack_entry_v2_t s_page_stack_v2[MAX_STACK_DEPTH];
-
-/* v1 兼容辅助函数 */
 static void v1_compat_on_load(void *data)
 {
     if (s_stack_top >= 0 && s_page_stack_v2[s_stack_top].callbacks_v1) {
@@ -442,6 +154,15 @@ static void execute_lifecycle(page_state_t to, stack_entry_v2_t *entry)
     }
 }
 
+/* ========== 页面栈管理 API ========== */
+
+void ui_stack_init(void)
+{
+    s_stack_top = -1;
+    memset(s_page_stack_v2, 0, sizeof(s_page_stack_v2));
+    ESP_LOGI(TAG, "Page stack initialized");
+}
+
 /* v2 版本 push */
 void ui_stack_push_v2(page_type_t type, const page_callbacks_v2_t *callbacks, void *data)
 {
@@ -480,7 +201,7 @@ void ui_stack_push_v2(page_type_t type, const page_callbacks_v2_t *callbacks, vo
     ESP_LOGI(TAG, "Push page v2 type=%d, depth=%d", type, s_stack_top + 1);
 }
 
-/* 重写旧版 push 以使用统一栈 */
+/* 旧版 push（v1 兼容） */
 void ui_stack_push(page_type_t type, const page_callbacks_t *callbacks, void *data)
 {
     if (s_stack_top >= MAX_STACK_DEPTH - 1) {
@@ -508,7 +229,7 @@ void ui_stack_push(page_type_t type, const page_callbacks_t *callbacks, void *da
     ESP_LOGI(TAG, "Push page v1 type=%d, depth=%d", type, s_stack_top + 1);
 }
 
-/* 重写 pop 以支持 v2 生命周期 */
+/* pop 支持 v2 生命周期 */
 bool ui_stack_pop(void)
 {
     if (s_stack_top < 0) {
@@ -555,20 +276,27 @@ const page_callbacks_v2_t* ui_stack_current_callbacks_v2(void)
     return s_page_stack_v2[s_stack_top].callbacks_v2;
 }
 
-/* 重写旧版回调获取 */
+/* 旧版回调获取（兼容） */
 const page_callbacks_t* ui_stack_current_callbacks(void)
 {
     if (s_stack_top < 0) return NULL;
     return s_page_stack_v2[s_stack_top].callbacks_v1;
 }
 
-/* 重写栈深度 */
+/* 获取当前页面类型 */
+page_type_t ui_stack_current(void)
+{
+    if (s_stack_top < 0) return PAGE_DESKTOP;
+    return s_page_stack_v2[s_stack_top].type;
+}
+
+/* 栈深度 */
 int ui_stack_depth(void)
 {
     return s_stack_top + 1;
 }
 
-/* 重写清空栈 */
+/* 清空栈 */
 void ui_stack_clear(void)
 {
     while (s_stack_top > 0) {
@@ -593,4 +321,152 @@ page_stash_t* ui_stash_pop(void)
     ESP_LOGI(TAG, "Stash popped: %lu bytes", s_stash_global.size);
     return &s_stash_global;
 }
+
+/* ========== 主题系统 ========== */
+
+static theme_type_t s_current_theme = THEME_DARK;
+
+void ui_theme_set(theme_type_t theme)
+{
+    if (theme >= THEME_MAX) return;
+    s_current_theme = theme;
+    s_ui_state.theme = theme;
+    ESP_LOGI(TAG, "Theme set to %s", theme == THEME_DARK ? "DARK" : "LIGHT");
+}
+
+theme_type_t ui_theme_get(void)
+{
+    return s_current_theme;
+}
+
+const theme_colors_t* ui_theme_colors(void)
+{
+    return &s_themes[s_current_theme];
+}
+
+/* ========== UI全局状态 ========== */
+
+ui_state_t* ui_state_get(void)
+{
+    return &s_ui_state;
+}
+
+/* ========== 通用UI组件 ========== */
+
+lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
+{
+    const theme_colors_t *colors = ui_theme_colors();
+    
+    lv_obj_t *bar = lv_obj_create(parent);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_pos(bar, 0, 0);
+    lv_obj_set_size(bar, LCD_H_RES, STATUS_H);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    
+    // 品牌名（英文，使用默认字体避免乱码）
+    lv_obj_t *brand = lv_label_create(bar);
+    lv_label_set_text(brand, "XiaoMiaoOS");
+    lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
+    lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
+    
+    // 时间标签
+    lv_obj_t *time = lv_label_create(bar);
+    lv_label_set_text(time, "00:00");
+    lv_obj_set_style_text_color(time, lv_color_hex(colors->text), 0);
+    lv_obj_align(time, LV_ALIGN_CENTER, 0, 0);
+    s_ui_state.time_label = time;
+    
+    // 电池标签
+    lv_obj_t *bat = lv_label_create(bar);
+    lv_label_set_text(bat, "100%");
+    lv_obj_set_style_text_color(bat, lv_color_hex(colors->text), 0);
+    lv_obj_align(bat, LV_ALIGN_RIGHT_MID, -4, 0);
+    s_ui_state.bat_label = bat;
+    
+    s_ui_state.statusbar = bar;
+    return bar;
+}
+
+void ui_statusbar_update_time(void)
+{
+    if (!s_ui_state.time_label) return;
+    
+    time_t now;
+    struct tm *tm_info;
+    time(&now);
+    tm_info = localtime(&now);
+    
+    char buf[8];
+    snprintf(buf, sizeof(buf), "%02d:%02d", tm_info->tm_hour, tm_info->tm_min);
+    lv_label_set_text(s_ui_state.time_label, buf);
+}
+
+void ui_statusbar_update_battery(void)
+{
+    // 由主循环调用，此处留空
+}
+
+lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
+{
+    const theme_colors_t *colors = ui_theme_colors();
+    
+    lv_obj_t *dock = lv_obj_create(parent);
+    lv_obj_remove_style_all(dock);
+    lv_obj_set_pos(dock, 0, LCD_V_RES - DOCK_H);
+    lv_obj_set_size(dock, LCD_H_RES, DOCK_H);
+    lv_obj_set_style_bg_color(dock, lv_color_hex(colors->header_bg), 0);
+    lv_obj_set_style_bg_opa(dock, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(dock, LV_OBJ_FLAG_SCROLLABLE);
+    
+    // 页面指示器（圆点）
+    if (total_pages > 1) {
+        int dot_spacing = LCD_H_RES / (total_pages + 1);
+        for (int i = 0; i < total_pages; i++) {
+            lv_obj_t *dot = lv_obj_create(dock);
+            lv_obj_remove_style_all(dot);
+            lv_obj_set_size(dot, 4, 4);
+            lv_obj_set_pos(dot, dot_spacing * (i + 1) - 2, 2);
+            lv_obj_set_style_radius(dot, 2, 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(i == active_idx ? colors->text : colors->text_dim), 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+        }
+    }
+    
+    return dock;
+}
+
+lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
+{
+    const theme_colors_t *colors = ui_theme_colors();
+    
+    lv_obj_t *bar = lv_obj_create(parent);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_pos(bar, 0, y);
+    lv_obj_set_size(bar, LCD_H_RES, 14);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    
+    lv_obj_t *lbl = lv_label_create(bar);
+    lv_label_set_text(lbl, text);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+    // 标题为中文，使用 CJK 字体
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    
+    return bar;
+}
+
+void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected)
+{
+    const theme_colors_t *colors = ui_theme_colors();
+    if (selected) {
+        lv_obj_set_style_bg_color(cell, lv_color_hex(colors->sel_bg), 0);
+        lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+    } else {
+        lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+    }
 }
