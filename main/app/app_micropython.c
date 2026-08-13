@@ -4,6 +4,7 @@
  */
 
 #include "app_manager.h"
+#include "system/sys_sdcard.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -53,7 +54,9 @@ static bool python_app_on_key(int key)
 {
     // TODO: 将按键事件传递给Python应用
     if (key == KEY_B) {
-        ui_stack_pop();
+        if (ui_stack_depth() > 1) {
+            ui_stack_pop();
+        }
         return true;
     }
     return false;
@@ -68,15 +71,41 @@ const page_callbacks_t* app_micropython_get_callbacks(void)
 /* ========== 扫描SD卡Python应用 ========== */
 int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
 {
-    // TODO: 实现SD卡扫描逻辑
-    // 1. 打开base_path目录
-    // 2. 遍历子目录
-    // 3. 检查是否存在app.json和main.py
-    // 4. 解析app.json获取应用信息
-    // 5. 填充apps数组
-    
     ESP_LOGI(TAG, "Scanning %s for Python apps...", base_path);
     
-    // 暂时返回0
-    return 0;
+    // 初始化 SD 卡（如果尚未挂载）
+    if (!sys_sdcard_is_mounted()) {
+        int ret = sys_sdcard_init();
+        if (ret != 0) {
+            ESP_LOGE(TAG, "Failed to mount SD card: %d", ret);
+            return 0;
+        }
+    }
+    
+    // 扫描应用
+    app_meta_t metas[SDCARD_MAX_APPS];
+    int count = sys_sdcard_scan_apps(metas, SDCARD_MAX_APPS);
+    
+    // 转换为 app_def_t 格式
+    int registered = 0;
+    for (int i = 0; i < count && registered < max_count; i++) {
+        app_def_t *app = &apps[registered];
+        
+        strncpy(app->name, metas[i].name, sizeof(app->name) - 1);
+        app->name[sizeof(app->name) - 1] = '\0';
+        
+        strncpy(app->icon_glyph, metas[i].icon, sizeof(app->icon_glyph) - 1);
+        app->icon_glyph[sizeof(app->icon_glyph) - 1] = '\0';
+        
+        strncpy(app->py_entry, metas[i].entry, sizeof(app->py_entry) - 1);
+        app->py_entry[sizeof(app->py_entry) - 1] = '\0';
+        
+        app->type = APP_TYPE_MICROPYTHON;
+        app->callbacks = app_micropython_get_callbacks();
+        
+        ESP_LOGI(TAG, "Registered Python app: %s (%s)", app->name, app->py_entry);
+        registered++;
+    }
+    
+    return registered;
 }
