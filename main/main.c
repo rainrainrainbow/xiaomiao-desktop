@@ -118,6 +118,24 @@ static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
     }
 }
 
+static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
+{
+    // 横屏状态下的显示区域设置
+    const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
+    const uint8_t raset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_V_RES - 1)};
+    st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
+    st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
+    
+    // 填充整屏纯色（分块发送避免大缓冲）
+    uint16_t buf[LCD_H_RES * 16];
+    for (int i = 0; i < LCD_H_RES * 16; i++) buf[i] = color;
+    
+    for (int y = 0; y < LCD_V_RES; y += 16) {
+        int h = (y + 16 <= LCD_V_RES) ? 16 : (LCD_V_RES - y);
+        st7735_tx(io, ST7735_RAMWR, buf, LCD_H_RES * h * sizeof(uint16_t));
+    }
+}
+
 static void st7735_init(esp_lcd_panel_io_handle_t io)
 {
     const uint8_t frmctr[] = {0x01, 0x2C, 0x2D};
@@ -417,7 +435,13 @@ static bool desktop_page_on_key(int key)
     return true;
 }
 
-/* ========== UI 初始化任务（独立任务，避免 main 任务栈溢出） ========== */
+/* ========== UI 初始化任务（独立任务，栈在 PSRAM，避免 main 任务栈溢出） ========== */
+
+// 静态任务控制块和栈（在 PSRAM 分配）
+#define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，在 PSRAM
+static StaticTask_t s_ui_task_tcb;
+static StackType_t *s_ui_task_stack = NULL;
+
 static void ui_init_task(void *arg)
 {
     ESP_LOGI(TAG, "UI init task started");
@@ -427,8 +451,10 @@ static void ui_init_task(void *arg)
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
     
-    // 任务完成，删除自己
-    vTaskDelete(NULL);
+    // 任务完成后不删除，进入空闲循环（保持 LVGL 对象存活）
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 /* ========== 主函数 ========== */
@@ -461,6 +487,10 @@ void app_main(void)
     
     // 初始化LCD
     esp_lcd_panel_io_handle_t io = lcd_init();
+    
+    // 启动画面：直接填充蓝色确认LCD工作正常
+    lcd_show_splash(io, 0x001F);  // 蓝色纯色
+    ESP_LOGI(TAG, "Splash screen shown (blue)");
     
     // 初始化LVGL
     lv_init();
@@ -500,13 +530,20 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（独立任务，128KB 栈在 PSRAM 上）
-    TaskHandle_t ui_task_handle = NULL;
-    BaseType_t ret = xTaskCreate(ui_init_task, "ui_init", 131072, NULL, 5, &ui_task_handle);
-    if (ret != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create ui_init_task! ret=%d", ret);
+    // 创建 UI 初始化任务（栈在 PSRAM，64KB，避免 main 任务栈溢出）
+    s_ui_task_stack = heap_caps_malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t), 
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_ui_task_stack) {
+        ESP_LOGE(TAG, "Failed to allocate UI task stack from PSRAM!");
+        s_ui_task_stack = malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t));
+    }
+    TaskHandle_t ui_task_handle = xTaskCreateStatic(
+        ui_init_task, "ui_init", UI_TASK_STACK_SIZE,
+        NULL, 5, s_ui_task_stack, &s_ui_task_tcb);
+    if (ui_task_handle) {
+        ESP_LOGI(TAG, "ui_init_task created successfully (PSRAM stack=%p)", s_ui_task_stack);
     } else {
-        ESP_LOGI(TAG, "ui_init_task created successfully (handle=%p)", ui_task_handle);
+        ESP_LOGE(TAG, "Failed to create ui_init_task statically");
     }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
