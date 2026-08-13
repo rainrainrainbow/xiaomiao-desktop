@@ -10,6 +10,7 @@ idf_component_register(
         "driver/drv_battery.c"
         "system/sys_nvs.c"
         "return_to_loader.c"
-    INCLUDE_DIRS "." "ui" "app" "driver" "system"
+        "fonts/lv_font_xiaomiao_cn_14.c"
+    INCLUDE_DIRS "." "ui" "app" "driver" "system" "fonts"
     REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer
 )

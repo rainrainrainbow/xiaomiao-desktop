@@ -222,8 +222,8 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_t *brand = lv_label_create(sb);
     lv_label_set_text(brand, "小喵OS");
     lv_obj_set_style_text_color(brand, lv_color_hex(0xFFF3B0), 0);
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(brand, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(brand, &lv_font_xiaomiao_cn_14, 0);
     
     // 右侧容器（电池图标）
     lv_obj_t *rc = lv_obj_create(sb);
@@ -337,8 +337,8 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFF3B0), 0);  // 奶油色
     // 标题栏使用 CJK 14px 字体以支持中文显示
     // 在 sdkconfig 中启用 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_14_CJK
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
     
     return tb;
 }

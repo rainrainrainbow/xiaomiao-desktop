@@ -24,23 +24,17 @@ static const gpio_num_t s_btn_gpios[] = {
 /* 事件队列 */
 static QueueHandle_t s_btn_queue = NULL;
 
-/* 按键状态 */
+/* 按键状态（去抖跟踪） */
 typedef struct {
     int last_raw;           // 上次原始值
-    int stable;             // 稳定后的值
     int64_t change_time;    // 状态变化时间
     bool debounce_done;     // 去抖完成标志
-    int64_t press_time;     // 当前按键按下时间（连续稳定被按下）
-    bool long_sent;         // 长按事件是否已发送
 } btn_state_t;
 
 static btn_state_t s_btn_state = {
     .last_raw = -1,
-    .stable = -1,
     .change_time = 0,
-    .debounce_done = true,
-    .press_time = 0,
-    .long_sent = false
+    .debounce_done = true
 };
 
 /* ========== 初始化按键驱动 ========== */
@@ -121,60 +115,59 @@ static int drv_button_scan_raw(void)
 void drv_button_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Button task started");
-    
+
+    // 本地按键状态跟踪
+    int last_stable = -1;    // 上次稳定按下的按键（-1=无）
+    int64_t press_time = 0;  // 当前按键按下起始时间
+    bool long_fired = false; // 当前按键是否已触发过长按
+
     while (1) {
         int raw = drv_button_scan_raw();
         int64_t now = esp_timer_get_time();
-        
-        // 状态变化检测
+
+        // 状态变化检测（进入去抖）
         if (raw != s_btn_state.last_raw) {
             s_btn_state.last_raw = raw;
             s_btn_state.change_time = now;
             s_btn_state.debounce_done = false;
-            // 按键变化时如果之前有按下的键，说明按键状态改变了
         }
-        
-        // 去抖完成检测
-        if (!s_btn_state.debounce_done && 
+
+        // 去抖完成后，触发键盘事件
+        if (!s_btn_state.debounce_done &&
             (now - s_btn_state.change_time) >= (int64_t)BUTTON_DEBOUNCE_MS * 1000) {
             s_btn_state.debounce_done = true;
-            
-            // 状态从"有按键"切换到"新按键"或"无按键"
-            if (raw != s_btn_state.stable) {
-                // 如果之前有按键稳定按下，且现在变为无按键 → 短按事件（释放）
-                if (s_btn_state.stable >= 0 && raw < 0) {
-                    // 仅在未触发过长按时发送短按事件（长按后释放不再重复）
-                    if (!s_btn_state.long_sent) {
-                        btn_event_t evt = { .key = s_btn_state.stable, .is_long_press = false };
-                        if (s_btn_queue != NULL) {
-                            xQueueSend(s_btn_queue, &evt, 0);
-                            ESP_LOGI(TAG, "Button short-press: %d", evt.key);
-                        }
+
+            if (raw >= 0) {
+                // 有按键按下：若为"新按键"（与上次稳定按键不同），立即触发短按事件
+                // 这样保证"单击"能立即响应（如 B 键返回）
+                if (raw != last_stable) {
+                    btn_event_t evt = { .key = raw, .is_long_press = false };
+                    if (s_btn_queue != NULL) {
+                        xQueueSend(s_btn_queue, &evt, 0);
+                        ESP_LOGI(TAG, "Button short-press: %d", evt.key);
                     }
                 }
-                
-                // 更新稳定状态
-                s_btn_state.stable = raw;
-                s_btn_state.long_sent = false;
-                
-                // 记录按下起始时间
-                if (raw >= 0) {
-                    s_btn_state.press_time = now;
-                }
+                last_stable = raw;
+                press_time = now;
+                long_fired = false;
+            } else {
+                // 无按键按下：复位稳定状态
+                last_stable = -1;
+                long_fired = false;
             }
         }
-        
+
         // 长按检测：持续按住同一按键超过 LONG_PRESS_MS
-        if (s_btn_state.stable >= 0 && !s_btn_state.long_sent &&
-            (now - s_btn_state.press_time) >= (int64_t)LONG_PRESS_MS * 1000) {
-            s_btn_state.long_sent = true;
-            btn_event_t evt = { .key = s_btn_state.stable, .is_long_press = true };
+        if (last_stable >= 0 && !long_fired &&
+            (now - press_time) >= (int64_t)LONG_PRESS_MS * 1000) {
+            long_fired = true;
+            btn_event_t evt = { .key = last_stable, .is_long_press = true };
             if (s_btn_queue != NULL) {
                 xQueueSend(s_btn_queue, &evt, 0);
                 ESP_LOGI(TAG, "Button LONG-press: %d", evt.key);
             }
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(5));  // 5ms 扫描周期
     }
 }

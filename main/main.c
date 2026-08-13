@@ -352,8 +352,8 @@ static void desktop_page_init(void *data)
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-        lv_obj_set_style_text_font(name, &lv_font_source_han_sans_sc_14_cjk, 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(name, &lv_font_xiaomiao_cn_14, 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
@@ -497,8 +497,8 @@ static void recents_page_init(void *data)
             lv_label_set_text(lbl, buf);
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             // 应用名为中文，使用 CJK 字体
-            LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-            lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+            LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+            lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
         }
         s_recents_obj = list;
@@ -506,8 +506,8 @@ static void recents_page_init(void *data)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "暂无最近任务");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
     }
 

@@ -248,8 +248,8 @@ static void settings_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         // 设置项含中文，使用 CJK 字体
-        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[i] = lbl;
         settings_refresh_label(i);
@@ -374,8 +374,8 @@ static void applist_init(void *data)
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         // 应用名为中文，使用 CJK 字体
-        LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-        lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 
@@ -462,8 +462,8 @@ static void editor_init(void *data)
     lv_obj_t *hdr_l = lv_label_create(pane_l);
     lv_label_set_text(hdr_l, "积木库");
     lv_obj_set_style_text_color(hdr_l, lv_color_hex(0x5C4220), 0);
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(hdr_l, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(hdr_l, &lv_font_xiaomiao_cn_14, 0);
     lv_obj_set_style_text_align(hdr_l, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hdr_l, 76);
 
@@ -479,8 +479,8 @@ static void editor_init(void *data)
     lv_obj_t *hdr_r = lv_label_create(pane_r);
     lv_label_set_text(hdr_r, "程序区");
     lv_obj_set_style_text_color(hdr_r, lv_color_hex(0x5C4220), 0);
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(hdr_r, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(hdr_r, &lv_font_xiaomiao_cn_14, 0);
     lv_obj_set_style_text_align(hdr_r, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hdr_r, 76);
 
@@ -553,8 +553,8 @@ static void snake_init(void *data)
     lv_obj_t *lbl = lv_label_create(scr);
     lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
@@ -577,8 +577,8 @@ static void music_init(void *data)
     lv_obj_t *lbl = lv_label_create(scr);
     lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    LV_FONT_DECLARE(lv_font_source_han_sans_sc_14_cjk);
-    lv_obj_set_style_text_font(lbl, &lv_font_source_han_sans_sc_14_cjk, 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
