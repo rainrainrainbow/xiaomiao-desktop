@@ -523,7 +523,10 @@ static void recents_page_destroy(void)
 
 static bool recents_page_on_key(int key)
 {
-    if (key == KEY_B) { ui_stack_pop(); return true; }
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
     if (key == KEY_A) {
         int rec_count = 0;
         app_manager_get_recents(&rec_count);
