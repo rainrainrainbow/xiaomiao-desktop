@@ -35,4 +35,12 @@ float drv_battery_get_voltage(void);
  */
 int drv_battery_get_percent(float vbat);
 
+/**
+ * 读取ADC通道原始值（供按键等复用）
+ * @param channel ADC通道
+ * @param[out] out_raw 原始ADC值
+ * @return ESP_OK 成功
+ */
+esp_err_t drv_battery_read_raw(adc_channel_t channel, int *out_raw);
+
 #endif /* DRV_BATTERY_H */
