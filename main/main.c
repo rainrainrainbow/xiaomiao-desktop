@@ -38,6 +38,7 @@
 
 // UI框架
 #include "ui/ui_framework.h"
+#include "ui/event_bus.h"  // 事件总线
 
 // 应用管理
 #include "app/app_manager.h"
@@ -629,6 +630,9 @@ void app_main(void)
     esp_timer_handle_t tt;
     esp_timer_create(&ta, &tt);
     esp_timer_start_periodic(tt, 1000);
+    
+    // 初始化事件总线
+    event_bus_init();
     
     // 初始化UI框架
     ui_stack_init();
