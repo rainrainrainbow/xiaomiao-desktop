@@ -682,16 +682,9 @@ void app_main(void)
                 continue;
             }
             
-            // 全局处理：长按A → 返回桌面主页
+            // 全局处理：长按A → 返回桌面主页（使用 v59 新 API）
             if (is_long && btn_event == BTN_IDX_A) {
-                // 清除所有页面，回到桌面
-                while (ui_stack_depth() > 1) {
-                    ui_stack_pop();
-                }
-                // 如果当前不是桌面，推入桌面
-                if (ui_stack_current() != PAGE_DESKTOP) {
-                    ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
-                }
+                ui_stack_back_home();
                 continue;
             }
             
