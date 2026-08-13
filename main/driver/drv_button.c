@@ -6,6 +6,7 @@
 #include "drv_button.h"
 #include "drv_battery.h"   // 复用电池ADC读取A键(GPIO34)
 #include "ui/event_bus.h"  // 事件总线
+#include "lvgl.h"          // lv_tick_get()
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
