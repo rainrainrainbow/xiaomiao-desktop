@@ -282,17 +282,20 @@ static void desktop_page_init(void *data)
     // 创建状态栏
     ui_statusbar_create(scr);
 
-    // 模拟器风格：3列×2行网格
+    // 模拟器风格：3列×2行网格，gap:2px，padding:3px 4px
     int cols = 3;
     int rows = 2;
     int app_count = cols * rows;  // 6 个/页
 
-    lv_coord_t grid_top = 14;  // STATUS_H + 2
-    lv_coord_t grid_bottom = LCD_V_RES - 10;  // LCD_V_RES - DOCK_H
-    lv_coord_t grid_h = grid_bottom - grid_top;
-    lv_coord_t gap = 3;
-    lv_coord_t cell_w = (LCD_H_RES - (cols + 1) * gap) / cols;
-    lv_coord_t cell_h = (grid_h - (rows + 1) * gap) / rows;
+    lv_coord_t grid_top = 14;  // STATUS_H(12) + 2
+    lv_coord_t grid_bottom = LCD_V_RES - DOCK_H;  // 128 - 8 = 120
+    lv_coord_t grid_h = grid_bottom - grid_top;    // 106
+    // 模拟器：padding: 3px 4px, gap: 2px
+    lv_coord_t pad_x = 4;
+    lv_coord_t pad_y = 3;
+    lv_coord_t gap = 2;
+    lv_coord_t cell_w = (LCD_H_RES - 2 * pad_x - (cols - 1) * gap) / cols;
+    lv_coord_t cell_h = (grid_h - 2 * pad_y - (rows - 1) * gap) / rows;
 
     // 更新总页数
     int builtin_count;
@@ -300,6 +303,7 @@ static void desktop_page_init(void *data)
     s_desktop_total_pages = (builtin_count + app_count - 1) / app_count;
     if (s_desktop_total_pages < 1) s_desktop_total_pages = 1;
     if (s_desktop_page >= s_desktop_total_pages) s_desktop_page = s_desktop_total_pages - 1;
+    if (s_desktop_selected >= app_count) s_desktop_selected = 0;
 
     int start_idx = s_desktop_page * app_count;
     for (int i = 0; i < app_count; i++) {
@@ -309,30 +313,35 @@ static void desktop_page_init(void *data)
         int row = i / cols;
         int col = i % cols;
 
+        // 模拟器：.icon{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:4px;gap:1px}
         lv_obj_t *cell = lv_obj_create(scr);
-        lv_obj_set_pos(cell, gap + col * (cell_w + gap), grid_top + gap + row * (cell_h + gap));
+        lv_obj_set_pos(cell, pad_x + col * (cell_w + gap), grid_top + pad_y + row * (cell_h + gap));
         lv_obj_set_size(cell, cell_w, cell_h);
         lv_obj_set_style_radius(cell, 4, 0);
-        lv_obj_set_style_bg_color(cell, lv_color_hex(app->icon_color), 0);
-        lv_obj_set_style_bg_opa(cell, LV_OPA_30, 0);
-        lv_obj_set_style_border_width(cell, 1, 0);
-        lv_obj_set_style_border_color(cell, lv_color_hex(colors->border), 0);
-        lv_obj_set_style_border_opa(cell, LV_OPA_50, 0);
+        lv_obj_set_style_bg_color(cell, lv_color_hex(0), 0);
+        lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);  // 默认透明背景
+        lv_obj_set_style_border_width(cell, 0, 0);        // 无边框
         lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+        // flex 居中布局
+        lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, 
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(cell, 1, 0);
 
-        // 图标（emoji glyph）
+        // 图标 glyph（模拟器：font-size:20px, line-height:22px）
         lv_obj_t *icon = lv_label_create(cell);
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
+        // 使用 LVGL 内置较大字体——montserrat_20 或 16（如果可用）
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
-        lv_obj_align(icon, LV_ALIGN_CENTER, 0, -4);
+        lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
 
-        // 名称（短标签）
+        // 名称标签（模拟器：font-size:7px, color:var(--black)）
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(name, &lv_font_montserrat_8, 0);
-        lv_obj_align(name, LV_ALIGN_BOTTOM_MID, 0, -2);
+        lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
     }
@@ -340,11 +349,9 @@ static void desktop_page_init(void *data)
     // 创建底部导航栏
     ui_dock_create(scr, s_desktop_total_pages, s_desktop_page);
 
-    // 高亮选中项
+    // 高亮选中项（模拟器：棕色背景 + 奶油色文字）
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected],
-                                       lv_color_hex(colors->sel_border), 0);
-        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
+        ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], true);
     }
 }
 
@@ -378,9 +385,7 @@ static bool desktop_page_on_key(int key)
 
     // 取消当前高亮
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected],
-                                       lv_color_hex(colors->border), 0);
-        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_50, 0);
+        ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], false);
     }
 
     if (key == KEY_UP) {
@@ -425,11 +430,9 @@ static bool desktop_page_on_key(int key)
     if (s_desktop_selected >= app_count) s_desktop_selected = app_count - 1;
     if (s_desktop_selected < 0) s_desktop_selected = 0;
 
-    // 高亮新选中项
+    // 高亮新选中项（模拟器：棕色背景）
     if (s_app_cells[s_desktop_selected]) {
-        lv_obj_set_style_border_color(s_app_cells[s_desktop_selected],
-                                       lv_color_hex(colors->sel_border), 0);
-        lv_obj_set_style_border_opa(s_app_cells[s_desktop_selected], LV_OPA_COVER, 0);
+        ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], true);
     }
 
     return true;

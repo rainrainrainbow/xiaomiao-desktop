@@ -23,7 +23,11 @@
 typedef enum {
     PAGE_DESKTOP = 0,       // 桌面主页
     PAGE_SETTINGS,          // 设置页面
+    PAGE_APP_LIST,          // 应用列表（全部应用）
     PAGE_APP_PLACEHOLDER,   // 应用占位页
+    PAGE_APP_RUNNING,       // 运行中App全屏
+    PAGE_EDITOR,            // 积木编辑器
+    PAGE_STORE,             // 应用商店
     PAGE_CUSTOM,            // 自定义应用页
     PAGE_MAX
 } page_type_t;
@@ -172,6 +176,25 @@ void ui_statusbar_update_battery(void);
  * @return 导航栏对象
  */
 lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx);
+
+/**
+ * 创建通用标题栏（模拟器 titlebar 风格）
+ * @param parent 父对象
+ * @param y Y坐标
+ * @param text 标题文字
+ * @return 标题栏对象
+ */
+lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text);
+
+/**
+ * 设置桌面图标选中状态（棕色背景替代边框）
+ * @param cell 图标容器对象
+ * @param selected 是否选中
+ */
+void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected);
+
+/* ========== 长按A键相关 ========== */
+#define LONG_PRESS_MS   360  // 模拟器长按时间（ms）
 
 /* ========== 按键定义 ========== */
 typedef enum {
