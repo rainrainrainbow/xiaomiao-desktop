@@ -18,6 +18,8 @@
 /* ========== 屏幕尺寸定义 ========== */
 #define LCD_H_RES           160
 #define LCD_V_RES           128
+#define STATUS_H            12   // 状态栏高度
+#define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 页面类型 ========== */
 typedef enum {

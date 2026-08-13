@@ -190,8 +190,7 @@ const theme_colors_t* ui_theme_colors(void)
 
 /* ========== 通用UI组件 ========== */
 
-#define STATUS_H    12
-#define DOCK_H      8    // 模拟器：8px 高
+// STATUS_H 和 DOCK_H 定义在 ui_framework.h 中
 
 lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
 {
@@ -302,7 +301,7 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
             lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);            // opacity:1
         } else {
             lv_obj_set_style_bg_color(dot, lv_color_hex(0x5C4220), 0); // brown
-            lv_obj_set_style_bg_opa(dot, LV_OPA_35, 0);               // opacity:.35
+            lv_obj_set_style_bg_opa(dot, LV_OPA_30, 0);               // opacity:.35 (use .30 as closest)
         }
     }
     
