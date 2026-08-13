@@ -4,11 +4,13 @@
  */
 
 #include "drv_button.h"
+#include "drv_battery.h"   // 复用电池ADC读取A键(GPIO34)
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_timer.h"
+#include "driver/adc_types_legacy.h"  // for adc_channel_t
 
 static const char *TAG = "DRV_BTN";
 
@@ -85,9 +87,7 @@ void drv_button_init(void)
 /* ========== 扫描按键状态（原始） ========== */
 static int drv_button_scan_raw(void)
 {
-    // GPIO34(A键)是ADC共享引脚(与电池ADC共用)，被ADC配置后
-    // gpio_get_level 可能持续返回 0(BUTTON_ACTIVE_LEVEL)导致误触发。
-    // 因此 A 键(GPIO34)单独处理，先扫描其他可靠引脚。
+    // 先扫描非ADC共享的可靠引脚 (UP, DOWN, LEFT, RIGHT, B)
     for (size_t i = 0; i < NUM_BUTTONS; i++) {
         if (i == BTN_IDX_A) continue;  // 跳过A键(GPIO34, ADC共享)
         if (gpio_get_level(s_btn_gpios[i]) == BUTTON_ACTIVE_LEVEL) {
@@ -95,20 +95,22 @@ static int drv_button_scan_raw(void)
         }
     }
     
-    // A 键(GPIO34)：通过 gpio 电平无法可靠读取（被电池ADC占用），
-    // 这里通过读取 GPIO34 的输入状态判断。若检测到低电平(按键按下)
-    // 且其他按键均未按下，则返回 A 键。
-    // 注意：由于电池ADC配置，GPIO34浮动时可能误判为低电平，
-    // 因此增加额外的去抖和物理判断逻辑在任务中处理。
-    // 这里暂时只在 GPIO34 明确为低电平时才报告 A 键。
-    for (int stable_count = 0; stable_count < 3; stable_count++) {
-        if (gpio_get_level(GPIO_NUM_34) != BUTTON_ACTIVE_LEVEL) {
-            return -1;  // GPIO34 为高电平，A键未按下
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
+    // A 键(GPIO34/ADC1_CH6)：通过ADC读取电压判断
+    // 按下时接地≈0V (raw≈0)，松开时外部上拉≈高电平 (raw接近满量程)
+    int raw_adc = 0;
+    esp_err_t ret = drv_battery_read_raw(ADC_CHANNEL_6, &raw_adc);
+    if (ret != ESP_OK) {
+        return -1;  // ADC读取失败，认为A键未按下
     }
-    // 连续3次读到低电平，认为 A 键按下
-    return BTN_IDX_A;
+    
+    // 阈值判断：12-bit ADC满量程4095，按下时接近0
+    // 设定阈值为 500（约0.4V），低于此值认为按下
+    #define A_BTN_ADC_THRESHOLD  500
+    if (raw_adc < A_BTN_ADC_THRESHOLD) {
+        return BTN_IDX_A;
+    }
+    
+    return -1;  // 无按键按下
 }
 
 /* ========== 按键任务 ========== */
