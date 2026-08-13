@@ -84,49 +84,49 @@ static const page_callbacks_t s_music_callbacks = {
 };
 
 /* ========== 内置应用定义 ==========
- * 模拟器风格：emoji glyph + 简短中文/英文名
- * 名称尽量短以适配 8px 字符高度（160×128 屏幕）
- * 模拟器 6 个应用/屏，前 6 个为系统应用，后续为演示应用
+ * 图标用 LVGL 内置符号，名称用英文（8px montserrat 不支持中文）
+ * 标题栏等大字号处使用中文（CJK 14px 字体）
+ * 模拟器 6 个应用/屏
  */
 static const app_def_t s_builtin_app_defs[] = {
     {
-        .name = "应用",
-        .icon_text = "📦",
+        .name = "Apps",
+        .icon_text = LV_SYMBOL_LIST,
         .icon_color = 0xF6D34A,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "设置",
-        .icon_text = "⚙",
+        .name = "Settings",
+        .icon_text = LV_SYMBOL_SETTINGS,
         .icon_color = 0x5C4220,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "积木",
-        .icon_text = "🧩",
+        .name = "Blocks",
+        .icon_text = LV_SYMBOL_EDIT,
         .icon_color = 0x2DD466,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "商店",
-        .icon_text = "🛒",
+        .name = "Store",
+        .icon_text = LV_SYMBOL_DOWNLOAD,
         .icon_color = 0xE64B3C,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "贪吃蛇",
-        .icon_text = "🐍",
+        .name = "Snake",
+        .icon_text = LV_SYMBOL_PLAY,
         .icon_color = 0x22C55E,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
-        .name = "音乐",
-        .icon_text = "🎵",
+        .name = "Music",
+        .icon_text = LV_SYMBOL_AUDIO,
         .icon_color = 0x8B5CF6,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
@@ -147,12 +147,12 @@ void app_builtin_register_all(void)
 /* ========== 获取应用页面回调 ========== */
 const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
 {
-    if (strcmp(app_name, "设置") == 0) return &s_settings_callbacks;
-    if (strcmp(app_name, "应用") == 0) return &s_applist_callbacks;
-    if (strcmp(app_name, "积木") == 0) return &s_editor_callbacks;
-    if (strcmp(app_name, "商店") == 0) return &s_store_callbacks;
-    if (strcmp(app_name, "贪吃蛇") == 0) return &s_snake_callbacks;
-    if (strcmp(app_name, "音乐") == 0) return &s_music_callbacks;
+    if (strcmp(app_name, "Settings") == 0) return &s_settings_callbacks;
+    if (strcmp(app_name, "Apps") == 0) return &s_applist_callbacks;
+    if (strcmp(app_name, "Blocks") == 0) return &s_editor_callbacks;
+    if (strcmp(app_name, "Store") == 0) return &s_store_callbacks;
+    if (strcmp(app_name, "Snake") == 0) return &s_snake_callbacks;
+    if (strcmp(app_name, "Music") == 0) return &s_music_callbacks;
     return NULL;
 }
 
@@ -226,8 +226,8 @@ static void settings_init(void *data)
     // 状态栏
     ui_statusbar_create(scr);
 
-    // 标题栏（模拟器 titlebar 风格）
-    ui_titlebar_create(scr, 14, "⚙ 设置");
+    // 标题栏（模拟器 titlebar 风格，使用 CJK 14px 字体显示中文）
+    ui_titlebar_create(scr, 14, "设置");
 
     // 设置项列表
     s_settings_list = lv_obj_create(scr);
@@ -346,7 +346,7 @@ static void applist_init(void *data)
     // 状态栏
     ui_statusbar_create(scr);
     // 标题栏
-    ui_titlebar_create(scr, 14, "📦 全部应用");
+    ui_titlebar_create(scr, 14, "全部应用");
 
     int builtin_count;
     const app_def_t *apps = app_manager_get_builtin(&builtin_count);
@@ -432,7 +432,7 @@ static void editor_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "🧩 积木编辑器");
+    ui_titlebar_create(scr, 14, "积木编辑器");
 
     // 左右分栏（模拟器 .ed-split 风格）
     lv_obj_t *split = lv_obj_create(scr);
@@ -510,7 +510,7 @@ static void store_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "🛒 应用商店");
+    ui_titlebar_create(scr, 14, "应用商店");
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
@@ -544,7 +544,7 @@ static void snake_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
     lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "🐍 贪吃蛇\n Coming Soon");
+    lv_label_set_text(lbl, "贪吃蛇\n Coming Soon");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
@@ -566,7 +566,7 @@ static void music_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
     lv_obj_t *lbl = lv_label_create(scr);
-    lv_label_set_text(lbl, "🎵 音乐\n Coming Soon");
+    lv_label_set_text(lbl, "音乐\n Coming Soon");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
     lv_obj_set_style_text_font(lbl, &lv_font_montserrat_14, 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
