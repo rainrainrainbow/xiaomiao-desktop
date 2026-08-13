@@ -682,6 +682,19 @@ void app_main(void)
                 continue;
             }
             
+            // 全局处理：长按A → 返回桌面主页
+            if (is_long && btn_event == BTN_IDX_A) {
+                // 清除所有页面，回到桌面
+                while (ui_stack_depth() > 1) {
+                    ui_stack_pop();
+                }
+                // 如果当前不是桌面，推入桌面
+                if (ui_stack_current() != PAGE_DESKTOP) {
+                    ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
+                }
+                continue;
+            }
+            
             // 分发按键事件到当前页面的 on_key 回调
             const page_callbacks_t *cbs = ui_stack_current_callbacks();
             if (cbs && cbs->on_key) {
