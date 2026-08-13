@@ -338,7 +338,7 @@ static void desktop_page_activate(void)
 static void desktop_page_destroy(void)
 {
     ESP_LOGI(TAG, "Desktop page destroy");
-    for (int i = 0; i < DESKTOP_COLS * DESKTOP_ROWS; i++) {
+    for (int i = 0; i < 6; i++) {  /* 3 cols × 2 rows */
         s_app_cells[i] = NULL;
     }
 }
