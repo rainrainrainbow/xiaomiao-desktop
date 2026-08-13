@@ -6,6 +6,9 @@
 #ifndef DRV_BATTERY_H
 #define DRV_BATTERY_H
 
+#include "esp_err.h"
+#include "hal/adc_types.h"
+
 /* ========== 电池ADC定义 ========== */
 #define BAT_ADC_UNIT        ADC_UNIT_1
 #define BAT_ADC_CHANNEL     ADC_CHANNEL_6
