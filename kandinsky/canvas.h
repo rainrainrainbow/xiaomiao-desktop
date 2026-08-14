@@ -3,7 +3,9 @@
  * @brief Kandinsky - Graphics Engine: Canvas Interface
  * 
  * 参考 NumWorks Epsilon 的 Kandinsky 层设计，提供统一的画布操作接口。
- * 基于 Ion 层的显示驱动，提供高级绘图功能。
+ * 基于全局帧缓冲区，提供高级绘图功能。
+ * 坐标系：左上角原点，X 向右，Y 向下。
+ * 颜色格式：RGB565。
  */
 
 #ifndef KANDINSKY_CANVAS_H
@@ -13,103 +15,115 @@
 #include <stdbool.h>
 #include "ion/display.h"
 
-/* 画布结构体 */
-typedef struct {
-    int width;
-    int height;
-    ion_color_t *pixels;  /* 像素数据 */
-    bool owns_buffer;     /* 是否拥有缓冲区所有权 */
-} kandinsky_canvas_t;
+/* ========== 颜色常量 ========== */
+#define KD_COLOR_BLACK       ION_COLOR_BLACK
+#define KD_COLOR_WHITE       ION_COLOR_WHITE
+#define KD_COLOR_RED         ION_COLOR_RED
+#define KD_COLOR_GREEN       ION_COLOR_GREEN
+#define KD_COLOR_BLUE        ION_COLOR_BLUE
+#define KD_COLOR_FROM_RGB(r, g, b) \
+    ((ion_color_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
 
 /**
- * @brief 创建画布
- * @param width 宽度
- * @param height 高度
- * @return 画布指针，NULL 表示失败
+ * @brief 初始化画布（绑定到帧缓冲区）
+ * @param framebuffer 帧缓冲区指针（PSRAM 或 DRAM）
  */
-kandinsky_canvas_t* kandinsky_canvas_create(int width, int height);
+void kd_canvas_init(ion_color_t *framebuffer);
 
 /**
- * @brief 销毁画布
- * @param canvas 画布指针
- */
-void kandinsky_canvas_destroy(kandinsky_canvas_t *canvas);
-
-/**
- * @brief 填充画布为指定颜色
- * @param canvas 画布指针
+ * @brief 清空画布为指定颜色
  * @param color RGB565 颜色值
  */
-void kandinsky_canvas_fill(kandinsky_canvas_t *canvas, ion_color_t color);
+void kd_canvas_clear(ion_color_t color);
+
+/**
+ * @brief 设置裁剪区域
+ * @param x 左上角 X
+ * @param y 左上角 Y
+ * @param w 宽度
+ * @param h 高度
+ */
+void kd_canvas_set_clip(int x, int y, int w, int h);
+
+/**
+ * @brief 重置裁剪区域为全屏
+ */
+void kd_canvas_reset_clip(void);
 
 /**
  * @brief 绘制单个像素
- * @param canvas 画布指针
  * @param x X 坐标
  * @param y Y 坐标
- * @param color 颜色值
+ * @param color RGB565 颜色值
  */
-void kandinsky_canvas_draw_pixel(kandinsky_canvas_t *canvas, int x, int y, ion_color_t color);
+void kd_canvas_set_pixel(int x, int y, ion_color_t color);
 
 /**
- * @brief 绘制直线
- * @param canvas 画布指针
- * @param x0 起点 X
- * @param y0 起点 Y
- * @param x1 终点 X
- * @param y1 终点 Y
- * @param color 颜色值
+ * @brief 读取像素颜色
+ * @param x X 坐标
+ * @param y Y 坐标
+ * @return 像素颜色值
  */
-void kandinsky_canvas_draw_line(kandinsky_canvas_t *canvas, int x0, int y0, int x1, int y1, ion_color_t color);
+ion_color_t kd_canvas_get_pixel(int x, int y);
 
 /**
- * @brief 绘制矩形（边框）
- * @param canvas 画布指针
- * @param x 左上角 X
- * @param y 左上角 Y
- * @param width 宽度
- * @param height 高度
- * @param color 颜色值
+ * @brief 绘制直线（Bresenham 算法）
  */
-void kandinsky_canvas_draw_rect(kandinsky_canvas_t *canvas, int x, int y, int width, int height, ion_color_t color);
+void kd_canvas_draw_line(int x0, int y0, int x1, int y1, ion_color_t color);
+
+/**
+ * @brief 绘制矩形边框
+ */
+void kd_canvas_draw_rect(int x, int y, int w, int h, ion_color_t color);
 
 /**
  * @brief 填充矩形
- * @param canvas 画布指针
- * @param x 左上角 X
- * @param y 左上角 Y
- * @param width 宽度
- * @param height 高度
- * @param color 颜色值
  */
-void kandinsky_canvas_fill_rect(kandinsky_canvas_t *canvas, int x, int y, int width, int height, ion_color_t color);
+void kd_canvas_fill_rect(int x, int y, int w, int h, ion_color_t color);
 
 /**
- * @brief 绘制圆（边框）
- * @param canvas 画布指针
- * @param cx 圆心 X
- * @param cy 圆心 Y
- * @param radius 半径
- * @param color 颜色值
+ * @brief 填充圆角矩形
+ * @param r 圆角半径
  */
-void kandinsky_canvas_draw_circle(kandinsky_canvas_t *canvas, int cx, int cy, int radius, ion_color_t color);
+void kd_canvas_fill_round_rect(int x, int y, int w, int h, int r, ion_color_t color);
 
 /**
- * @brief 填充圆
- * @param canvas 画布指针
- * @param cx 圆心 X
- * @param cy 圆心 Y
- * @param radius 半径
- * @param color 颜色值
+ * @brief 绘制圆边框（Bresenham 算法）
  */
-void kandinsky_canvas_fill_circle(kandinsky_canvas_t *canvas, int cx, int cy, int radius, ion_color_t color);
+void kd_canvas_draw_circle(int cx, int cy, int r, ion_color_t color);
 
 /**
- * @brief 将画布内容刷新到屏幕
- * @param canvas 画布指针
- * @param dst_x 目标屏幕 X 坐标
- * @param dst_y 目标屏幕 Y 坐标
+ * @brief 填充圆形
  */
-void kandinsky_canvas_flush(kandinsky_canvas_t *canvas, int dst_x, int dst_y);
+void kd_canvas_fill_circle(int cx, int cy, int r, ion_color_t color);
+
+/**
+ * @brief 绘制位图（跳过 0x0000 透明色）
+ */
+void kd_canvas_draw_bitmap(int x, int y, int w, int h, const ion_color_t *data);
+
+/**
+ * @brief 缩放绘制位图
+ */
+void kd_canvas_draw_bitmap_scaled(int x, int y, int dw, int dh,
+                                   const ion_color_t *src, int sw, int sh);
+
+/**
+ * @brief 从 RGB 分量合成 RGB565 颜色
+ */
+ion_color_t kd_color_rgb(uint8_t r, uint8_t g, uint8_t b);
+
+/**
+ * @brief 将 RGB565 颜色拆分为 RGB 分量
+ */
+void kd_color_split(ion_color_t color, uint8_t *r, uint8_t *g, uint8_t *b);
+
+/**
+ * @brief 颜色混合（Alpha 混合）
+ * @param fg 前景色
+ * @param bg 背景色
+ * @param alpha 透明度（0-255，0=全透明，255=全不透明）
+ */
+ion_color_t kd_color_blend(ion_color_t fg, ion_color_t bg, uint8_t alpha);
 
 #endif /* KANDINSKY_CANVAS_H */
