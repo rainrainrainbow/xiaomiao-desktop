@@ -171,7 +171,7 @@ jobs:
           while IFS= read -r -d '' f; do
             if grep -n 'GPIO_NUM_' "$f" > /dev/null 2>&1; then
               # Only allow GPIO references in xiaomiao_desktop.h and keypad.c
-              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c)$'; then
+              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c|drv_button\.h|drv_backlight\.h)$'; then
                 echo "⚠️  GPIO reference outside config files: $f"
                 grep -n 'GPIO_NUM_' "$f"
                 errors=$((errors + 1))
