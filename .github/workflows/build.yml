@@ -139,39 +139,27 @@ jobs:
           # Disable legacy SoftSPI fallback macro in extmod/modmachine.h
           # The macro MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION (lines 104-115)
           # unconditionally references &mp_machine_soft_spi_type, causing linker error
-          # when SoftSPI is disabled. Use Python to wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
-          # (sed \n in replacement is unreliable across sed versions)
+          # when SoftSPI is disabled. Replace the entire macro with a no-op stub.
           python3 << 'PATCH_EOF'
-          import re
           filepath = "components/micropython/micropython/extmod/modmachine.h"
           with open(filepath, 'r') as f:
-              lines = f.readlines()
-          # Find the legacy SoftSPI macro and wrap it
-          # The comment "// Temporary support for legacy construction of SoftSPI via SPI type."
-          # is at line 104 (0-indexed: 103) in the original MicroPython v1.28.0 file.
-          # The macro ends at line 115 (0-indexed: 114) with "    } while (0)".
-          target_comment = "Temporary support for legacy construction of SoftSPI via SPI type"
-          for i, line in enumerate(lines):
-              if target_comment in line:
-                  print(f"Found target comment at line {i+1} (0-indexed: {i})")
-                  lines.insert(i, '#if MICROPY_PY_MACHINE_SOFTSPI\n')
-                  # The '} while (0)' is at line i+12 (insert shifted by 1) = i+12
-                  # Find the exact '} while (0)' line
-                  for j in range(i+2, min(i+20, len(lines))):
-                      if '} while (0)' in lines[j]:
-                          print(f"Found '}} while (0)' at line {j+1} (0-indexed: {j})")
-                          lines.insert(j+1, '#endif /* MICROPY_PY_MACHINE_SOFTSPI */\n')
-                          break
-                  print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
-                  break
+              content = f.read()
+          start_marker = "// Temporary support for legacy construction of SoftSPI via SPI type."
+          end_marker = "} while (0)"
+          start_idx = content.find(start_marker)
+          if start_idx >= 0:
+              end_idx = content.find(end_marker, start_idx)
+              if end_idx >= 0:
+                  end_idx += len(end_marker)
+                  stub = "// Legacy SoftSPI fallback disabled\n#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args)"
+                  content = content[:start_idx] + stub + content[end_idx:]
+                  print("Patched modmachine.h: replaced legacy SoftSPI macro with empty stub")
+              else:
+                  print("ERROR: Could not find end of legacy SoftSPI macro")
           else:
-              print("WARNING: Could not find legacy SoftSPI macro in modmachine.h")
-              print(f"Lines count: {len(lines)}")
-              if len(lines) > 100:
-                  for i in range(100, min(120, len(lines))):
-                      print(f"  Line {i+1}: {repr(lines[i][:60])}")
+              print("ERROR: Could not find legacy SoftSPI macro in modmachine.h")
           with open(filepath, 'w') as f:
-              f.writelines(lines)
+              f.write(content)
           PATCH_EOF
           echo "Done patching modmachine.h"
 
