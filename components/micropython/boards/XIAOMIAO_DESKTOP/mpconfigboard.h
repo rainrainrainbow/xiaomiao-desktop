@@ -52,6 +52,8 @@
 // 禁用原生代码发射器（需要 esp_native_code_commit 等符号）
 #define MICROPY_EMIT_NATIVE                 (0)
 #define MICROPY_EMIT_INLINE_THUMB           (0)
+#define MICROPY_EMIT_XTENSAWIN              (0)
+#define MICROPY_PERSISTENT_CODE_LOAD        (0)
 
 // 禁用线程支持（减少依赖）
 #define MICROPY_PY_THREAD                   (0)
