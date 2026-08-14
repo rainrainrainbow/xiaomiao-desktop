@@ -142,7 +142,10 @@ jobs:
             -DMICROPY_PY_MACHINE_PULSE=0 \
             -DMICROPY_EMIT_XTENSAWIN=0 \
             -DMICROPY_PERSISTENT_CODE_LOAD=0 \
-            -DMICROPY_HW_ENABLE_SDCARD=0"
+            -DMICROPY_HW_ENABLE_SDCARD=0 \
+            -DSOC_TOUCH_SENSOR_SUPPORTED=0 \
+            -DMICROPY_PY_MACHINE_SOFTSPI=0 \
+            -DMICROPY_PY_MACHINE_SOFTI2C=0"
 
           # Resolve and build
           idf.py reconfigure
