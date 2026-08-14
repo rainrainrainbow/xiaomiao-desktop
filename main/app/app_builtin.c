@@ -134,7 +134,7 @@ static const app_def_t s_builtin_app_defs[] = {
     },
     {
         .name = "Python",
-        .icon_text = LV_SYMBOL_CHIP,
+        .icon_text = LV_SYMBOL_COPY,
         .icon_color = 0x3B82F6,
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
