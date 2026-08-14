@@ -14,6 +14,8 @@ idf_component_register(
         "fonts/lv_font_xiaomiao_cn_14.c"
         "../ion/display.c"
         "../ion/button.c"
+        "../ion/battery.c"
+        "../ion/sdcard.c"
         "../kandinsky/canvas.c"
         "../kandinsky/font.c"
         "../escher/widget.c"
