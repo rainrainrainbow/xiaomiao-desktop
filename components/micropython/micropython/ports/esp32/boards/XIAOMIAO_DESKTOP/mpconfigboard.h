@@ -36,3 +36,9 @@
 
 // 禁用触摸垫
 #define MICROPY_PY_MACHINE_TOUCHPAD         (0)
+
+// 重命名 MicroPython 的 ESP-IDF 入口函数，避免与桌面系统的 app_main 冲突
+// 桌面系统通过自定义 API 初始化 MicroPython，不调用此入口
+#ifndef MICROPY_ESP_IDF_ENTRY
+#define MICROPY_ESP_IDF_ENTRY xiaomiao_mp_entry
+#endif
