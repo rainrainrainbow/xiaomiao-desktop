@@ -6,8 +6,11 @@
 #   1. 需求收集阶段（component_get_requirements.cmake）：仅提取 REQUIRES 依赖
 #   2. 实际构建阶段：真正编译组件
 # 在需求收集阶段，COMPONENT_LIB 尚未定义为 target，因此所有依赖 target 的
-# 构建逻辑（target_sources / target_compile_definitions / add_library 等）
+# 构建逻辑（target_include_directories / target_compile_definitions 等）
 # 都必须放在 if(TARGET ${COMPONENT_LIB}) 守卫内，否则会失败。
+#
+# 关键点：idf_component_register 必须传入 SRCS，否则组件会被创建为
+# INTERFACE library，无法添加 PRIVATE 源文件/编译定义。
 
 message(STATUS "MICROPYTHON COMPONENT: Loading micropython component")
 
@@ -31,21 +34,9 @@ message(STATUS "MicroPython source found at ${MICROPY_DIR}")
 set(MICROPY_BOARD_DIR ${MICROPY_PORT_DIR}/boards/XIAOMIAO_DESKTOP)
 set(MICROPY_BOARD XIAOMIAO_DESKTOP)
 
-# 注册组件（两个阶段都会执行，用于记录 REQUIRES）
-# 注意：SRCS 和 INCLUDE_DIRS 在需求收集阶段会被忽略，真正的源文件在
-# if(TARGET ${COMPONENT_LIB}) 守卫内通过 target_sources 添加
-idf_component_register(
-    REQUIRES
-        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
-)
-
-# ============================================================
-# 以下构建逻辑仅在"实际构建阶段"执行
-# （需求收集阶段 COMPONENT_LIB 尚未定义为 target）
-# ============================================================
-if(TARGET ${COMPONENT_LIB})
-
 # 包含 MicroPython 核心构建配置（设置 MICROPY_SOURCE_PY / MICROPY_SOURCE_EXTMOD 等变量）
+# 必须在 idf_component_register 之前，这样 SRCS 才能引用这些源文件列表，
+# 使组件被创建为 STATIC library（而非 INTERFACE library）
 include(${MICROPY_DIR}/py/py.cmake)
 include(${MICROPY_DIR}/extmod/extmod.cmake)
 
@@ -91,25 +82,31 @@ set(MICROPY_SOURCE_LIB
     ${MICROPY_DIR}/lib/oofatfs/ffunicode.c
 )
 
-# 添加所有源文件到组件 target
-target_sources(${COMPONENT_LIB} PRIVATE
-    ${MICROPY_SOURCE_PY}
-    ${MICROPY_SOURCE_EXTMOD}
-    ${MICROPY_SOURCE_SHARED}
-    ${MICROPY_SOURCE_LIB}
-    ${MICROPY_SOURCE_PORT}
+# 注册组件（两个阶段都会执行，用于记录 REQUIRES 和创建 STATIC library）
+idf_component_register(
+    SRCS
+        ${MICROPY_SOURCE_PY}
+        ${MICROPY_SOURCE_EXTMOD}
+        ${MICROPY_SOURCE_SHARED}
+        ${MICROPY_SOURCE_LIB}
+        ${MICROPY_SOURCE_PORT}
+    INCLUDE_DIRS
+        ${MICROPY_DIR}
+        ${MICROPY_DIR}/py
+        ${MICROPY_DIR}/extmod
+        ${MICROPY_DIR}/shared
+        ${MICROPY_PORT_DIR}
+        ${MICROPY_BOARD_DIR}
+        ${CMAKE_BINARY_DIR}
+    REQUIRES
+        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
 )
 
-# 添加 include 路径
-target_include_directories(${COMPONENT_LIB} PUBLIC
-    ${MICROPY_DIR}
-    ${MICROPY_DIR}/py
-    ${MICROPY_DIR}/extmod
-    ${MICROPY_DIR}/shared
-    ${MICROPY_PORT_DIR}
-    ${MICROPY_BOARD_DIR}
-    ${CMAKE_BINARY_DIR}
-)
+# ============================================================
+# 以下构建逻辑仅在"实际构建阶段"执行
+# （需求收集阶段 COMPONENT_LIB 尚未定义为 target）
+# ============================================================
+if(TARGET ${COMPONENT_LIB})
 
 # 设置编译定义
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
