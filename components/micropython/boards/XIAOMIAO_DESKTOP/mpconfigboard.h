@@ -62,6 +62,7 @@
 
 // 禁用 DHT 传感器（需要 dht_readinto_obj）
 #define MICROPY_PY_MACHINE_DHT              (0)
+#define MICROPY_PY_MACHINE_DHT_READINTO     (0)
 
 // 禁用 NLR jump fail（避免 nlr_jump_fail 未定义）
 #define MICROPY_NLR_SETJMP                  (1)
