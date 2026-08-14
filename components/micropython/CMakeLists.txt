@@ -4,7 +4,9 @@
 
 message(STATUS "MICROPYTHON COMPONENT: Loading micropython component")
 
-set(MICROPY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/micropython)
+# 使用 PROJECT_SOURCE_DIR 获取项目根目录（绝对路径，不会被 ESP-IDF 改变）
+# 注意：CMAKE_CURRENT_SOURCE_DIR 在 EXTRA_COMPONENT_DIRS 组件中可能被解析为 build/ 目录
+set(MICROPY_DIR ${PROJECT_SOURCE_DIR}/components/micropython/micropython)
 set(MICROPY_PORT_DIR ${MICROPY_DIR}/ports/esp32)
 
 # 检查 MicroPython 源码是否存在
