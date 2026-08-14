@@ -27,6 +27,7 @@
 
 // 禁用 SD 卡模块（使用系统已有的 FATFS）
 #define MICROPY_PY_MACHINE_SDCARD           (0)
+#define MICROPY_HW_ENABLE_SDCARD            (0)
 
 // 禁用 I2S 音频模块
 #define MICROPY_PY_MACHINE_I2S              (0)
@@ -42,6 +43,8 @@
 
 // 禁用 ADC Block 模块（需要 machine_adc_block.c 等端口文件）
 #define MICROPY_PY_MACHINE_ADC_BLOCK        (0)
+// 禁用 ADC 模块（端口实现依赖 adc_block 符号）
+#define MICROPY_PY_MACHINE_ADC              (0)
 
 // 禁用 bitstream 模块（需要 machine_bitstream.c 等端口文件）
 #define MICROPY_PY_MACHINE_BITSTREAM        (0)
