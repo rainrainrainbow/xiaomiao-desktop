@@ -99,7 +99,7 @@ idf_component_register(
         ${MICROPY_BOARD_DIR}
         ${CMAKE_BINARY_DIR}
     REQUIRES
-        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_driver_dac esp_driver_gpio esp_driver_gptimer esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_mcpwm esp_driver_pcnt esp_driver_rmt esp_driver_sdmmc esp_driver_sdspi esp_driver_spi esp_driver_uart esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
+        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_driver_dac esp_driver_gpio esp_driver_gptimer esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_mcpwm esp_driver_pcnt esp_driver_rmt esp_driver_sdmmc esp_driver_sdspi esp_driver_spi esp_driver_uart esp_event esp_hw_support esp_mm esp_netif esp_partition esp_pm esp_psram esp_ringbuf esp_rom esp_system esp_timer esp_wifi freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
 )
 
 # ============================================================
@@ -291,6 +291,32 @@ add_custom_target(MICROPY_GENHDR ALL
         ${MICROPY_MODULEDEFS}
         ${MICROPY_ROOT_POINTERS}
 )
+
+# ========== 引脚生成规则（生成 genhdr/pins.h 和 pins.c） ==========
+set(GEN_PINS_PREFIX "${MICROPY_PORT_DIR}/boards/pins_prefix.c")
+set(GEN_PINS_MKPINS "${MICROPY_PORT_DIR}/boards/make-pins.py")
+set(GEN_PINS_SRC "${CMAKE_BINARY_DIR}/pins.c")
+set(GEN_PINS_HDR "${MICROPY_GENHDR_DIR}/pins.h")
+if(EXISTS "${MICROPY_BOARD_DIR}/pins.csv")
+    set(GEN_PINS_BOARD_CSV "${MICROPY_BOARD_DIR}/pins.csv")
+    set(GEN_PINS_BOARD_CSV_ARG --board-csv "${GEN_PINS_BOARD_CSV}")
+endif()
+target_sources(${COMPONENT_LIB} PRIVATE ${GEN_PINS_SRC} ${GEN_PINS_HDR})
+
+add_custom_command(
+    OUTPUT ${GEN_PINS_SRC} ${GEN_PINS_HDR}
+    COMMAND ${Python3_EXECUTABLE} ${GEN_PINS_MKPINS} ${GEN_PINS_BOARD_CSV_ARG}
+        --prefix ${GEN_PINS_PREFIX} --output-source ${GEN_PINS_SRC} --output-header ${GEN_PINS_HDR}
+    DEPENDS
+        ${MICROPY_MPVERSION}
+        ${GEN_PINS_MKPINS}
+        ${GEN_PINS_PREFIX}
+    VERBATIM
+    COMMAND_EXPAND_LISTS
+)
+
+# 将 pins.h 加入 MICROPY_GENHDR 依赖，确保生成
+add_dependencies(MICROPY_GENHDR ${GEN_PINS_HDR})
 
 endif()  # if(TARGET ${COMPONENT_LIB}) — 需求收集阶段跳过构建逻辑
 
