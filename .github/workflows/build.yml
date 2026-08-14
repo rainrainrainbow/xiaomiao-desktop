@@ -131,9 +131,22 @@ jobs:
           pip3 install --upgrade idf-component-manager
           idf.py --version
 
+          # Override MicroPython macros via compiler flags (highest priority)
+          # These force-disable modules that cause linker errors
+          export EXTRA_CFLAGS="-DMICROPY_PY_MACHINE_ADC=0 \
+            -DMICROPY_PY_MACHINE_ADC_BLOCK=0 \
+            -DMICROPY_PY_MACHINE_ADC_READ=0 \
+            -DMICROPY_PY_MACHINE_ADC_READ_UV=0 \
+            -DMICROPY_PY_MACHINE_BITSTREAM=0 \
+            -DMICROPY_PY_MACHINE_DHT_READINTO=0 \
+            -DMICROPY_PY_MACHINE_PULSE=0 \
+            -DMICROPY_EMIT_XTENSAWIN=0 \
+            -DMICROPY_PERSISTENT_CODE_LOAD=0 \
+            -DMICROPY_HW_ENABLE_SDCARD=0"
+
           # Resolve and build
           idf.py reconfigure
-          idf.py build
+          idf.py build -DCMAKE_C_FLAGS="$EXTRA_CFLAGS $CMAKE_C_FLAGS"
 
           # Generate merged binary for ota_0 partition
           python3 -m esptool --chip esp32 merge_bin \
