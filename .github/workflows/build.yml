@@ -76,7 +76,7 @@ jobs:
           BOARD_DIR=components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP
           mkdir -p $BOARD_DIR
 
-cat > $BOARD_DIR/mpconfigboard.h << 'EOF'
+          cat > $BOARD_DIR/mpconfigboard.h << 'EOF'
 // 小喵掌机 MicroPython 板级配置
 // XiaoMiao Desktop Board Configuration for MicroPython
 
@@ -147,24 +147,24 @@ cat > $BOARD_DIR/mpconfigboard.h << 'EOF'
 EOF
 
           cat > $BOARD_DIR/mpconfigboard.cmake << 'EOF'
-          set(IDF_TARGET esp32)
-          set(MICROPY_BOARD XIAOMIAO_DESKTOP)
-          set(MICROPY_FROZEN_MANIFEST ${MICROPY_PORT_DIR}/boards/manifest.py)
-          EOF
+set(IDF_TARGET esp32)
+set(MICROPY_BOARD XIAOMIAO_DESKTOP)
+set(MICROPY_FROZEN_MANIFEST ${MICROPY_PORT_DIR}/boards/manifest.py)
+EOF
 
           cat > $BOARD_DIR/board.json << 'EOF'
-          {
-              "deploy": ["../deploy.md"],
-              "features": ["WiFi", "Bluetooth", "PSRAM"],
-              "id": "XIAOMIAO_DESKTOP",
-              "images": [],
-              "mcu": "esp32",
-              "product": "XiaoMiao Desktop",
-              "thumbnail": "",
-              "url": "",
-              "vendor": "XiaoMiao"
-          }
-          EOF
+{
+    "deploy": ["../deploy.md"],
+    "features": ["WiFi", "Bluetooth", "PSRAM"],
+    "id": "XIAOMIAO_DESKTOP",
+    "images": [],
+    "mcu": "esp32",
+    "product": "XiaoMiao Desktop",
+    "thumbnail": "",
+    "url": "",
+    "vendor": "XiaoMiao"
+}
+EOF
 
           echo "Board config created at $BOARD_DIR"
           ls -la $BOARD_DIR
