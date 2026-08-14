@@ -63,7 +63,9 @@ jobs:
       - name: Download MicroPython source
         run: |
           # Clone MicroPython v1.28.0 to components/micropython/micropython
+          # Remove any pre-existing directory first (repo may contain board config files)
           cd components/micropython
+          rm -rf micropython
           git clone --depth 1 --branch v1.28.0 https://github.com/micropython/micropython.git micropython
           echo "MicroPython source downloaded"
 
