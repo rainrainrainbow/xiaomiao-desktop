@@ -152,6 +152,15 @@ set(MICROPY_SOURCE_QSTR
 # 计算预处理器标志
 get_target_property(MICROPY_CPP_INC ${COMPONENT_LIB} INCLUDE_DIRECTORIES)
 get_target_property(MICROPY_CPP_DEF ${COMPONENT_LIB} COMPILE_DEFINITIONS)
+
+# 收集 REQUIRES 组件的 include 路径（ESP-IDF 系统头文件如 esp_random.h 等）
+# 通过 micropy_gather_target_properties 宏（定义于 py.cmake）从链接库收集
+get_target_property(_mp_link_libs ${COMPONENT_LIB} INTERFACE_LINK_LIBRARIES)
+foreach(_lib ${_mp_link_libs})
+    micropy_gather_target_properties(${_lib})
+endforeach()
+list(APPEND MICROPY_CPP_INC ${MICROPY_CPP_INC_EXTRA})
+
 set(_prefix "-I")
 foreach(_arg ${MICROPY_CPP_INC})
     list(APPEND MICROPY_CPP_FLAGS ${_prefix}${_arg})
