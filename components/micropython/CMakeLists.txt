@@ -40,11 +40,44 @@ set(MICROPY_BOARD XIAOMIAO_DESKTOP)
 include(${MICROPY_DIR}/py/py.cmake)
 include(${MICROPY_DIR}/extmod/extmod.cmake)
 
+# ============================================================
+# 从未实现的模块中移除源文件（避免链接器 undefined reference 错误）
+# ============================================================
+# 注意：这些模块虽然在 mpconfigboard.h 中被禁用（宏定义为 0），
+# 但它们的源文件仍在 MICROPY_SOURCE_EXTMOD 列表中，CMake 仍会编译它们。
+# 由于条件编译排除了函数实现，但保留了函数声明，导致链接器找不到实现。
+
+# 移除未实现的 extmod 模块源文件
+list(REMOVE_ITEM MICROPY_SOURCE_EXTMOD
+    ${MICROPY_EXTMOD_DIR}/machine_adc_block.c      # ADC Block（需要 esp_driver_adc 支持）
+    ${MICROPY_EXTMOD_DIR}/machine_bitstream.c       # Bitstream（需要 GPIO bitbang 实现）
+    ${MICROPY_EXTMOD_DIR}/modnetwork.c              # Network 模块（需要 lwIP/cyw43 等后端）
+    ${MICROPY_EXTMOD_DIR}/network_cyw43.c           # CYW43 WiFi/BT 驱动
+    ${MICROPY_EXTMOD_DIR}/network_lwip.c            # LWIP 网络后端
+    ${MICROPY_EXTMOD_DIR}/network_ninaw10.c         # Nina-W10 WiFi 模块
+    ${MICROPY_EXTMOD_DIR}/network_ppp_lwip.c        # PPP over LWIP
+    ${MICROPY_EXTMOD_DIR}/network_wiznet5k.c        # Wiznet5k 以太网芯片
+    ${MICROPY_EXTMOD_DIR}/modbluetooth.c            # Bluetooth 模块
+    ${MICROPY_EXTMOD_DIR}/btstack/modbluetooth_btstack.c  # BTstack 后端
+    ${MICROPY_EXTMOD_DIR}/nimble/modbluetooth_nimble.c    # NimBLE 后端
+    ${MICROPY_EXTMOD_DIR}/modtls_axtls.c            # axtls TLS 后端（未使用）
+    ${MICROPY_EXTMOD_DIR}/modwebrepl.c              # WebREPL（需要 network）
+    ${MICROPY_EXTMOD_DIR}/modwebsocket.c            # WebSocket（需要 network）
+)
+
+message(STATUS "Removed unimplemented extmod modules from source list")
+message(STATUS "MICROPY_SOURCE_EXTMOD now has ${CMAKE_MATCH_COUNT} files")
+
 # 设置端口源文件
 # 注意：machine_uart.c 和 modmachine.c 是 INCLUDEFILE（通过
 # MICROPY_PY_MACHINE_UART_INCLUDEFILE / MICROPY_PY_MACHINE_INCLUDEFILE
 # 被 extmod/machine_uart.c 和 extmod/machine.c 包含），不能单独编译，
 # 因此不列入此列表，否则会因缺少 machine_uart_type 等声明而编译失败。
+#
+# 已移除的未实现模块源文件（避免链接器 undefined reference 错误）：
+# - modesp32.c: ESP32 模块主文件（引用 esp32_nvs_type, esp32_partition_type 等）
+# - esp32_nvs.c, esp32_partition.c, esp32_pcnt.c, esp32_rmt.c, esp32_ulp.c
+# - machine_sdcard.c, machine_touchpad.c
 set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/panichandler.c
     ${MICROPY_PORT_DIR}/gccollect.c
@@ -55,11 +88,19 @@ set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/machine_hw_spi.c
     ${MICROPY_PORT_DIR}/machine_i2c.c
     ${MICROPY_PORT_DIR}/machine_rtc.c
-    ${MICROPY_PORT_DIR}/modesp32.c
+    # ${MICROPY_PORT_DIR}/modesp32.c          # 已移除：引用未实现的 ESP32 模块类型
     ${MICROPY_PORT_DIR}/modesp.c
     ${MICROPY_PORT_DIR}/uart.c
     ${MICROPY_PORT_DIR}/mpthreadport.c
     ${MICROPY_PORT_DIR}/help.c
+    # 以下文件已移除，因为它们的符号被 modesp32.c 引用但未实现：
+    # ${MICROPY_PORT_DIR}/esp32_nvs.c         # NVS 模块
+    # ${MICROPY_PORT_DIR}/esp32_partition.c   # Partition 模块
+    # ${MICROPY_PORT_DIR}/esp32_pcnt.c        # PCNT 模块
+    # ${MICROPY_PORT_DIR}/esp32_rmt.c         # RMT 模块
+    # ${MICROPY_PORT_DIR}/esp32_ulp.c         # ULP 模块
+    # ${MICROPY_PORT_DIR}/machine_sdcard.c    # SD 卡模块
+    # ${MICROPY_PORT_DIR}/machine_touchpad.c  # TouchPad 模块
 )
 
 # 设置共享源文件
