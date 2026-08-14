@@ -60,6 +60,13 @@ jobs:
           fetch-depth: 0
           lfs: false
 
+      - name: Download MicroPython source
+        run: |
+          # Clone MicroPython v1.28.0 to components/micropython/micropython
+          cd components/micropython
+          git clone --depth 1 --branch v1.28.0 https://github.com/micropython/micropython.git micropython
+          echo "MicroPython source downloaded"
+
       - name: Build firmware (ESP-IDF v5.3)
         run: |
           # Source ESP-IDF environment
