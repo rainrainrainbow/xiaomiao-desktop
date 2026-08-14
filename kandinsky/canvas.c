@@ -11,6 +11,7 @@
 #include "ion/display.h"
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 /* ========== 内部状态 ========== */
 static ion_color_t *s_fb = NULL;           /* 帧缓冲区指针（PSRAM） */
@@ -42,7 +43,12 @@ static int s_clip_h = ION_DISPLAY_HEIGHT;
 void kd_canvas_init(ion_color_t *framebuffer)
 {
     s_fb = framebuffer;
-    kd_canvas_clear(KD_COLOR_BLACK);
+    /* 全屏清空为黑色 */
+    if (s_fb) {
+        for (int i = 0; i < s_width * s_height; i++) {
+            s_fb[i] = KD_COLOR_BLACK;
+        }
+    }
 }
 
 void kd_canvas_clear(ion_color_t color)
