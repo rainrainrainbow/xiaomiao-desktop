@@ -49,6 +49,7 @@ include(${MICROPY_DIR}/extmod/extmod.cmake)
 
 # 移除未实现的 extmod 模块源文件
 list(REMOVE_ITEM MICROPY_SOURCE_EXTMOD
+    ${MICROPY_EXTMOD_DIR}/machine_adc.c            # ADC（端口实现依赖 adc_block 符号）
     ${MICROPY_EXTMOD_DIR}/machine_adc_block.c      # ADC Block（需要 esp_driver_adc 支持）
     ${MICROPY_EXTMOD_DIR}/machine_bitstream.c       # Bitstream（需要 GPIO bitbang 实现）
     ${MICROPY_EXTMOD_DIR}/modnetwork.c              # Network 模块（需要 lwIP/cyw43 等后端）
