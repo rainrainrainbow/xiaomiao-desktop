@@ -1,0 +1,17 @@
+{
+    "deploy": [
+        "../deploy.md"
+    ],
+    "features": [
+        "WiFi",
+        "Bluetooth",
+        "PSRAM"
+    ],
+    "id": "XIAOMIAO_DESKTOP",
+    "images": [],
+    "mcu": "esp32",
+    "product": "XiaoMiao Desktop",
+    "thumbnail": "",
+    "url": "",
+    "vendor": "XiaoMiao"
+}
