@@ -316,7 +316,9 @@ add_custom_command(
 )
 
 # 将 pins.h 加入 MICROPY_GENHDR 依赖，确保生成
-add_dependencies(MICROPY_GENHDR ${GEN_PINS_HDR})
+add_custom_target(MICROPY_GENPINS ALL
+    DEPENDS ${GEN_PINS_HDR}
+)
 
 endif()  # if(TARGET ${COMPONENT_LIB}) — 需求收集阶段跳过构建逻辑
 
