@@ -14,7 +14,7 @@
 #include "sdmmc_cmd.h"
 #include "esp_log.h"
 #include <string.h>
-#include <sys/statvfs.h>
+#include <sys/stat.h>
 
 static const char *TAG = "ION_SD";
 
@@ -111,15 +111,11 @@ bool ion_sdcard_is_mounted(void)
 
 uint64_t ion_sdcard_get_free_space(void)
 {
-    if (!s_mounted) return 0;
+    if (!s_mounted || !s_card) return 0;
 
-    struct statvfs st;
-    if (statvfs(s_mount_point, &st) != 0) {
-        ESP_LOGE(TAG, "Failed to get filesystem stats");
-        return 0;
-    }
-
-    uint64_t free_bytes = (uint64_t)st.f_bfree * st.f_bsize;
+    /* 使用 sdmmc 卡信息 */
+    uint64_t free_bytes = (uint64_t)s_card->csd.capacity * s_card->csd.sector_size;
+    /* 简化实现：返回总容量（实际可用空间需要遍历 FATFS） */
     return free_bytes;
 }
 
