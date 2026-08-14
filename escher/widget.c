@@ -13,6 +13,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* ========== 颜色常量（避免直接使用枚举值作为颜色值） ========== */
+#define WIDGET_COLOR_TRANSPARENT 0xFFFF
+#define WIDGET_COLOR_WHITE       KD_COLOR_WHITE
+
 /* ========== 控件树管理 ========== */
 
 /* 根控件 */
@@ -35,9 +39,9 @@ void es_widget_init(es_widget_t *widget, es_widget_type_t type)
     widget->id = s_next_id++;
     widget->visible = true;
     widget->enabled = true;
-    widget->bg_color = ES_COLOR_TRANSPARENT;
-    widget->fg_color = ES_COLOR_TEXT_PRIMARY;
-    widget->border_color = ES_COLOR_TRANSPARENT;
+    widget->bg_color = WIDGET_COLOR_TRANSPARENT;
+    widget->fg_color = es_color_get(ES_COLOR_TEXT_PRIMARY);
+    widget->border_color = WIDGET_COLOR_TRANSPARENT;
     widget->border_width = 0;
     widget->radius = 0;
 }
@@ -159,7 +163,7 @@ es_widget_t *es_widget_get_focus(void)
 /* 绘制控件背景（含圆角） */
 static void draw_background(es_widget_t *widget, int abs_x, int abs_y)
 {
-    if (widget->bg_color == ES_COLOR_TRANSPARENT) return;
+    if (widget->bg_color == WIDGET_COLOR_TRANSPARENT) return;
 
     if (widget->radius > 0) {
         kd_canvas_fill_round_rect(abs_x, abs_y, widget->width, widget->height,
@@ -173,7 +177,7 @@ static void draw_background(es_widget_t *widget, int abs_x, int abs_y)
 /* 绘制控件边框 */
 static void draw_border(es_widget_t *widget, int abs_x, int abs_y)
 {
-    if (widget->border_width <= 0 || widget->border_color == ES_COLOR_TRANSPARENT) return;
+    if (widget->border_width <= 0 || widget->border_color == WIDGET_COLOR_TRANSPARENT) return;
 
     kd_canvas_draw_rect(abs_x, abs_y, widget->width, widget->height, widget->border_color);
 
@@ -206,7 +210,7 @@ static void draw_label(es_widget_t *widget, int abs_x, int abs_y)
             tx = abs_x + widget->width - tw - 4;
         }
 
-        kd_font_draw_string(tx, ty, font, widget->text, widget->fg_color, ES_COLOR_TRANSPARENT);
+        kd_font_draw_string(tx, ty, font, widget->text, widget->fg_color, WIDGET_COLOR_TRANSPARENT);
     }
 }
 
@@ -225,7 +229,7 @@ static void draw_button(es_widget_t *widget, int abs_x, int abs_y)
         int tx = abs_x + (widget->width - tw) / 2;
         int ty = abs_y + (widget->height - fh) / 2;
 
-        kd_font_draw_string(tx, ty, font, widget->text, widget->fg_color, ES_COLOR_TRANSPARENT);
+        kd_font_draw_string(tx, ty, font, widget->text, widget->fg_color, WIDGET_COLOR_TRANSPARENT);
     }
 }
 
@@ -406,8 +410,8 @@ es_widget_t *es_button_create(int x, int y, int w, int h, const char *text)
     es_widget_init(btn, ES_WIDGET_BUTTON);
     es_widget_set_frame(btn, x, y, w, h);
     btn->text = text;
-    btn->bg_color = ES_COLOR_PRIMARY;
-    btn->fg_color = KD_COLOR_WHITE;
+    btn->bg_color = es_color_get(ES_COLOR_PRIMARY);
+    btn->fg_color = WIDGET_COLOR_WHITE;
     btn->radius = 4;
     return btn;
 }
