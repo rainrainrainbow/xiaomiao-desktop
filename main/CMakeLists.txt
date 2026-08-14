@@ -34,5 +34,5 @@ idf_component_register(
         "../components/micropython/micropython/shared"
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc
 )
