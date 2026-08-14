@@ -78,6 +78,30 @@ jobs:
           echo "Board config copied"
           ls -la $BOARD_DST
 
+      - name: Patch mpconfigport.h to respect board config overrides
+        run: |
+          # mpconfigport.h includes mpconfigboard.h (line 4), but then re-defines
+          # several macros as (1) WITHOUT #ifndef guards, overriding board config.
+          # We need to wrap these in #ifndef to let board config take precedence.
+          MPCONFIGPORT=components/micropython/micropython/ports/esp32/mpconfigport.h
+          
+          # Wrap ADC_BLOCK in #ifndef
+          sed -i 's/^#define MICROPY_PY_MACHINE_ADC_BLOCK.*$/#ifndef MICROPY_PY_MACHINE_ADC_BLOCK\\n#define MICROPY_PY_MACHINE_ADC_BLOCK (1)\\n#endif/' $MPCONFIGPORT
+          
+          # Wrap ADC_BLOCK_INCLUDEFILE in #ifndef
+          sed -i 's/^#define MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE.*$/#ifndef MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE\\n#define MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE "ports\/esp32\/machine_adc_block.c"\\n#endif/' $MPCONFIGPORT
+          
+          # Wrap BITSTREAM in #ifndef
+          sed -i 's/^#define MICROPY_PY_MACHINE_BITSTREAM.*$/#ifndef MICROPY_PY_MACHINE_BITSTREAM\\n#define MICROPY_PY_MACHINE_BITSTREAM (1)\\n#endif/' $MPCONFIGPORT
+          
+          # Wrap DHT_READINTO in #ifndef
+          sed -i 's/^#define MICROPY_PY_MACHINE_DHT_READINTO.*$/#ifndef MICROPY_PY_MACHINE_DHT_READINTO\\n#define MICROPY_PY_MACHINE_DHT_READINTO (1)\\n#endif/' $MPCONFIGPORT
+          
+          # Wrap PULSE in #ifndef
+          sed -i 's/^#define MICROPY_PY_MACHINE_PULSE.*$/#ifndef MICROPY_PY_MACHINE_PULSE\\n#define MICROPY_PY_MACHINE_PULSE (1)\\n#endif/' $MPCONFIGPORT
+          
+          echo "mpconfigport.h patched to respect board config overrides"
+
       - name: Build firmware (ESP-IDF v5.3)
         run: |
           # Source ESP-IDF environment
