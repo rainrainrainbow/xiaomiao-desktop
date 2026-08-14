@@ -4,6 +4,7 @@
  */
 
 #include "app_manager.h"
+#include "app_micropython.h"
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "system/sys_nvs.h"
@@ -131,6 +132,13 @@ static const app_def_t s_builtin_app_defs[] = {
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
+    {
+        .name = "Python",
+        .icon_text = LV_SYMBOL_CHIP,
+        .icon_color = 0x3B82F6,
+        .type = APP_TYPE_BUILTIN,
+        .launch_cb = NULL,
+    },
 };
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
@@ -153,6 +161,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "商店") == 0) return &s_store_callbacks;
     if (strcmp(app_name, "贪吃蛇") == 0) return &s_snake_callbacks;
     if (strcmp(app_name, "音乐") == 0) return &s_music_callbacks;
+    if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
     return NULL;
 }
 
