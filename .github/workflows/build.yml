@@ -14,10 +14,10 @@ name: XiaoMiao Desktop CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, v65-*]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main]
+    branches: [main, v65-*]
   workflow_dispatch:
     inputs:
       build_type:
@@ -77,6 +77,47 @@ jobs:
           cp components/micropython/boards/XIAOMIAO_DESKTOP/* $BOARD_DST/
           echo "Board config copied"
           ls -la $BOARD_DST
+
+      - name: Patch mpconfigport.h to respect board config overrides
+        run: |
+          # mpconfigport.h includes mpconfigboard.h (line 4), but then re-defines
+          # several macros as (1) WITHOUT #ifndef guards, overriding board config.
+          # We need to wrap these in #ifndef to let board config take precedence.
+          python3 << 'PATCH_EOF'
+          import re
+
+          filepath = "components/micropython/micropython/ports/esp32/mpconfigport.h"
+
+          with open(filepath, 'r') as f:
+              content = f.read()
+
+          # Macros to wrap in #ifndef guards (so board config can override)
+          macros_to_wrap = [
+              'MICROPY_PY_MACHINE_ADC_BLOCK',
+              'MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE',
+              'MICROPY_PY_MACHINE_BITSTREAM',
+              'MICROPY_PY_MACHINE_DHT_READINTO',
+              'MICROPY_PY_MACHINE_PULSE',
+              'MICROPY_PY_MACHINE_ADC_READ',
+              'MICROPY_PY_MACHINE_ADC_READ_UV',
+              'MICROPY_PY_MACHINE_ADC',
+              'MICROPY_PY_MACHINE_ADC_INCLUDEFILE',
+              'MICROPY_EMIT_XTENSAWIN',
+              'MICROPY_PERSISTENT_CODE_LOAD',
+          ]
+
+          for macro in macros_to_wrap:
+              # Match: #define MACRO ... (at start of line)
+              pattern = rf'^(#define {re.escape(macro)}\s+.*)$'
+              # Use real newlines in replacement
+              replacement = f'#ifndef {macro}\n\\1\n#endif'
+              content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+
+          with open(filepath, 'w') as f:
+              f.write(content)
+
+          print(f"Patched {filepath} to wrap {len(macros_to_wrap)} macros in #ifndef guards")
+          PATCH_EOF
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
