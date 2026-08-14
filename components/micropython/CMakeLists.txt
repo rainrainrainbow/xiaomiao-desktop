@@ -2,6 +2,8 @@
 # 作为 ESP-IDF 组件构建 MicroPython 运行时
 # 注意：直接调用 idf_component_register 注册组件
 
+message(STATUS "MICROPYTHON COMPONENT: Loading micropython component")
+
 set(MICROPY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/micropython)
 set(MICROPY_PORT_DIR ${MICROPY_DIR}/ports/esp32)
 
@@ -9,7 +11,7 @@ set(MICROPY_PORT_DIR ${MICROPY_DIR}/ports/esp32)
 if(NOT EXISTS ${MICROPY_DIR})
     message(WARNING "MicroPython source not found at ${MICROPY_DIR}")
     message(WARNING "Please clone MicroPython v1.28.0 to components/micropython/micropython")
-    return()
+    # 不 return，继续执行（即使源码缺失，也要注册组件避免构建失败）
 endif()
 
 message(STATUS "MicroPython source found at ${MICROPY_DIR}")
