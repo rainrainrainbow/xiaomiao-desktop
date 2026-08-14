@@ -1,11 +1,18 @@
 # MicroPython ESP32 端口集成
 # 作为 ESP-IDF 组件构建 MicroPython 运行时
-# 注意：直接调用 idf_component_register 注册组件
+#
+# 重要说明：
+# ESP-IDF 会分两个阶段处理组件 CMakeLists.txt：
+#   1. 需求收集阶段（component_get_requirements.cmake）：仅提取 REQUIRES 依赖
+#   2. 实际构建阶段：真正编译组件
+# 在需求收集阶段，COMPONENT_LIB 尚未定义为 target，因此所有依赖 target 的
+# 构建逻辑（target_sources / target_compile_definitions / add_library 等）
+# 都必须放在 if(TARGET ${COMPONENT_LIB}) 守卫内，否则会失败。
 
 message(STATUS "MICROPYTHON COMPONENT: Loading micropython component")
 
 # 使用 CMAKE_CURRENT_LIST_DIR 获取当前 CMakeLists.txt 所在目录（绝对路径）
-# 这是最可靠的方式：在组件需求收集阶段（component_get_requirements）和实际构建阶段都指向组件真实目录
+# 这是最可靠的方式：在需求收集阶段和实际构建阶段都指向组件真实目录
 # 注意：PROJECT_SOURCE_DIR 在需求收集阶段为空，CMAKE_CURRENT_SOURCE_DIR 会被解析为 build/ 目录
 set(MICROPY_COMPONENT_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(MICROPY_DIR ${MICROPY_COMPONENT_DIR}/micropython)
@@ -16,7 +23,6 @@ message(STATUS "MICROPY_COMPONENT_DIR = ${MICROPY_COMPONENT_DIR}")
 if(NOT EXISTS ${MICROPY_DIR})
     message(WARNING "MicroPython source not found at ${MICROPY_DIR}")
     message(WARNING "Please clone MicroPython v1.28.0 to components/micropython/micropython")
-    # 不 return，继续执行（即使源码缺失，也要注册组件避免构建失败）
 endif()
 
 message(STATUS "MicroPython source found at ${MICROPY_DIR}")
@@ -25,7 +31,21 @@ message(STATUS "MicroPython source found at ${MICROPY_DIR}")
 set(MICROPY_BOARD_DIR ${MICROPY_PORT_DIR}/boards/XIAOMIAO_DESKTOP)
 set(MICROPY_BOARD XIAOMIAO_DESKTOP)
 
-# 包含 MicroPython 核心构建配置
+# 注册组件（两个阶段都会执行，用于记录 REQUIRES）
+# 注意：SRCS 和 INCLUDE_DIRS 在需求收集阶段会被忽略，真正的源文件在
+# if(TARGET ${COMPONENT_LIB}) 守卫内通过 target_sources 添加
+idf_component_register(
+    REQUIRES
+        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
+)
+
+# ============================================================
+# 以下构建逻辑仅在"实际构建阶段"执行
+# （需求收集阶段 COMPONENT_LIB 尚未定义为 target）
+# ============================================================
+if(TARGET ${COMPONENT_LIB})
+
+# 包含 MicroPython 核心构建配置（设置 MICROPY_SOURCE_PY / MICROPY_SOURCE_EXTMOD 等变量）
 include(${MICROPY_DIR}/py/py.cmake)
 include(${MICROPY_DIR}/extmod/extmod.cmake)
 
@@ -71,24 +91,24 @@ set(MICROPY_SOURCE_LIB
     ${MICROPY_DIR}/lib/oofatfs/ffunicode.c
 )
 
-# 注册组件
-idf_component_register(
-    SRCS
-        ${MICROPY_SOURCE_PY}
-        ${MICROPY_SOURCE_EXTMOD}
-        ${MICROPY_SOURCE_SHARED}
-        ${MICROPY_SOURCE_LIB}
-        ${MICROPY_SOURCE_PORT}
-    INCLUDE_DIRS
-        ${MICROPY_DIR}
-        ${MICROPY_DIR}/py
-        ${MICROPY_DIR}/extmod
-        ${MICROPY_DIR}/shared
-        ${MICROPY_PORT_DIR}
-        ${MICROPY_BOARD_DIR}
-        ${CMAKE_BINARY_DIR}
-    REQUIRES
-        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
+# 添加所有源文件到组件 target
+target_sources(${COMPONENT_LIB} PRIVATE
+    ${MICROPY_SOURCE_PY}
+    ${MICROPY_SOURCE_EXTMOD}
+    ${MICROPY_SOURCE_SHARED}
+    ${MICROPY_SOURCE_LIB}
+    ${MICROPY_SOURCE_PORT}
+)
+
+# 添加 include 路径
+target_include_directories(${COMPONENT_LIB} PUBLIC
+    ${MICROPY_DIR}
+    ${MICROPY_DIR}/py
+    ${MICROPY_DIR}/extmod
+    ${MICROPY_DIR}/shared
+    ${MICROPY_PORT_DIR}
+    ${MICROPY_BOARD_DIR}
+    ${CMAKE_BINARY_DIR}
 )
 
 # 设置编译定义
@@ -265,5 +285,7 @@ add_custom_target(MICROPY_GENHDR ALL
         ${MICROPY_MODULEDEFS}
         ${MICROPY_ROOT_POINTERS}
 )
+
+endif()  # if(TARGET ${COMPONENT_LIB}) — 需求收集阶段跳过构建逻辑
 
 message(STATUS "MicroPython component registered with ${MICROPY_SOURCE_PY} sources")
