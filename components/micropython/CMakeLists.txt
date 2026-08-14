@@ -100,8 +100,8 @@ set(MICROPY_SOURCE_PORT
     # ${MICROPY_PORT_DIR}/esp32_pcnt.c        # PCNT 模块
     # ${MICROPY_PORT_DIR}/esp32_rmt.c         # RMT 模块
     # ${MICROPY_PORT_DIR}/esp32_ulp.c         # ULP 模块
-    # ${MICROPY_PORT_DIR}/machine_sdcard.c    # SD 卡模块
-    # ${MICROPY_PORT_DIR}/machine_touchpad.c  # TouchPad 模块
+    # ${MICROPY_PORT_DIR}/machine_sdcard.c    # SD 卡模块（受 MICROPY_HW_ENABLE_SDCARD 保护）
+    ${MICROPY_PORT_DIR}/machine_touchpad.c     # TouchPad 模块（被 modmachine.c 引用，需保留）
 )
 
 # 设置共享源文件
