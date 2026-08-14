@@ -253,3 +253,17 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
     ESP_LOGW(TAG, "MicroPython scan not implemented yet");
     return 0;
 }
+
+/* ========== NLR jump fail 实现 ========== */
+/**
+ * @brief NLR (Non-Local Return) jump fail 处理函数
+ * 
+ * 当 nlr_push/nlr_pop 不匹配时调用此函数。
+ * 这是 MicroPython 异常处理机制的一部分，必须提供实现。
+ */
+void nlr_jump_fail(void *val)
+{
+    ESP_LOGE(TAG, "NLR jump failed, val=%p", val);
+    /* 打印堆栈跟踪并重启 */
+    esp_restart();
+}
