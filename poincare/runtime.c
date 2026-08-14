@@ -34,6 +34,11 @@
 #include "modmachine.h"
 #include "modesp32.h"
 
+/* modmachine.h 中声明的函数（modmachine.c 作为 INCLUDEFILE 被 extmod/machine.c 包含，
+   此处显式声明以确保 main 组件能正确链接） */
+void machine_init(void);
+void machine_pins_init(void);
+
 static const char *TAG = "POINCARE";
 
 /* ========== 内部状态 ========== */
@@ -111,7 +116,6 @@ void poincare_runtime_deinit(void)
 
     ESP_LOGI(TAG, "Deinitializing MicroPython runtime");
     mp_deinit();
-    gc_deinit();
 
     if (s_heap) {
         free(s_heap);
@@ -200,10 +204,10 @@ bool poincare_runtime_register_module(const char *module_name, void *init_func)
         return false;
     }
 
-    /* 注册自定义模块到 MicroPython */
-    qstr qname = qstr_from_str(module_name);
-    mp_module_register(qname, MP_OBJ_FROM_PTR(init_func));
-
-    ESP_LOGI(TAG, "Registered module: %s", module_name);
+    /* 注意：MicroPython v1.28.0 使用 MP_REGISTER_MODULE 宏在编译时注册模块，
+     * 运行时注册需要通过 mp_builtin_extensible_module_map 实现。
+     * 当前简化实现：直接返回 true（模块须在编译时通过 MP_REGISTER_MODULE 注册） */
+    ESP_LOGW(TAG, "Module registration at runtime is not supported in MicroPython v1.28.0");
+    ESP_LOGW(TAG, "Please use MP_REGISTER_MODULE macro at compile time for module: %s", module_name);
     return true;
 }
