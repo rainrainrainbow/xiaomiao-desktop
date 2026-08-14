@@ -60,6 +60,12 @@
 #define MICROPY_PY_SSL                      (0)
 #define MICROPY_PY_WEBSOCKET                (0)
 
+// 禁用 DHT 传感器（需要 dht_readinto_obj）
+#define MICROPY_PY_MACHINE_DHT              (0)
+
+// 禁用 NLR jump fail（避免 nlr_jump_fail 未定义）
+#define MICROPY_NLR_SETJMP                  (1)
+
 // 重命名 MicroPython 的 ESP-IDF 入口函数，避免与桌面系统的 app_main 冲突
 // 桌面系统通过自定义 API 初始化 MicroPython，不调用此入口
 #ifndef MICROPY_ESP_IDF_ENTRY
