@@ -122,6 +122,13 @@ jobs:
           print(f"Patched {filepath} to wrap {len(macros_to_wrap)} macros in #ifndef guards")
           PATCH_EOF
 
+      - name: Patch modmachine.c to disable touchpad and softspi
+        run: |
+          # Disable touchpad in modmachine.c (SOC_TOUCH_SENSOR_SUPPORTED is hardware-defined)
+          sed -i 's/#if SOC_TOUCH_SENSOR_SUPPORTED/#if 0 \/\/ SOC_TOUCH_SENSOR_SUPPORTED (disabled)/' \
+            components/micropython/micropython/ports/esp32/modmachine.c
+          echo "Patched modmachine.c to disable touchpad"
+
       - name: Build firmware (ESP-IDF v5.3)
         run: |
           # Source ESP-IDF environment
@@ -143,7 +150,6 @@ jobs:
             -DMICROPY_EMIT_XTENSAWIN=0 \
             -DMICROPY_PERSISTENT_CODE_LOAD=0 \
             -DMICROPY_HW_ENABLE_SDCARD=0 \
-            -DSOC_TOUCH_SENSOR_SUPPORTED=0 \
             -DMICROPY_PY_MACHINE_SOFTSPI=0 \
             -DMICROPY_PY_MACHINE_SOFTI2C=0"
 
