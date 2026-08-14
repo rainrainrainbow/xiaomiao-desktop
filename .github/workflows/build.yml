@@ -104,6 +104,8 @@ jobs:
               'MICROPY_PY_MACHINE_ADC_INCLUDEFILE',
               'MICROPY_EMIT_XTENSAWIN',
               'MICROPY_PERSISTENT_CODE_LOAD',
+              'MICROPY_PY_MACHINE_SDCARD',
+              'MICROPY_PY_MACHINE_TOUCHPAD',
           ]
 
           for macro in macros_to_wrap:
