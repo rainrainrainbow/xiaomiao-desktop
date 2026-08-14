@@ -132,6 +132,10 @@ jobs:
           sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
             components/micropython/micropython/extmod/machine_spi.c
           echo "Patched machine_spi.c to disable soft SPI"
+          # Disable SoftSPI entry in extmod/modmachine.c
+          sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
+            components/micropython/micropython/extmod/modmachine.c
+          echo "Patched extmod/modmachine.c to disable SoftSPI entry"
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
