@@ -57,7 +57,7 @@ void nlr_jump_fail(void *val)
 }
 
 /* ========== Native code commit stub ========== */
-void *esp_native_code_commit(void *buf, size_t len, void *reloc)
+__attribute__((weak)) void *esp_native_code_commit(void *buf, size_t len, void *reloc)
 {
     ESP_LOGW(TAG, "esp_native_code_commit called (should not happen with EMIT_NATIVE=0)");
     return NULL;
