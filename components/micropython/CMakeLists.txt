@@ -125,6 +125,11 @@ set(MICROPY_SOURCE_LIB
     ${MICROPY_DIR}/lib/oofatfs/ffunicode.c
 )
 
+# 设置 drivers 源文件（softspi 等）
+set(MICROPY_SOURCE_DRIVERS
+    ${MICROPY_DIR}/drivers/bus/softspi.c
+)
+
 # 注册组件（两个阶段都会执行，用于记录 REQUIRES 和创建 STATIC library）
 idf_component_register(
     SRCS
@@ -132,12 +137,14 @@ idf_component_register(
         ${MICROPY_SOURCE_EXTMOD}
         ${MICROPY_SOURCE_SHARED}
         ${MICROPY_SOURCE_LIB}
+        ${MICROPY_SOURCE_DRIVERS}
         ${MICROPY_SOURCE_PORT}
     INCLUDE_DIRS
         ${MICROPY_DIR}
         ${MICROPY_DIR}/py
         ${MICROPY_DIR}/extmod
         ${MICROPY_DIR}/shared
+        ${MICROPY_DIR}/drivers/bus
         ${MICROPY_PORT_DIR}
         ${MICROPY_BOARD_DIR}
         ${CMAKE_BINARY_DIR}
