@@ -147,19 +147,29 @@ jobs:
           with open(filepath, 'r') as f:
               lines = f.readlines()
           # Find the legacy SoftSPI macro and wrap it
-          # Lines 103-115 (0-indexed: 102-114)
-          # Line 103 (0-indexed: 102) = "// Temporary support for legacy construction of SoftSPI via SPI type."
-          # Line 115 (0-indexed: 114) = "    } while (0)"
-          # Insert #if before line 103 and #endif after line 115
-          if len(lines) >= 115 and 'Temporary support for legacy construction of SoftSPI' in lines[102]:
-              lines.insert(102, '#if MICROPY_PY_MACHINE_SOFTSPI\n')
-              # Line 115 is now at index 115 (was 114, shifted by 1)
-              lines.insert(116, '#endif /* MICROPY_PY_MACHINE_SOFTSPI */\n')
-              changed = True
-              print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
+          # The comment "// Temporary support for legacy construction of SoftSPI via SPI type."
+          # is at line 104 (0-indexed: 103) in the original MicroPython v1.28.0 file.
+          # The macro ends at line 115 (0-indexed: 114) with "    } while (0)".
+          target_comment = "Temporary support for legacy construction of SoftSPI via SPI type"
+          for i, line in enumerate(lines):
+              if target_comment in line:
+                  print(f"Found target comment at line {i+1} (0-indexed: {i})")
+                  lines.insert(i, '#if MICROPY_PY_MACHINE_SOFTSPI\n')
+                  # The '} while (0)' is at line i+12 (insert shifted by 1) = i+12
+                  # Find the exact '} while (0)' line
+                  for j in range(i+2, min(i+20, len(lines))):
+                      if '} while (0)' in lines[j]:
+                          print(f"Found '}} while (0)' at line {j+1} (0-indexed: {j})")
+                          lines.insert(j+1, '#endif /* MICROPY_PY_MACHINE_SOFTSPI */\n')
+                          break
+                  print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
+                  break
           else:
               print("WARNING: Could not find legacy SoftSPI macro in modmachine.h")
-              print(f"Lines count: {len(lines)}, line 103 content: {repr(lines[102][:60]) if len(lines) > 102 else 'N/A'}")
+              print(f"Lines count: {len(lines)}")
+              if len(lines) > 100:
+                  for i in range(100, min(120, len(lines))):
+                      print(f"  Line {i+1}: {repr(lines[i][:60])}")
           with open(filepath, 'w') as f:
               f.writelines(lines)
           PATCH_EOF
