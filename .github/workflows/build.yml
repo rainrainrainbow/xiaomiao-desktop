@@ -139,14 +139,31 @@ jobs:
           # Disable legacy SoftSPI fallback macro in extmod/modmachine.h
           # The macro MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION (lines 104-115)
           # unconditionally references &mp_machine_soft_spi_type, causing linker error
-          # when SoftSPI is disabled. Use sed to wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
-          FILE=components/micropython/micropython/extmod/modmachine.h
-          # Insert #if guard before the legacy SoftSPI macro (line 104 = comment line)
-          sed -i '104s|^|#if MICROPY_PY_MACHINE_SOFTSPI\n|' "$FILE"
-          # Insert #endif after the '} while (0)' line (now at line 116 due to the insertion)
-          # Match the full line: "    } while (0)"
-          sed -i '116s|^    } while (0)$|    } while (0)\n#endif /* MICROPY_PY_MACHINE_SOFTSPI */|' "$FILE"
-          echo "Patched modmachine.h to wrap legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI"
+          # when SoftSPI is disabled. Use Python to wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
+          # (sed \n in replacement is unreliable across sed versions)
+          python3 << 'PATCH_EOF'
+import re
+filepath = "components/micropython/micropython/extmod/modmachine.h"
+with open(filepath, 'r') as f:
+    lines = f.readlines()
+# Find the legacy SoftSPI macro and wrap it
+# Lines 103-115 (0-indexed: 102-114)
+# Line 103 (0-indexed: 102) = "// Temporary support for legacy construction of SoftSPI via SPI type."
+# Line 115 (0-indexed: 114) = "    } while (0)"
+# Insert #if before line 103 and #endif after line 115
+if len(lines) >= 115 and 'Temporary support for legacy construction of SoftSPI' in lines[102]:
+    lines.insert(102, '#if MICROPY_PY_MACHINE_SOFTSPI\n')
+    # Line 115 is now at index 115 (was 114, shifted by 1)
+    lines.insert(116, '#endif /* MICROPY_PY_MACHINE_SOFTSPI */\n')
+    changed = True
+    print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
+else:
+    print("WARNING: Could not find legacy SoftSPI macro in modmachine.h")
+    print(f"Lines count: {len(lines)}, line 103 content: {repr(lines[102][:60]) if len(lines) > 102 else 'N/A'}")
+with open(filepath, 'w') as f:
+    f.writelines(lines)
+PATCH_EOF
+          echo "Done patching modmachine.h"
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
