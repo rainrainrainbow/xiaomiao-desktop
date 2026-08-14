@@ -128,6 +128,10 @@ jobs:
           sed -i 's/#if SOC_TOUCH_SENSOR_SUPPORTED/#if 0 \/\/ SOC_TOUCH_SENSOR_SUPPORTED (disabled)/' \
             components/micropython/micropython/ports/esp32/modmachine.c
           echo "Patched modmachine.c to disable touchpad"
+          # Disable soft SPI in extmod/machine_spi.c
+          sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
+            components/micropython/micropython/extmod/machine_spi.c
+          echo "Patched machine_spi.c to disable soft SPI"
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
