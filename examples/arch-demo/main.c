@@ -73,7 +73,7 @@ static void draw_metro_ui(void)
     kd_canvas_fill_rect(0, 0, ION_DISPLAY_WIDTH, 10, theme->colors.surface);
 
     /* 状态栏文字 - 左侧时间 */
-    kd_font_draw_string(2, 1, NULL, "12:00", theme->colors.text_primary, ES_COLOR_TRANSPARENT);
+    kd_font_draw_string(2, 1, NULL, "12:00", theme->colors.text_primary, 0xFFFF);
 
     /* 状态栏文字 - 右侧电池 */
     if (ion_battery_is_ready()) {
@@ -82,12 +82,12 @@ static void draw_metro_ui(void)
         snprintf(bat_str, sizeof(bat_str), "%d%%", bat);
         int bw = kd_font_string_width(NULL, bat_str);
         kd_font_draw_string(ION_DISPLAY_WIDTH - bw - 2, 1, NULL, 
-                            bat_str, theme->colors.success, ES_COLOR_TRANSPARENT);
+                            bat_str, theme->colors.success, 0xFFFF);
     }
 
     /* ===== 标题区域 ===== */
     kd_canvas_fill_rect(0, 10, ION_DISPLAY_WIDTH, 22, theme->colors.primary);
-    kd_font_draw_string(4, 14, NULL, "XiaoMiao OS", KD_COLOR_WHITE, ES_COLOR_TRANSPARENT);
+    kd_font_draw_string(4, 14, NULL, "XiaoMiao OS", KD_COLOR_WHITE, 0xFFFF);
 
     /* ===== 应用网格（3列x2行） ===== */
     int cols = 3;
@@ -121,7 +121,7 @@ static void draw_metro_ui(void)
 
         /* 应用名称 */
         kd_font_draw_string(x + 2, y + cell_h - 9, NULL, 
-                            app_names[i], theme->colors.text_primary, ES_COLOR_TRANSPARENT);
+                            app_names[i], theme->colors.text_primary, 0xFFFF);
     }
 
     /* ===== 底部导航栏（Dock） ===== */
@@ -145,12 +145,12 @@ static void demo_escher_widgets(void)
 {
     /* 创建一个容器作为根控件 */
     es_widget_t *root = es_container_create(0, 0, ION_DISPLAY_WIDTH, ION_DISPLAY_HEIGHT);
-    root->bg_color = ES_COLOR_BACKGROUND;
+    root->bg_color = theme->colors.background;
     es_widget_set_root(root);
 
     /* 创建标题标签 */
     es_widget_t *title = es_label_create(0, 12, ION_DISPLAY_WIDTH, 14, "Escher Demo");
-    title->bg_color = ES_COLOR_PRIMARY;
+    title->bg_color = es_color_get(ES_COLOR_PRIMARY);
     title->fg_color = KD_COLOR_WHITE;
     title->font = &kd_font_5x7;
 
@@ -158,7 +158,7 @@ static void demo_escher_widgets(void)
     es_widget_t *btn1 = es_button_create(10, 40, 100, 20, "Button 1");
     es_widget_t *btn2 = es_button_create(10, 66, 100, 20, "Button 2");
     es_widget_t *btn3 = es_button_create(10, 92, 100, 20, "Button 3");
-    btn3->bg_color = ES_COLOR_ACCENT;
+    btn3->bg_color = es_color_get(ES_COLOR_ACCENT);
 
     /* 创建信息标签 */
     es_widget_t *info = es_label_create(10, 120, 140, 10, "Press A/B to interact");
