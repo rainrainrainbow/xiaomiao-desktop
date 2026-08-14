@@ -41,6 +41,10 @@ include(${MICROPY_DIR}/py/py.cmake)
 include(${MICROPY_DIR}/extmod/extmod.cmake)
 
 # 设置端口源文件
+# 注意：machine_uart.c 和 modmachine.c 是 INCLUDEFILE（通过
+# MICROPY_PY_MACHINE_UART_INCLUDEFILE / MICROPY_PY_MACHINE_INCLUDEFILE
+# 被 extmod/machine_uart.c 和 extmod/machine.c 包含），不能单独编译，
+# 因此不列入此列表，否则会因缺少 machine_uart_type 等声明而编译失败。
 set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/panichandler.c
     ${MICROPY_PORT_DIR}/gccollect.c
@@ -50,9 +54,7 @@ set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/machine_timer.c
     ${MICROPY_PORT_DIR}/machine_hw_spi.c
     ${MICROPY_PORT_DIR}/machine_i2c.c
-    ${MICROPY_PORT_DIR}/machine_uart.c
     ${MICROPY_PORT_DIR}/machine_rtc.c
-    ${MICROPY_PORT_DIR}/modmachine.c
     ${MICROPY_PORT_DIR}/modesp32.c
     ${MICROPY_PORT_DIR}/modesp.c
     ${MICROPY_PORT_DIR}/uart.c
