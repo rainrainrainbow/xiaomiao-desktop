@@ -8,6 +8,7 @@
 
 #include "app_manager.h"
 #include "app_micropython.h"
+#include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include <string.h>
@@ -191,8 +192,37 @@ static void python_app_init(void *data)
 static void python_app_activate(void)
 {
     ESP_LOGI(TAG, "Python app activate");
+    
+    /* 在屏幕上显示 MicroPython 测试信息 */
+    lv_obj_t *scr = lv_screen_active();
+    lv_obj_clean(scr);
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+    
+    ui_statusbar_create(scr);
+    ui_titlebar_create(scr, 14, "Python 测试");
+    
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    
     /* 执行测试脚本 */
-    app_micropython_exec("print('Hello from XiaoMiao MicroPython!')\n", "<boot>");
+    int ret = app_micropython_exec("print('Hello from XiaoMiao MicroPython!')\n", "<boot>");
+    
+    /* 显示测试结果 */
+    lv_obj_t *lbl = lv_label_create(scr);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
+    
+    if (ret == 0) {
+        lv_label_set_text(lbl, "MicroPython 运行正常!\nHello from XiaoMiao!");
+        ESP_LOGI(TAG, "MicroPython test PASSED");
+    } else {
+        lv_label_set_text(lbl, "MicroPython 测试失败\n请查看串口日志");
+        ESP_LOGE(TAG, "MicroPython test FAILED");
+    }
+    
+    ui_dock_create(scr, 1, 0);
 }
 
 static void python_app_destroy(void)
