@@ -34,6 +34,11 @@
 #include "modmachine.h"
 #include "modesp32.h"
 
+/* modmachine.h 中声明的函数（modmachine.c 作为 INCLUDEFILE 被 extmod/machine.c 包含，
+   此处显式声明以确保 main 组件能正确链接） */
+void machine_init(void);
+void machine_pins_init(void);
+
 static const char *TAG = "APP_PY";
 
 /* ========== MicroPython 运行时状态 ========== */
