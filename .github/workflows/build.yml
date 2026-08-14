@@ -85,20 +85,40 @@ jobs:
           # We need to wrap these in #ifndef to let board config take precedence.
           MPCONFIGPORT=components/micropython/micropython/ports/esp32/mpconfigport.h
           
-          # Wrap ADC_BLOCK in #ifndef
-          sed -i 's/^#define MICROPY_PY_MACHINE_ADC_BLOCK.*$/#ifndef MICROPY_PY_MACHINE_ADC_BLOCK\\n#define MICROPY_PY_MACHINE_ADC_BLOCK (1)\\n#endif/' $MPCONFIGPORT
+          python3 << 'PATCH_EOF'
+          import re
           
-          # Wrap ADC_BLOCK_INCLUDEFILE in #ifndef
-          sed -i 's/^#define MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE.*$/#ifndef MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE\\n#define MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE "ports\/esp32\/machine_adc_block.c"\\n#endif/' $MPCONFIGPORT
+          filepath = "components/micropython/micropython/ports/esp32/mpconfigport.h"
           
-          # Wrap BITSTREAM in #ifndef
-          sed -i 's/^#define MICROPY_PY_MACHINE_BITSTREAM.*$/#ifndef MICROPY_PY_MACHINE_BITSTREAM\\n#define MICROPY_PY_MACHINE_BITSTREAM (1)\\n#endif/' $MPCONFIGPORT
+          with open(filepath, 'r') as f:
+              content = f.read()
           
-          # Wrap DHT_READINTO in #ifndef
-          sed -i 's/^#define MICROPY_PY_MACHINE_DHT_READINTO.*$/#ifndef MICROPY_PY_MACHINE_DHT_READINTO\\n#define MICROPY_PY_MACHINE_DHT_READINTO (1)\\n#endif/' $MPCONFIGPORT
+          # Macros to wrap in #ifndef guards (so board config can override)
+          macros_to_wrap = [
+              'MICROPY_PY_MACHINE_ADC_BLOCK',
+              'MICROPY_PY_MACHINE_ADC_BLOCK_INCLUDEFILE',
+              'MICROPY_PY_MACHINE_BITSTREAM',
+              'MICROPY_PY_MACHINE_DHT_READINTO',
+              'MICROPY_PY_MACHINE_PULSE',
+              'MICROPY_PY_MACHINE_ADC_READ',
+              'MICROPY_PY_MACHINE_ADC_READ_UV',
+              'MICROPY_PY_MACHINE_ADC',
+              'MICROPY_PY_MACHINE_ADC_INCLUDEFILE',
+              'MICROPY_EMIT_XTENSAWIN',
+              'MICROPY_PERSISTENT_CODE_LOAD',
+          ]
           
-          # Wrap PULSE in #ifndef
-          sed -i 's/^#define MICROPY_PY_MACHINE_PULSE.*$/#ifndef MICROPY_PY_MACHINE_PULSE\\n#define MICROPY_PY_MACHINE_PULSE (1)\\n#endif/' $MPCONFIGPORT
+          for macro in macros_to_wrap:
+              # Match: #define MACRO ... (at start of line)
+              pattern = rf'^(#define {re.escape(macro)}\s+.*)$'
+              replacement = f'#ifndef {macro}\\n\\1\\n#endif'
+              content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+          
+          with open(filepath, 'w') as f:
+              f.write(content)
+          
+          print(f"Patched {filepath} to wrap {len(macros_to_wrap)} macros in #ifndef guards")
+          PATCH_EOF
           
           echo "mpconfigport.h patched to respect board config overrides"
 
