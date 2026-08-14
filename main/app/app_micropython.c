@@ -267,3 +267,16 @@ void nlr_jump_fail(void *val)
     /* 打印堆栈跟踪并重启 */
     esp_restart();
 }
+
+/* ========== Native code commit stub ========== */
+/**
+ * @brief Native code commit stub（占位符实现）
+ * 
+ * 由于禁用了原生代码发射器（MICROPY_EMIT_NATIVE=0），
+ * 此函数不会被实际调用，但链接器需要它存在。
+ */
+void *esp_native_code_commit(void *buf, size_t len, void *reloc)
+{
+    ESP_LOGW(TAG, "esp_native_code_commit called (should not happen with EMIT_NATIVE=0)");
+    return NULL;
+}
