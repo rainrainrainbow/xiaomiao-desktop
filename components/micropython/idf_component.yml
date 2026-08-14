@@ -1,3 +1,2 @@
 dependencies:
-  lvgl/lvgl: "^9.5.0"
-  esp_lvgl_port: "*"
+  idf: ">=5.0"
