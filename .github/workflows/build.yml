@@ -122,7 +122,7 @@ jobs:
           print(f"Patched {filepath} to wrap {len(macros_to_wrap)} macros in #ifndef guards")
           PATCH_EOF
 
-      - name: Patch modmachine.c to disable touchpad and softspi
+      - name: Patch MicroPython sources to disable touchpad, softspi, and legacy SPI fallback
         run: |
           # Disable touchpad in modmachine.c (SOC_TOUCH_SENSOR_SUPPORTED is hardware-defined)
           sed -i 's/#if SOC_TOUCH_SENSOR_SUPPORTED/#if 0 \/\/ SOC_TOUCH_SENSOR_SUPPORTED (disabled)/' \
@@ -136,6 +136,51 @@ jobs:
           sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
             components/micropython/micropython/extmod/modmachine.c
           echo "Patched extmod/modmachine.c to disable SoftSPI entry"
+          # Disable legacy SoftSPI fallback macro in extmod/modmachine.h
+          # The macro MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION (lines 104-115)
+          # unconditionally references &mp_machine_soft_spi_type, causing linker error
+          # when SoftSPI is disabled. Wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
+          python3 << 'PATCH_EOF'
+          import re
+          filepath = "components/micropython/micropython/extmod/modmachine.h"
+          with open(filepath, 'r') as f:
+              content = f.read()
+          # Replace the legacy SoftSPI macro with a version guarded by MICROPY_PY_MACHINE_SOFTSPI
+          old_macro = """// Temporary support for legacy construction of SoftSPI via SPI type.
+#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args) \\
+    do { \\
+        if (n_args == 0 || all_args[0] == MP_OBJ_NEW_SMALL_INT(-1)) { \\
+            mp_print_str(MICROPY_ERROR_PRINTER, "Warning: SPI(-1, ...) is deprecated, use SoftSPI(...) instead\\n"); \\
+            if (n_args != 0) { \\
+                --n_args; \\
+                ++all_args; \\
+            } \\
+            return MP_OBJ_TYPE_GET_SLOT(&mp_machine_soft_spi_type, make_new)(&mp_machine_soft_spi_type, n_args, n_kw, all_args); \\
+        } \\
+    } while (0)"""
+          new_macro = """#if MICROPY_PY_MACHINE_SOFTSPI
+// Temporary support for legacy construction of SoftSPI via SPI type.
+#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args) \\
+    do { \\
+        if (n_args == 0 || all_args[0] == MP_OBJ_NEW_SMALL_INT(-1)) { \\
+            mp_print_str(MICROPY_ERROR_PRINTER, "Warning: SPI(-1, ...) is deprecated, use SoftSPI(...) instead\\n"); \\
+            if (n_args != 0) { \\
+                --n_args; \\
+                ++all_args; \\
+            } \\
+            return MP_OBJ_TYPE_GET_SLOT(&mp_machine_soft_spi_type, make_new)(&mp_machine_soft_spi_type, n_args, n_kw, all_args); \\
+        } \\
+    } while (0)
+#endif /* MICROPY_PY_MACHINE_SOFTSPI */"""
+          if old_macro in content:
+              content = content.replace(old_macro, new_macro)
+              print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
+          else:
+              print("WARNING: Could not find legacy SoftSPI macro in modmachine.h (may have been patched already)")
+          with open(filepath, 'w') as f:
+              f.write(content)
+          PATCH_EOF
+          echo "Done patching modmachine.h"
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
