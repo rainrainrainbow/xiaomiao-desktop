@@ -4,6 +4,7 @@
  */
 
 #include "app_manager.h"
+#include "app_micropython.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -173,7 +174,10 @@ page_callbacks_t app_manager_get_callbacks(const app_def_t *app)
         // 具体实现在app_builtin.c中
     } else if (app->type == APP_TYPE_MICROPYTHON) {
         // MicroPython应用使用Python运行时页面
-        // 具体实现在app_micropython.c中
+        const page_callbacks_t *py_cbs = app_micropython_get_callbacks();
+        if (py_cbs) {
+            callbacks = *py_cbs;
+        }
     }
     
     return callbacks;
