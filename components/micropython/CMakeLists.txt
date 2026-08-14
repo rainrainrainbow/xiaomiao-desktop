@@ -79,8 +79,9 @@ idf_component_register(
         ${MICROPY_DIR}/shared
         ${MICROPY_PORT_DIR}
         ${MICROPY_BOARD_DIR}
+        ${CMAKE_BINARY_DIR}
     REQUIRES
-        driver esp_adc esp_common esp_event esp_hw_support esp_netif esp_partition esp_psram esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
+        app_update bootloader_support driver esp_adc esp_app_format esp_common esp_event esp_hw_support esp_mm esp_netif esp_partition esp_psram esp_ringbuf esp_rom esp_system esp_timer freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
 )
 
 # 设置编译定义
@@ -247,6 +248,15 @@ target_sources(${COMPONENT_LIB} PRIVATE
     ${MICROPY_QSTRDEFS_GENERATED}
     ${MICROPY_MODULEDEFS}
     ${MICROPY_ROOT_POINTERS}
+)
+
+# 确保生成的头文件被构建（触发 add_custom_command 链）
+add_custom_target(MICROPY_GENHDR ALL
+    DEPENDS
+        ${MICROPY_MPVERSION}
+        ${MICROPY_QSTRDEFS_GENERATED}
+        ${MICROPY_MODULEDEFS}
+        ${MICROPY_ROOT_POINTERS}
 )
 
 message(STATUS "MicroPython component registered with ${MICROPY_SOURCE_PY} sources")
