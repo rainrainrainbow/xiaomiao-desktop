@@ -139,48 +139,15 @@ jobs:
           # Disable legacy SoftSPI fallback macro in extmod/modmachine.h
           # The macro MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION (lines 104-115)
           # unconditionally references &mp_machine_soft_spi_type, causing linker error
-          # when SoftSPI is disabled. Wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
-          python3 << 'PATCH_EOF'
-          import re
-          filepath = "components/micropython/micropython/extmod/modmachine.h"
-          with open(filepath, 'r') as f:
-              content = f.read()
-          # Replace the legacy SoftSPI macro with a version guarded by MICROPY_PY_MACHINE_SOFTSPI
-          old_macro = """// Temporary support for legacy construction of SoftSPI via SPI type.
-#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args) \\
-    do { \\
-        if (n_args == 0 || all_args[0] == MP_OBJ_NEW_SMALL_INT(-1)) { \\
-            mp_print_str(MICROPY_ERROR_PRINTER, "Warning: SPI(-1, ...) is deprecated, use SoftSPI(...) instead\\n"); \\
-            if (n_args != 0) { \\
-                --n_args; \\
-                ++all_args; \\
-            } \\
-            return MP_OBJ_TYPE_GET_SLOT(&mp_machine_soft_spi_type, make_new)(&mp_machine_soft_spi_type, n_args, n_kw, all_args); \\
-        } \\
-    } while (0)"""
-          new_macro = """#if MICROPY_PY_MACHINE_SOFTSPI
-// Temporary support for legacy construction of SoftSPI via SPI type.
-#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args) \\
-    do { \\
-        if (n_args == 0 || all_args[0] == MP_OBJ_NEW_SMALL_INT(-1)) { \\
-            mp_print_str(MICROPY_ERROR_PRINTER, "Warning: SPI(-1, ...) is deprecated, use SoftSPI(...) instead\\n"); \\
-            if (n_args != 0) { \\
-                --n_args; \\
-                ++all_args; \\
-            } \\
-            return MP_OBJ_TYPE_GET_SLOT(&mp_machine_soft_spi_type, make_new)(&mp_machine_soft_spi_type, n_args, n_kw, all_args); \\
-        } \\
-    } while (0)
-#endif /* MICROPY_PY_MACHINE_SOFTSPI */"""
-          if old_macro in content:
-              content = content.replace(old_macro, new_macro)
-              print("Patched modmachine.h: wrapped legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI")
-          else:
-              print("WARNING: Could not find legacy SoftSPI macro in modmachine.h (may have been patched already)")
-          with open(filepath, 'w') as f:
-              f.write(content)
-          PATCH_EOF
-          echo "Done patching modmachine.h"
+          # when SoftSPI is disabled. Use sed to wrap it in #if MICROPY_PY_MACHINE_SOFTSPI.
+          # Strategy: Insert '#if MICROPY_PY_MACHINE_SOFTSPI' before line 104 (the comment),
+          # and insert '#endif /* MICROPY_PY_MACHINE_SOFTSPI */' after line 115 (the '} while (0)').
+          FILE=components/micropython/micropython/extmod/modmachine.h
+          # Insert #if guard before the legacy SoftSPI macro (line 104 = comment line)
+          sed -i '104s|^|#if MICROPY_PY_MACHINE_SOFTSPI\n|' "$FILE"
+          # Insert #endif after the '} while (0)' line (now at line 116 due to the insertion)
+          sed -i '116s|}|}\n#endif /* MICROPY_PY_MACHINE_SOFTSPI */|' "$FILE"
+          echo "Patched modmachine.h to wrap legacy SoftSPI macro in #if MICROPY_PY_MACHINE_SOFTSPI"
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
