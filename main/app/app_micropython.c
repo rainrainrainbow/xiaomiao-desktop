@@ -7,6 +7,7 @@
 #include "system/sys_sdcard.h"
 #include "esp_log.h"
 #include <string.h>
+#include <stdio.h>
 
 static const char *TAG = "APP_PY";
 
@@ -33,26 +34,21 @@ static void python_app_init(void *data)
     }
     
     ESP_LOGI(TAG, "Python app init: %s (entry=%s)", app->name, app->py_entry);
-    
-    // TODO: 初始化MicroPython运行时
-    // TODO: 加载并执行app->py_entry
+    // v62: 仅注册应用，v63+ 将集成完整 MicroPython 运行时
 }
 
 static void python_app_activate(void)
 {
     ESP_LOGI(TAG, "Python app activate");
-    // TODO: 恢复Python应用状态
 }
 
 static void python_app_destroy(void)
 {
     ESP_LOGI(TAG, "Python app destroy");
-    // TODO: 清理Python运行时资源
 }
 
 static bool python_app_on_key(int key)
 {
-    // TODO: 将按键事件传递给Python应用
     if (key == KEY_B) {
         if (ui_stack_depth() > 1) {
             ui_stack_pop();
