@@ -109,10 +109,11 @@ jobs:
           ]
 
           for macro in macros_to_wrap:
-              # Match: #define MACRO ... (at start of line)
-              pattern = rf'^(#define {re.escape(macro)}\s+.*)$'
+              # Match: #define MACRO ... (at start of line, may have spaces)
+              # Also match: #define MICROPY_PY_MACHINE_ADC (1)  etc.
+              pattern = rf'^#define\s+{re.escape(macro)}\s+.*$'
               # Use real newlines in replacement
-              replacement = f'#ifndef {macro}\n\\1\n#endif'
+              replacement = f'#ifndef {macro}\n\\g<0>\n#endif'
               content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
           with open(filepath, 'w') as f:
