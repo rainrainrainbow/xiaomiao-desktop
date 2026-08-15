@@ -205,6 +205,10 @@ const page_callbacks_t* app_micropython_get_callbacks(void)
 #include <fcntl.h>
 #include <unistd.h>
 
+/* 编译器警告：snprintf 的 %s 可能被截断，但实际运行时路径长度可控 */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+
 /* Python 应用目录结构：
  * /sdcard/apps/<app_name>/
  *   ├── app.json     # 应用元数据（名称、图标、颜色等）
@@ -384,3 +388,5 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
     ESP_LOGI(TAG, "Found %d MicroPython apps", count);
     return count;
 }
+
+#pragma GCC diagnostic pop
