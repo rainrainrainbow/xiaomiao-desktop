@@ -68,12 +68,14 @@ const app_def_t* app_manager_get_micropython(int *count)
 /* ========== 扫描SD卡应用 ========== */
 int app_manager_scan_sdcard(void)
 {
-    // TODO: 实现SD卡扫描逻辑
-    // 扫描 /sdcard/apps/ 目录下的应用
+    // 扫描 /sdcard/apps/ 目录下的 MicroPython 应用
     ESP_LOGI(TAG, "Scanning SD card for MicroPython apps...");
     
-    // 暂时返回0，后续实现
-    return 0;
+    int count = app_micropython_scan("/sdcard/apps", s_python_apps, MAX_PYTHON_APPS);
+    s_python_count = count;
+    
+    ESP_LOGI(TAG, "SD card scan complete: found %d MicroPython apps", count);
+    return count;
 }
 
 /* ========== 启动应用 ========== */
@@ -115,8 +117,14 @@ void app_manager_launch(const app_def_t *app)
             }
         }
     } else if (app->type == APP_TYPE_MICROPYTHON) {
-        // TODO: 启动MicroPython应用
-        ESP_LOGW(TAG, "MicroPython app launch not implemented yet");
+        // 启动MicroPython应用：推入Python页面，传入app数据
+        const page_callbacks_t *py_cbs = app_micropython_get_callbacks();
+        if (py_cbs) {
+            ui_stack_push(PAGE_APP_PLACEHOLDER, py_cbs, (void*)app);
+            ESP_LOGI(TAG, "Pushed MicroPython app: %s", app->name);
+        } else {
+            ESP_LOGE(TAG, "No callbacks for MicroPython app: %s", app->name);
+        }
     }
 }
 

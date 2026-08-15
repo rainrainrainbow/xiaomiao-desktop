@@ -54,6 +54,9 @@
 // 新架构：Poincaré MicroPython 运行时（启动时在 PSRAM 任务中预初始化，避免 main 任务栈溢出）
 #include "poincare/runtime.h"
 
+// 新架构：Ion SD 卡驱动（用于扫描 MicroPython 应用）
+#include "ion/sdcard.h"
+
 static const char *TAG = "MAIN";
 
 /* ========== LCD驱动（保留在main.c，因为与LVGL紧密耦合） ========== */
@@ -324,7 +327,13 @@ static void desktop_page_init(void *data)
     // 更新总页数
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
-    s_desktop_total_pages = (builtin_count + app_count - 1) / app_count;
+    
+    // 合并内置应用和MicroPython应用
+    int py_count = 0;
+    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+    int total_apps = builtin_count + py_count;
+    
+    s_desktop_total_pages = (total_apps + app_count - 1) / app_count;
     if (s_desktop_total_pages < 1) s_desktop_total_pages = 1;
     if (s_desktop_page >= s_desktop_total_pages) s_desktop_page = s_desktop_total_pages - 1;
     if (s_desktop_selected >= app_count) s_desktop_selected = 0;
@@ -332,8 +341,15 @@ static void desktop_page_init(void *data)
     int start_idx = s_desktop_page * app_count;
     for (int i = 0; i < app_count; i++) {
         int global_idx = start_idx + i;
-        if (global_idx >= builtin_count) break;
-        const app_def_t *app = &builtin_apps[global_idx];
+        if (global_idx >= total_apps) break;
+        
+        // 先显示内置应用，再显示MicroPython应用
+        const app_def_t *app = NULL;
+        if (global_idx < builtin_count) {
+            app = &builtin_apps[global_idx];
+        } else {
+            app = &py_apps[global_idx - builtin_count];
+        }
         int row = i / cols;
         int col = i % cols;
 
@@ -460,8 +476,19 @@ static bool desktop_page_on_key(int key)
     } else if (key == KEY_A) {
         // 启动应用
         int global_idx = s_desktop_page * app_count + s_desktop_selected;
-        if (global_idx < builtin_count) {
-            const app_def_t *app = &builtin_apps[global_idx];
+        int builtin_count;
+        const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+        int py_count = 0;
+        const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+        int total_apps = builtin_count + py_count;
+        
+        if (global_idx < total_apps) {
+            const app_def_t *app = NULL;
+            if (global_idx < builtin_count) {
+                app = &builtin_apps[global_idx];
+            } else {
+                app = &py_apps[global_idx - builtin_count];
+            }
             app_manager_launch(app);
             return true;
         }
@@ -621,6 +648,16 @@ static void ui_init_task(void *arg)
     
     // 推入桌面页面
     ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
+    
+    // 尝试初始化 SD 卡并扫描 MicroPython 应用
+    // 注意：SD 卡与 LCD 共享 SPI2 总线，需要确保 LCD 已初始化完毕
+    ESP_LOGI(TAG, "Initializing SD card and scanning MicroPython apps...");
+    if (ion_sdcard_init("/sdcard")) {
+        int app_count = app_manager_scan_sdcard();
+        ESP_LOGI(TAG, "SD card ready, found %d MicroPython apps", app_count);
+    } else {
+        ESP_LOGW(TAG, "SD card not available (no card inserted?)");
+    }
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
     
