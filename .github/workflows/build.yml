@@ -106,13 +106,6 @@ jobs:
               'MICROPY_PERSISTENT_CODE_LOAD',
               'MICROPY_PY_MACHINE_SDCARD',
               'MICROPY_PY_MACHINE_TOUCHPAD',
-              # 关键：线程模式。mpconfigport.h 无条件重定义为 (1)，覆盖板级配置的 (0)。
-              # 若不包裹，MICROPY_PY_THREAD=1 时 MP_STATE_THREAD(x) 展开为
-              # mp_thread_get_state()->x（通过 FreeRTOS TLS 指针），若未先调用
-              # mp_thread_init() 设置 TLS，会返回 NULL 导致 StoreProhibited 崩溃
-              # （崩溃 PC 0x400ea49e 位于 mp_stack_ctrl_init()，EXCVADDR=0x00000000）。
-              # 包裹后板级配置的 (0) 生效，MP_STATE_THREAD 直接访问 mp_state_ctx.thread。
-              'MICROPY_PY_THREAD',
           ]
 
           for macro in macros_to_wrap:
@@ -192,8 +185,7 @@ jobs:
             -DMICROPY_PERSISTENT_CODE_LOAD=0 \
             -DMICROPY_HW_ENABLE_SDCARD=0 \
             -DMICROPY_PY_MACHINE_SOFTSPI=0 \
-            -DMICROPY_PY_MACHINE_SOFTI2C=0 \
-            -DMICROPY_PY_THREAD=0"
+            -DMICROPY_PY_MACHINE_SOFTI2C=0"
 
           # Resolve and build
           idf.py reconfigure
