@@ -96,17 +96,23 @@ void app_manager_launch(const app_def_t *app)
     app_manager_add_recents(app);
 
     if (app->type == APP_TYPE_BUILTIN) {
-        // 内置应用：根据名称查找页面回调并推入页面栈
-        const page_callbacks_t *cbs = app_builtin_get_callbacks(app->name);
-        if (cbs) {
-            ui_stack_push(PAGE_APP_PLACEHOLDER, cbs, NULL);
-            ESP_LOGI(TAG, "Pushed builtin app: %s", app->name);
+        // 特殊处理："应用"图标 → 进入设置中的应用管理二级页面
+        if (strcmp(app->name, "应用") == 0) {
+            app_launch_app_manager();
+            ESP_LOGI(TAG, "Launched app manager via settings");
         } else {
-            ESP_LOGE(TAG, "No callbacks for builtin app: %s", app->name);
-        }
-        // 兼容旧的launch_cb接口
-        if (app->launch_cb) {
-            app->launch_cb();
+            // 其他内置应用：根据名称查找页面回调并推入页面栈
+            const page_callbacks_t *cbs = app_builtin_get_callbacks(app->name);
+            if (cbs) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, cbs, NULL);
+                ESP_LOGI(TAG, "Pushed builtin app: %s", app->name);
+            } else {
+                ESP_LOGE(TAG, "No callbacks for builtin app: %s", app->name);
+            }
+            // 兼容旧的launch_cb接口
+            if (app->launch_cb) {
+                app->launch_cb();
+            }
         }
     } else if (app->type == APP_TYPE_MICROPYTHON) {
         // TODO: 启动MicroPython应用

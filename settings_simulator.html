@@ -196,6 +196,47 @@
     min-height: 18px;
   }
 
+  /* ========== 应用管理二级页面 ========== */
+  .appmgr-list {
+    position: absolute;
+    top: 52px; left: 0; right: 0;
+    bottom: 28px;
+    overflow: hidden;
+  }
+  .appmgr-item {
+    height: 28px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .appmgr-item.selected {
+    background: #5C4220;
+  }
+  .appmgr-item .appmgr-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+    margin-right: 6px;
+  }
+  .appmgr-item .appmgr-name {
+    color: #1B1713;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .appmgr-item.selected .appmgr-name {
+    color: #F6D34A;
+  }
+  .appmgr-item .appmgr-type {
+    margin-left: auto;
+    color: #5C4220;
+    font-size: 9px;
+  }
+  .appmgr-item.selected .appmgr-type {
+    color: #F6D34A;
+  }
+
   /* ========== 关于系统子页面 ========== */
   .about-list {
     position: absolute;
@@ -308,7 +349,7 @@ const state = {
 };
 
 const SETTINGS_ITEMS = [
-  '亮度', '主题', '声音', 'WiFi', '布局', '关于系统', '恢复默认', '保存并退出'
+  '亮度', '主题', '声音', 'WiFi', '布局', '应用管理', '关于系统', '恢复默认', '保存并退出'
 ];
 
 // ========== 渲染引擎 ==========
@@ -320,6 +361,7 @@ function render() {
     case 'desktop': renderDesktop(screen); break;
     case 'settings': renderSettings(screen); break;
     case 'about': renderAbout(screen); break;
+    case 'appmgr': renderAppManager(screen); break;
   }
 }
 
@@ -380,6 +422,30 @@ function renderSettings(screen) {
   `;
 }
 
+function renderAppManager(screen) {
+  const apps = state.desktopApps;
+  const sel = state.appmgrSel || 0;
+
+  screen.innerHTML = `
+    <div class="statusbar">
+      <span class="brand">设置</span>
+      <span class="time">${getTime()}</span>
+      <span class="battery">${state.brightness}%</span>
+    </div>
+    <div class="titlebar"><span>应用管理</span></div>
+    <div class="appmgr-list">
+      ${apps.map((app, i) => `
+        <div class="appmgr-item ${i === sel ? 'selected' : ''}" onclick="clickAppmgrItem(${i})">
+          <span class="appmgr-icon" style="color:${app.color}">${app.icon}</span>
+          <span class="appmgr-name">${app.name}</span>
+          <span class="appmgr-type">内置</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="dock"><span class="dot active"></span></div>
+  `;
+}
+
 function renderAbout(screen) {
   const lines = getAboutLines();
 
@@ -409,6 +475,7 @@ function getSettingsItems() {
     { label: '声音', value: state.soundOn ? '开' : '关' },
     { label: 'WiFi', value: state.wifiOn ? '开' : '关' },
     { label: '布局', value: state.layout === 0 ? '3列' : '2列' },
+    { label: '应用管理' },
     { label: '关于系统' },
     { label: '恢复默认' },
     { label: '保存并退出' },
@@ -443,6 +510,7 @@ function pressKey(key) {
     case 'desktop': msg = handleDesktopKey(key); break;
     case 'settings': msg = handleSettingsKey(key); break;
     case 'about': msg = handleAboutKey(key); break;
+    case 'appmgr': msg = handleAppMgrKey(key); break;
   }
 
   document.getElementById('statusMsg').textContent = msg || '▲▼ 选择 · A 确认/切换 · B 返回';
@@ -508,6 +576,12 @@ function launchApp(index) {
   if (app.name === '设置') {
     state.pageStack.push('settings');
     state.settingsSel = 0;
+  } else if (app.name === '应用') {
+    // "应用"图标 → 进入设置中的应用管理二级页面
+    state.pageStack.push('settings');
+    state.pageStack.push('appmgr');
+    state.settingsSel = 0;
+    state.appmgrSel = 0;
   } else {
     // 其他应用：显示占位
     alert(`「${app.name}」应用\n\n这是一个占位应用，尚未实现完整功能。\n\n在真机上会显示对应的页面回调。`);
@@ -532,15 +606,20 @@ function handleSettingsKey(key) {
 
     case 'RIGHT':
     case 'A':
-      if (sel === 5) { // 关于系统
+      if (sel === 5) { // 应用管理
+        state.pageStack.push('appmgr');
+        state.appmgrSel = 0;
+        return '进入应用管理';
+      }
+      if (sel === 6) { // 关于系统
         state.pageStack.push('about');
         return '进入关于系统';
       }
-      if (sel === 6) { // 恢复默认
+      if (sel === 7) { // 恢复默认
         resetDefaults();
         return '已恢复默认设置';
       }
-      if (sel === 7) { // 保存并退出
+      if (sel === 8) { // 保存并退出
         state.pageStack.pop();
         return '设置已保存';
       }
@@ -583,6 +662,41 @@ function resetDefaults() {
   state.soundOn = true;
   state.wifiOn = false;
   state.layout = 0;
+}
+
+function handleAppMgrKey(key) {
+  const apps = state.desktopApps;
+  const sel = state.appmgrSel || 0;
+
+  if (key === 'B') {
+    if (state.pageStack.length > 1) {
+      state.pageStack.pop();
+      return '返回设置';
+    }
+    return '';
+  }
+
+  if (key === 'UP') {
+    state.appmgrSel = (sel - 1 + apps.length) % apps.length;
+    return `选中: ${apps[state.appmgrSel]?.name}`;
+  }
+  if (key === 'DOWN') {
+    state.appmgrSel = (sel + 1) % apps.length;
+    return `选中: ${apps[state.appmgrSel]?.name}`;
+  }
+  if (key === 'A') {
+    const app = apps[sel];
+    if (app) {
+      alert(`「${app.name}」应用\n\n这是一个内置应用。\n\n在真机上会启动对应的页面回调。`);
+      return `启动: ${app.name}`;
+    }
+  }
+  return '';
+}
+
+function clickAppmgrItem(index) {
+  state.appmgrSel = index;
+  pressKey('A');
 }
 
 function handleAboutKey(key) {

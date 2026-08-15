@@ -179,24 +179,38 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     return NULL;
 }
 
+/* 桌面"应用"图标点击时，直接进入设置中的应用管理二级页面 */
+void app_launch_app_manager(void)
+{
+    // 先推入设置页面，再推入应用管理页面
+    // 这样用户按 B 会先回到设置，再回到桌面
+    const page_callbacks_t *settings_cbs = app_builtin_get_callbacks("设置");
+    if (settings_cbs) {
+        ui_stack_push(PAGE_APP_PLACEHOLDER, settings_cbs, NULL);
+    }
+    ui_stack_push(PAGE_APP_PLACEHOLDER, &s_applist_callbacks, NULL);
+}
+
 /* ========== 设置应用实现 ========== */
 #define SETTINGS_HDR_H  12
-#define SETTINGS_ITEM_H  14
+#define SETTINGS_ITEM_H  13
 
+/* 设置项：9项，分组显示 */
 static const char *s_settings_items[] = {
-    "亮度",
-    "主题",
-    "声音",
-    "WiFi",
-    "布局",
-    "关于系统",
-    "恢复默认",
-    "保存并退出",
+    "亮度",       // 0 - 显示
+    "主题",       // 1 - 显示
+    "声音",       // 2 - 声音
+    "WiFi",       // 3 - 网络
+    "布局",       // 4 - 桌面
+    "应用管理",   // 5 - 二级页面
+    "关于系统",   // 6 - 二级页面
+    "恢复默认",   // 7 - 操作
+    "保存并退出", // 8 - 操作
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[8] = {0};
+static lv_obj_t *s_settings_labels[9] = {0};
 static int s_settings_sel = 0;
 
 static void settings_refresh_label(int idx)
@@ -204,7 +218,7 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "声音", "WiFi", "布局", "关于系统", "恢复默认", "保存并退出"
+        "亮度", "主题", "声音", "WiFi", "布局", "应用管理", "关于系统", "恢复默认", "保存并退出"
     };
     char buf[64];
     switch (idx) {
@@ -215,8 +229,9 @@ static void settings_refresh_label(int idx)
     case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
     case 4: snprintf(buf, sizeof(buf), "%s: %s",
                      items[4], st->layout == 0 ? "3列" : "2列"); break;
-    case 5: snprintf(buf, sizeof(buf), "%s", items[5]); break;  // 关于系统
-    case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;  // 恢复默认
+    case 5: snprintf(buf, sizeof(buf), "%s", items[5]); break;  // 应用管理（二级页面）
+    case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;  // 关于系统（二级页面）
+    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break;  // 恢复默认
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
     }
     lv_label_set_text(s_settings_labels[idx], buf);
@@ -348,10 +363,13 @@ static bool settings_on_key(int key)
         case 4: // 布局
             st->layout = (st->layout == 0) ? 1 : 0;
             break;
-        case 5: // 关于系统 - 进入关于页面
+        case 5: // 应用管理 - 进入应用管理二级页面
+            ui_stack_push(PAGE_APP_PLACEHOLDER, &s_applist_callbacks, NULL);
+            return true;
+        case 6: // 关于系统 - 进入关于页面
             ui_stack_push(PAGE_APP_PLACEHOLDER, &s_about_callbacks, NULL);
             return true;
-        case 6: // 恢复默认设置
+        case 7: // 恢复默认设置
             st->brightness = 50;
             st->theme = THEME_DARK;
             st->sound_on = true;
@@ -365,7 +383,7 @@ static bool settings_on_key(int key)
                 settings_refresh_label(i);
             }
             return true;
-        case 7: // Save & Exit
+        case 8: // Save & Exit
             sys_nvs_save_settings(st->brightness, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             ui_stack_pop();
@@ -461,7 +479,7 @@ static bool about_on_key(int key)
     return true;
 }
 
-/* ========== 应用列表页 ========== */
+/* ========== 应用管理二级页面 ========== */
 static lv_obj_t *s_applist_obj = NULL;
 static int s_applist_sel = 0;
 
@@ -477,7 +495,7 @@ static void applist_init(void *data)
     // 状态栏
     ui_statusbar_create(scr);
     // 标题栏
-    ui_titlebar_create(scr, 14, "全部应用");
+    ui_titlebar_create(scr, 14, "应用管理");
 
     int builtin_count;
     const app_def_t *apps = app_manager_get_builtin(&builtin_count);
@@ -488,7 +506,9 @@ static void applist_init(void *data)
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-    int item_h = 14;
+    int item_h = (LCD_V_RES - 26 - DOCK_H) / builtin_count;
+    if (item_h < 12) item_h = 12;
+    if (item_h > 18) item_h = 18;
     for (int i = 0; i < builtin_count; i++) {
         lv_obj_t *row = lv_obj_create(list);
         lv_obj_remove_style_all(row);
@@ -497,15 +517,25 @@ static void applist_init(void *data)
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
+        // 图标
+        lv_obj_t *icon = lv_label_create(row);
+        lv_label_set_text(icon, apps[i].icon_text);
+        lv_obj_set_style_text_color(icon, lv_color_hex(apps[i].icon_color), 0);
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 4, 0);
+
+        // 应用名
         lv_obj_t *lbl = lv_label_create(row);
-        char buf[32];
-        snprintf(buf, sizeof(buf), "%s %s", apps[i].icon_text, apps[i].name);
-        lv_label_set_text(lbl, buf);
+        lv_label_set_text(lbl, apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        // 应用名为中文，使用 CJK 字体
         LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
         lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
+
+        // 类型标签
+        lv_obj_t *type_lbl = lv_label_create(row);
+        lv_label_set_text(type_lbl, "内置");
+        lv_obj_set_style_text_color(type_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_align(type_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
     }
 
     s_applist_obj = list;
@@ -516,6 +546,7 @@ static void applist_destroy(void)
 {
     ESP_LOGI(TAG, "App list destroy");
     s_applist_obj = NULL;
+    s_applist_sel = 0;
 }
 
 static bool applist_on_key(int key)
@@ -527,22 +558,30 @@ static bool applist_on_key(int key)
 
     int builtin_count;
     const app_def_t *apps = app_manager_get_builtin(&builtin_count);
+    if (builtin_count <= 0) return true;
 
-    const theme_colors_t *colors = ui_theme_colors();
-    // 取消选中
     lv_obj_t *list = s_applist_obj;
     if (!list) return false;
+
+    // 取消旧选中
     lv_obj_t *old_row = lv_obj_get_child(list, s_applist_sel);
-    if (old_row) lv_obj_set_style_bg_opa(old_row, LV_OPA_TRANSP, 0);
+    if (old_row) {
+        lv_obj_set_style_bg_opa(old_row, LV_OPA_TRANSP, 0);
+        // 恢复旧行文字颜色
+        lv_obj_t *old_lbl = lv_obj_get_child(old_row, 1);
+        if (old_lbl) lv_obj_set_style_text_color(old_lbl, lv_color_hex(ui_theme_colors()->text), 0);
+    }
 
     if (key == KEY_UP) s_applist_sel = (s_applist_sel - 1 + builtin_count) % builtin_count;
     if (key == KEY_DOWN) s_applist_sel = (s_applist_sel + 1) % builtin_count;
 
-    // 选中
+    // 新选中
     lv_obj_t *new_row = lv_obj_get_child(list, s_applist_sel);
     if (new_row) {
         lv_obj_set_style_bg_color(new_row, lv_color_hex(0x5C4220), 0);
         lv_obj_set_style_bg_opa(new_row, LV_OPA_COVER, 0);
+        lv_obj_t *new_lbl = lv_obj_get_child(new_row, 1);
+        if (new_lbl) lv_obj_set_style_text_color(new_lbl, lv_color_hex(0xF6D34A), 0);
     }
 
     if (key == KEY_A) {

@@ -124,4 +124,9 @@ const char* app_manager_get_current_name(void);
  */
 void app_manager_clear_current(void);
 
+/**
+ * 桌面"应用"图标点击时，直接进入设置中的应用管理二级页面
+ */
+void app_launch_app_manager(void);
+
 #endif /* APP_MANAGER_H */
