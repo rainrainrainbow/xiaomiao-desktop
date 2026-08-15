@@ -100,7 +100,7 @@ bool poincare_runtime_init(size_t heap_size)
 
     /* 初始化 ESP32 端口外设 */
     machine_init();
-    machine_pins_init();
+    // machine_pins_init();  // 暂时禁用：可能与已有 GPIO 配置冲突
 
     /* 添加系统路径 */
     mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR__slash_lib));
