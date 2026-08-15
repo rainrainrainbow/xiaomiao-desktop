@@ -430,8 +430,7 @@ static bool desktop_page_on_key(int key)
     }
     const int app_count = cols * rows;
     int builtin_count;
-    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
-    const theme_colors_t *colors = ui_theme_colors();
+    app_manager_get_builtin(&builtin_count);
 
     /*
      * 防御性保护：

@@ -15,6 +15,7 @@
 #include "ui_framework.h"
 #include "poincare/runtime.h"
 #include "esp_log.h"
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "APP_PY";
@@ -88,7 +89,6 @@ static void python_app_activate(void)
     ESP_LOGI(TAG, "Python app activate");
 
     /* 获取当前应用的 app_def_t（从页面栈数据传入） */
-    const app_def_t *app = NULL;
     const page_callbacks_t *cbs = ui_stack_current_callbacks();
     if (cbs && cbs->init == python_app_init) {
         // 从页面栈获取应用数据
