@@ -7,8 +7,8 @@
  * 控件树结构：Container 包含子控件，递归绘制和事件处理。
  */
 
-#ifndef ESCHER_WIDGET_H
-#define ESCHER_WIDGET_H
+#ifndef WIDGET_H
+#define WIDGET_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -222,4 +222,4 @@ es_widget_t *es_button_create(int x, int y, int w, int h, const char *text);
  */
 es_widget_t *es_container_create(int x, int y, int w, int h);
 
-#endif /* ESCHER_WIDGET_H */
+#endif /* WIDGET_H */
