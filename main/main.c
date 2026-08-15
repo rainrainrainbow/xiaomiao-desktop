@@ -565,10 +565,12 @@ static bool recents_page_on_key(int key)
 
 /* ========== UI 初始化任务（独立任务，栈在 PSRAM，避免 main 任务栈溢出） ========== */
 
-// 静态任务控制块和栈（在 PSRAM 分配）
+/* 使用 xTaskCreate 动态分配（利用 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST
+ * 自动从 PSRAM 分配栈），替代手动 heap_caps_malloc + xTaskCreateStatic 的方式。
+ * 必须启用 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y 才能让栈在 PSRAM 中正常运行。
+ * 64KB PSRAM 栈足够 MicroPython 运行时初始化（mp_init + gc_init + machine_init + machine_pins_init）。
+ */
 #define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，在 PSRAM
-static StaticTask_t s_ui_task_tcb;
-static StackType_t *s_ui_task_stack = NULL;
 
 static void ui_init_task(void *arg)
 {
@@ -676,20 +678,16 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（栈在 PSRAM，64KB，避免 main 任务栈溢出）
-    s_ui_task_stack = heap_caps_malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t), 
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_ui_task_stack) {
-        ESP_LOGE(TAG, "Failed to allocate UI task stack from PSRAM!");
-        s_ui_task_stack = malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t));
-    }
-    TaskHandle_t ui_task_handle = xTaskCreateStatic(
-        ui_init_task, "ui_init", UI_TASK_STACK_SIZE,
-        NULL, 5, s_ui_task_stack, &s_ui_task_tcb);
+    // 创建 UI 初始化任务（动态分配 PSRAM 栈，64KB）
+    // 利用 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST + CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
+    // 自动从 PSRAM 分配栈空间，避免 main 任务栈（16KB 内部 DRAM）溢出
+    TaskHandle_t ui_task_handle = NULL;
+    xTaskCreate(ui_init_task, "ui_init", UI_TASK_STACK_SIZE,
+                NULL, 5, &ui_task_handle);
     if (ui_task_handle) {
-        ESP_LOGI(TAG, "ui_init_task created successfully (PSRAM stack=%p)", s_ui_task_stack);
+        ESP_LOGI(TAG, "ui_init_task created successfully (PSRAM stack, %d bytes)", UI_TASK_STACK_SIZE);
     } else {
-        ESP_LOGE(TAG, "Failed to create ui_init_task statically");
+        ESP_LOGE(TAG, "Failed to create ui_init_task");
     }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
