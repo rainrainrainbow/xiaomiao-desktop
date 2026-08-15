@@ -6,8 +6,8 @@
  * 内置 5x7 ASCII 点阵字体，支持自定义外部字体桥接。
  */
 
-#ifndef KANDINSKY_FONT_H
-#define KANDINSKY_FONT_H
+#ifndef FONT_H
+#define FONT_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -101,4 +101,4 @@ void kd_font_set_default(const kd_font_t *font);
  */
 const kd_font_t *kd_font_get_default(void);
 
-#endif /* KANDINSKY_FONT_H */
+#endif /* FONT_H */
