@@ -6,8 +6,8 @@
  * 底层实现可以是 ST7735、ILI9341 或其他 TFT 驱动。
  */
 
-#ifndef ION_DISPLAY_H
-#define ION_DISPLAY_H
+#ifndef DISPLAY_H
+#define DISPLAY_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -73,4 +73,4 @@ ion_color_t* ion_display_get_framebuffer(void);
  */
 void ion_display_flush(void);
 
-#endif /* ION_DISPLAY_H */
+#endif /* DISPLAY_H */
