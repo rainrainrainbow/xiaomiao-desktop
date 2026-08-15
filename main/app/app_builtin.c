@@ -594,8 +594,142 @@ static bool applist_on_key(int key)
 }
 
 /* ========== 积木编辑器 ========== */
+/* 积木分类 */
+#define BLOCK_CAT_COUNT 5
+static const char *s_block_cats[BLOCK_CAT_COUNT] = {
+    "运动", "外观", "控制", "运算", "变量"
+};
+
+/* 每个分类下的积木块 */
+#define BLOCKS_PER_CAT 4
+static const char *s_block_names[BLOCK_CAT_COUNT][BLOCKS_PER_CAT] = {
+    {"移动10", "转向15", "移到随机", "滑行1秒"},
+    {"说你好", "显示", "隐藏", "切换造型"},
+    {"等待1秒", "重复10次", "如果那么", "停止"},
+    {"加", "减", "乘", "取余"},
+    {"设变量", "变量+1", "显示变量", "清空变量"},
+};
+
+/* 程序区最大积木数 */
+#define MAX_PROG_BLOCKS 12
+
 static lv_obj_t *s_editor_obj = NULL;
 static int s_editor_pane = 0;  // 0=积木库, 1=程序区
+static int s_editor_cat_sel = 0;    // 积木库分类选中
+static int s_editor_block_sel = 0;  // 积木库中具体积木选中
+static int s_editor_prog_sel = 0;   // 程序区选中
+static int s_editor_prog_count = 0; // 程序区积木数量
+static int s_editor_prog_blocks[MAX_PROG_BLOCKS]; // 程序区积木索引（cat*4+block）
+static lv_obj_t *s_editor_pane_l = NULL;  // 积木库面板容器
+static lv_obj_t *s_editor_pane_r = NULL;  // 程序区面板容器
+
+/* 刷新积木库面板 */
+static void editor_refresh_pane_l(void)
+{
+    if (!s_editor_pane_l) return;
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(s_editor_pane_l);
+
+    // 分类标签行
+    char cat_buf[32];
+    for (int i = 0; i < BLOCK_CAT_COUNT; i++) {
+        lv_obj_t *row = lv_obj_create(s_editor_pane_l);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 76, 10);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_pad_all(row, 0, 0);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        if (i == s_editor_cat_sel) {
+            snprintf(cat_buf, sizeof(cat_buf), ">%s<", s_block_cats[i]);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0xE64B3C), 0); // 红色高亮
+        } else {
+            snprintf(cat_buf, sizeof(cat_buf), " %s ", s_block_cats[i]);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0x5C4220), 0);
+        }
+        lv_label_set_text(lbl, cat_buf);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(lbl, 76);
+    }
+
+    // 分隔线
+    lv_obj_t *sep = lv_label_create(s_editor_pane_l);
+    lv_label_set_text(sep, "────────");
+    lv_obj_set_style_text_color(sep, lv_color_hex(0x5C4220), 0);
+    lv_obj_set_width(sep, 76);
+
+    // 当前分类下的积木块列表
+    for (int i = 0; i < BLOCKS_PER_CAT; i++) {
+        lv_obj_t *row = lv_obj_create(s_editor_pane_l);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 76, 10);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        if (i == s_editor_block_sel) {
+            lv_obj_set_style_bg_color(row, lv_color_hex(0x5C4220), 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0xF6D34A), 0);
+        } else {
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
+        }
+        lv_label_set_text(lbl, s_block_names[s_editor_cat_sel][i]);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(lbl, 76);
+    }
+}
+
+/* 刷新程序区面板 */
+static void editor_refresh_pane_r(void)
+{
+    if (!s_editor_pane_r) return;
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(s_editor_pane_r);
+
+    if (s_editor_prog_count == 0) {
+        lv_obj_t *lbl = lv_label_create(s_editor_pane_r);
+        lv_label_set_text(lbl, "空");
+        lv_obj_set_style_text_color(lbl, lv_color_hex(0x5C4220), 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(lbl, 76);
+        return;
+    }
+
+    for (int i = 0; i < s_editor_prog_count; i++) {
+        int idx = s_editor_prog_blocks[i];
+        int cat = idx / BLOCKS_PER_CAT;
+        int blk = idx % BLOCKS_PER_CAT;
+
+        lv_obj_t *row = lv_obj_create(s_editor_pane_r);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 76, 10);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        // 序号
+        char buf[24];
+        snprintf(buf, sizeof(buf), "%d.%s", i + 1, s_block_names[cat][blk]);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        if (i == s_editor_prog_sel) {
+            lv_obj_set_style_bg_color(row, lv_color_hex(0x5C4220), 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0xF6D34A), 0);
+        } else {
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
+        }
+        lv_label_set_text(lbl, buf);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(lbl, 76);
+    }
+}
 
 static void editor_init(void *data)
 {
@@ -609,7 +743,7 @@ static void editor_init(void *data)
     ui_statusbar_create(scr);
     ui_titlebar_create(scr, 14, "积木编辑器");
 
-    // 左右分栏（模拟器 .ed-split 风格）
+    // 左右分栏
     lv_obj_t *split = lv_obj_create(scr);
     lv_obj_remove_style_all(split);
     lv_obj_set_pos(split, 0, 26);
@@ -627,16 +761,9 @@ static void editor_init(void *data)
     lv_obj_set_flex_flow(pane_l, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(pane_l, 1, 0);
     lv_obj_set_style_pad_row(pane_l, 1, 0);
-    lv_obj_set_style_bg_color(pane_l, lv_color_hex(0xFFF3B0), 0); // cream bg
+    lv_obj_set_style_bg_color(pane_l, lv_color_hex(0xFFF3B0), 0);
     lv_obj_set_style_bg_opa(pane_l, LV_OPA_COVER, 0);
-
-    lv_obj_t *hdr_l = lv_label_create(pane_l);
-    lv_label_set_text(hdr_l, "积木库");
-    lv_obj_set_style_text_color(hdr_l, lv_color_hex(0x5C4220), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(hdr_l, &lv_font_xiaomiao_cn_14, 0);
-    lv_obj_set_style_text_align(hdr_l, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(hdr_l, 76);
+    s_editor_pane_l = pane_l;
 
     // 程序区面板
     lv_obj_t *pane_r = lv_obj_create(split);
@@ -646,14 +773,11 @@ static void editor_init(void *data)
     lv_obj_set_flex_flow(pane_r, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(pane_r, 1, 0);
     lv_obj_set_style_pad_row(pane_r, 1, 0);
+    s_editor_pane_r = pane_r;
 
-    lv_obj_t *hdr_r = lv_label_create(pane_r);
-    lv_label_set_text(hdr_r, "程序区");
-    lv_obj_set_style_text_color(hdr_r, lv_color_hex(0x5C4220), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(hdr_r, &lv_font_xiaomiao_cn_14, 0);
-    lv_obj_set_style_text_align(hdr_r, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(hdr_r, 76);
+    // 填充内容
+    editor_refresh_pane_l();
+    editor_refresh_pane_r();
 
     s_editor_obj = split;
     ui_dock_create(scr, 1, 0);
@@ -663,6 +787,13 @@ static void editor_destroy(void)
 {
     ESP_LOGI(TAG, "Editor destroy");
     s_editor_obj = NULL;
+    s_editor_pane_l = NULL;
+    s_editor_pane_r = NULL;
+    s_editor_prog_count = 0;
+    s_editor_pane = 0;
+    s_editor_cat_sel = 0;
+    s_editor_block_sel = 0;
+    s_editor_prog_sel = 0;
 }
 
 static bool editor_on_key(int key)
@@ -671,8 +802,84 @@ static bool editor_on_key(int key)
         if (ui_stack_depth() > 1) ui_stack_pop();
         return true;
     }
-    if (key == KEY_LEFT) { s_editor_pane = 0; return true; }
-    if (key == KEY_RIGHT) { s_editor_pane = 1; return true; }
+
+    if (key == KEY_LEFT) {
+        s_editor_pane = 0;
+        return true;
+    }
+    if (key == KEY_RIGHT) {
+        s_editor_pane = 1;
+        return true;
+    }
+
+    if (s_editor_pane == 0) {
+        // ====== 积木库面板 ======
+        if (key == KEY_UP) {
+            // 先尝试在积木块中上移，如果到顶则上移分类
+            if (s_editor_block_sel > 0) {
+                s_editor_block_sel--;
+            } else if (s_editor_cat_sel > 0) {
+                s_editor_cat_sel--;
+                s_editor_block_sel = BLOCKS_PER_CAT - 1;
+            }
+            editor_refresh_pane_l();
+            return true;
+        }
+        if (key == KEY_DOWN) {
+            if (s_editor_block_sel < BLOCKS_PER_CAT - 1) {
+                s_editor_block_sel++;
+            } else if (s_editor_cat_sel < BLOCK_CAT_COUNT - 1) {
+                s_editor_cat_sel++;
+                s_editor_block_sel = 0;
+            }
+            editor_refresh_pane_l();
+            return true;
+        }
+        if (key == KEY_A) {
+            // 将选中的积木添加到程序区
+            if (s_editor_prog_count < MAX_PROG_BLOCKS) {
+                int idx = s_editor_cat_sel * BLOCKS_PER_CAT + s_editor_block_sel;
+                s_editor_prog_blocks[s_editor_prog_count] = idx;
+                s_editor_prog_count++;
+                s_editor_prog_sel = s_editor_prog_count - 1;
+                editor_refresh_pane_r();
+                ESP_LOGI(TAG, "Added block %s/%s", 
+                         s_block_cats[s_editor_cat_sel],
+                         s_block_names[s_editor_cat_sel][s_editor_block_sel]);
+            }
+            return true;
+        }
+    } else {
+        // ====== 程序区面板 ======
+        if (s_editor_prog_count == 0) return true;
+
+        if (key == KEY_UP) {
+            s_editor_prog_sel = (s_editor_prog_sel - 1 + s_editor_prog_count) % s_editor_prog_count;
+            editor_refresh_pane_r();
+            return true;
+        }
+        if (key == KEY_DOWN) {
+            s_editor_prog_sel = (s_editor_prog_sel + 1) % s_editor_prog_count;
+            editor_refresh_pane_r();
+            return true;
+        }
+        if (key == KEY_A) {
+            // 删除选中的积木
+            if (s_editor_prog_count > 0 && s_editor_prog_sel < s_editor_prog_count) {
+                for (int i = s_editor_prog_sel; i < s_editor_prog_count - 1; i++) {
+                    s_editor_prog_blocks[i] = s_editor_prog_blocks[i + 1];
+                }
+                s_editor_prog_count--;
+                if (s_editor_prog_sel >= s_editor_prog_count && s_editor_prog_count > 0) {
+                    s_editor_prog_sel = s_editor_prog_count - 1;
+                }
+                editor_refresh_pane_r();
+                ESP_LOGI(TAG, "Removed block at position %d", s_editor_prog_sel);
+            }
+            return true;
+        }
+    }
+
     return true;
 }
 
