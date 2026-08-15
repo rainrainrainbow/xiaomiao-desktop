@@ -92,15 +92,15 @@ bool poincare_runtime_init(size_t heap_size)
         ESP_LOGW(TAG, "MicroPython heap allocated from DRAM (not PSRAM)");
     }
 
-    /* 初始化 MicroPython 运行时 */
+    /* 初始化 MicroPython 核心 */
     mp_stack_ctrl_init();
     gc_init(s_heap, (void *)((uint32_t)s_heap + heap_size));
     mp_init();
     readline_init0();
 
-    /* 初始化 ESP32 端口外设 */
-    machine_init();
-    // machine_pins_init();  // 暂时禁用：可能与已有 GPIO 配置冲突
+    /* 暂时禁用 ESP32 端口外设初始化（避免与已有驱动冲突） */
+    // machine_init();
+    // machine_pins_init();
 
     /* 添加系统路径 */
     mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR__slash_lib));
