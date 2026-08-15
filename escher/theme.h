@@ -7,8 +7,8 @@
  * 通过 es_color_get() 获取指定角色的颜色值。
  */
 
-#ifndef ESCHER_THEME_H
-#define ESCHER_THEME_H
+#ifndef THEME_H
+#define THEME_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -116,4 +116,4 @@ const es_theme_t *es_theme_get(es_theme_type_t type);
  */
 ion_color_t es_color_get(es_color_role_t role);
 
-#endif /* ESCHER_THEME_H */
+#endif /* THEME_H */
