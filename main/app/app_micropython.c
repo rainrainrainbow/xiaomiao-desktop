@@ -322,7 +322,7 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         if (entry->d_type != DT_DIR) continue;
         
         // 检查 main.py 是否存在
-        char main_path[128];
+        char main_path[256];
         snprintf(main_path, sizeof(main_path), "%s/%s/main.py", base_path, entry->d_name);
         
         struct stat st;
@@ -332,7 +332,7 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         }
         
         // 读取 app.json（可选）
-        char json_path[128];
+        char json_path[256];
         snprintf(json_path, sizeof(json_path), "%s/%s/app.json", base_path, entry->d_name);
         char *json_content = read_file_to_heap(json_path);
         
