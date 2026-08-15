@@ -49,6 +49,7 @@ include(${MICROPY_DIR}/extmod/extmod.cmake)
 
 # 移除未实现的 extmod 模块源文件
 list(REMOVE_ITEM MICROPY_SOURCE_EXTMOD
+    ${MICROPY_EXTMOD_DIR}/machine_adc.c            # ADC（端口实现依赖 adc_block 符号）
     ${MICROPY_EXTMOD_DIR}/machine_adc_block.c      # ADC Block（需要 esp_driver_adc 支持）
     ${MICROPY_EXTMOD_DIR}/machine_bitstream.c       # Bitstream（需要 GPIO bitbang 实现）
     ${MICROPY_EXTMOD_DIR}/modnetwork.c              # Network 模块（需要 lwIP/cyw43 等后端）
@@ -99,8 +100,8 @@ set(MICROPY_SOURCE_PORT
     # ${MICROPY_PORT_DIR}/esp32_pcnt.c        # PCNT 模块
     # ${MICROPY_PORT_DIR}/esp32_rmt.c         # RMT 模块
     # ${MICROPY_PORT_DIR}/esp32_ulp.c         # ULP 模块
-    # ${MICROPY_PORT_DIR}/machine_sdcard.c    # SD 卡模块
-    # ${MICROPY_PORT_DIR}/machine_touchpad.c  # TouchPad 模块
+    # ${MICROPY_PORT_DIR}/machine_sdcard.c    # SD 卡模块（受 MICROPY_HW_ENABLE_SDCARD 保护）
+    ${MICROPY_PORT_DIR}/machine_touchpad.c     # TouchPad 模块（被 modmachine.c 引用，需保留）
 )
 
 # 设置共享源文件
@@ -116,13 +117,19 @@ set(MICROPY_SOURCE_SHARED
 )
 
 # 设置 lib 源文件
+# 注意：MICROPY_VFS_FAT=0 时，不需要编译 oofatfs/ff.c 和 ffunicode.c，
+# 因为 ESP-IDF 自带的 fatfs 组件已经提供了 f_mount、f_open 等符号，
+# 同时编译两个版本的 ff.c 会导致 multiple definition 链接错误。
 set(MICROPY_SOURCE_LIB
     ${MICROPY_DIR}/lib/littlefs/lfs1.c
     ${MICROPY_DIR}/lib/littlefs/lfs1_util.c
     ${MICROPY_DIR}/lib/littlefs/lfs2.c
     ${MICROPY_DIR}/lib/littlefs/lfs2_util.c
-    ${MICROPY_DIR}/lib/oofatfs/ff.c
-    ${MICROPY_DIR}/lib/oofatfs/ffunicode.c
+)
+
+# 设置 drivers 源文件（softspi 等）
+set(MICROPY_SOURCE_DRIVERS
+    ${MICROPY_DIR}/drivers/bus/softspi.c
 )
 
 # 注册组件（两个阶段都会执行，用于记录 REQUIRES 和创建 STATIC library）
@@ -132,12 +139,14 @@ idf_component_register(
         ${MICROPY_SOURCE_EXTMOD}
         ${MICROPY_SOURCE_SHARED}
         ${MICROPY_SOURCE_LIB}
+        ${MICROPY_SOURCE_DRIVERS}
         ${MICROPY_SOURCE_PORT}
     INCLUDE_DIRS
         ${MICROPY_DIR}
         ${MICROPY_DIR}/py
         ${MICROPY_DIR}/extmod
         ${MICROPY_DIR}/shared
+        ${MICROPY_DIR}/drivers/bus
         ${MICROPY_PORT_DIR}
         ${MICROPY_BOARD_DIR}
         ${CMAKE_BINARY_DIR}
@@ -153,7 +162,7 @@ if(TARGET ${COMPONENT_LIB})
 
 # 设置编译定义
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
-    MICROPY_VFS_FAT=1
+    MICROPY_VFS_FAT=0
     MICROPY_VFS_LFS2=1
     FFCONF_H="${MICROPY_DIR}/lib/oofatfs/ffconf.h"
     LFS1_NO_MALLOC LFS1_NO_DEBUG LFS1_NO_WARN LFS1_NO_ERROR LFS1_NO_ASSERT
