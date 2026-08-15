@@ -33,6 +33,7 @@
 #include "shared/readline/readline.h"
 #include "modmachine.h"
 #include "modesp32.h"
+#include "mpthreadport.h"
 
 /* modmachine.h 中声明的函数（modmachine.c 作为 INCLUDEFILE 被 extmod/machine.c 包含，
    此处显式声明以确保 main 组件能正确链接） */
@@ -48,6 +49,9 @@ static size_t s_heap_size = 0;
 
 /* 默认 GC 堆大小（64KB PSRAM） */
 #define POINCARE_DEFAULT_HEAP_SIZE (64 * 1024)
+
+/* MicroPython 运行时初始化所需的最小任务栈（用于 mp_thread_init 的 GC 栈扫描） */
+#define POINCARE_MP_THREAD_STACK_SIZE (64 * 1024)
 
 /* ========== NLR jump fail 处理 ========== */
 void nlr_jump_fail(void *val)
@@ -93,6 +97,21 @@ bool poincare_runtime_init(size_t heap_size)
     }
 
     /* 初始化 MicroPython 核心 */
+    /*
+     * 关键：必须先初始化线程状态（mp_thread_init），否则 MP_STATE_THREAD(x) 宏
+     * 会展开为 mp_thread_get_state()->x，而 mp_thread_get_state() 通过 FreeRTOS
+     * 任务本地存储指针（TLS, index=1）获取线程状态。若未初始化，该指针为 NULL，
+     * 对 NULL 解引用写入 stack_top 会导致 StoreProhibited 崩溃（EXCVADDR=0x00000000）。
+     *
+     * 官方 ESP32 端口在 main.c 中也是先调用 mp_thread_init() 再初始化运行时。
+     * 崩溃 PC 0x400ea49e 正位于 mp_stack_ctrl_init()（stackctrl.c）内，与上述一致。
+     *
+     * 注意：仅当 MICROPY_PY_THREAD=1 时需要（mp_thread_init 受该宏保护）。
+     * 若线程被禁用，MP_STATE_THREAD 直接访问 mp_state_ctx.thread，无需此步骤。
+     */
+    #if MICROPY_PY_THREAD
+    mp_thread_init(pxTaskGetStackStart(NULL), POINCARE_MP_THREAD_STACK_SIZE / sizeof(uintptr_t));
+    #endif
     mp_stack_ctrl_init();
     gc_init(s_heap, (void *)((uint32_t)s_heap + heap_size));
     mp_init();
