@@ -6,8 +6,8 @@
  * 当前实现基于 MicroPython，未来可扩展支持其他语言。
  */
 
-#ifndef POINCARE_RUNTIME_H
-#define POINCARE_RUNTIME_H
+#ifndef RUNTIME_H
+#define RUNTIME_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -54,4 +54,4 @@ int poincare_runtime_exec_file(const char *filename);
  */
 bool poincare_runtime_register_module(const char *module_name, void *init_func);
 
-#endif /* POINCARE_RUNTIME_H */
+#endif /* RUNTIME_H */
