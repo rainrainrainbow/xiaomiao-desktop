@@ -13,6 +13,7 @@
 #include "freertos/task.h"
 #include "driver/spi_master.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "esp_log.h"
 
 static const char *TAG = "ION_DISPLAY";
@@ -75,6 +76,13 @@ static ion_color_t *s_framebuffer = NULL;
 static uint8_t s_brightness = 50;
 #define BRIGHTNESS_MAX 100
 
+/* ========== 背光 PWM 配置（GPIO0 = LEDC_CH0） ========== */
+#define BL_LEDC_TIMER      LEDC_TIMER_0
+#define BL_LEDC_CHANNEL    LEDC_CHANNEL_0
+#define BL_LEDC_MODE       LEDC_LOW_SPEED_MODE
+#define BL_LEDC_DUTY_RES   LEDC_TIMER_13_BIT   /* 13-bit: 0-8191 */
+#define BL_LEDC_FREQ_HZ    5000                 /* 5kHz PWM */
+
 /* ========== 静态函数声明 ========== */
 static void st7735_write_cmd(uint8_t cmd);
 static void st7735_write_data(uint8_t data);
@@ -83,6 +91,7 @@ static void st7735_write_data_bulk(const uint8_t *data, size_t len);
 static void st7735_set_address_window(int x0, int y0, int x1, int y1);
 static void st7735_hardware_reset(void);
 static void st7735_init_sequence(void);
+static void backlight_pwm_init(void);
 
 /* ========== 底层 SPI 通信 ========== */
 
@@ -225,6 +234,44 @@ static void st7735_init_sequence(void)
     vTaskDelay(pdMS_TO_TICKS(100));
 }
 
+/* ========== 背光 PWM 初始化 ========== */
+
+static void backlight_pwm_init(void)
+{
+    /* 配置 LEDC 定时器 */
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = BL_LEDC_MODE,
+        .timer_num = BL_LEDC_TIMER,
+        .duty_resolution = BL_LEDC_DUTY_RES,
+        .freq_hz = BL_LEDC_FREQ_HZ,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    esp_err_t ret = ledc_timer_config(&ledc_timer);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LEDC timer config failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    /* 配置 LEDC 通道（GPIO0 = 背光） */
+    ledc_channel_config_t ledc_channel = {
+        .speed_mode = BL_LEDC_MODE,
+        .channel = BL_LEDC_CHANNEL,
+        .timer_sel = BL_LEDC_TIMER,
+        .intr_type = LEDC_INTR_DISABLE,
+        .gpio_num = PIN_NUM_BL,
+        .duty = 0,              /* 初始为 0，随后由 set_brightness 设置 */
+        .hpoint = 0
+    };
+    ret = ledc_channel_config(&ledc_channel);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LEDC channel config failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    ESP_LOGI(TAG, "Backlight PWM initialized (GPIO%d, %dHz, 13-bit)", 
+             PIN_NUM_BL, BL_LEDC_FREQ_HZ);
+}
+
 /* ========== 公开 API 实现 ========== */
 
 bool ion_display_init(void)
@@ -312,6 +359,9 @@ bool ion_display_init(void)
     /* 清空帧缓冲区 */
     memset(s_framebuffer, 0, FB_SIZE * sizeof(ion_color_t));
 
+    /* 初始化背光 PWM */
+    backlight_pwm_init();
+
     /* 设置背光 */
     ion_display_set_brightness(50);
 
@@ -326,9 +376,17 @@ void ion_display_set_brightness(uint8_t brightness)
     }
     s_brightness = brightness;
     
-    /* 使用 PWM 控制背光（GPIO0 = LEDC 通道） */
-    /* TODO: 配置 LEDC 实现 PWM 调光 */
-    ESP_LOGD(TAG, "Brightness set to %d%%", brightness);
+    /* 使用 LEDC PWM 控制背光（GPIO0） */
+    uint32_t duty = (8191 * (uint32_t)brightness) / 100;  /* 13-bit: 0-8191 */
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
+    
+    ESP_LOGD(TAG, "Brightness set to %d%% (duty=%lu)", brightness, duty);
+}
+
+uint8_t ion_display_get_brightness(void)
+{
+    return s_brightness;
 }
 
 void ion_display_fill(ion_color_t color)

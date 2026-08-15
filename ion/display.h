@@ -39,6 +39,12 @@ bool ion_display_init(void);
 void ion_display_set_brightness(uint8_t brightness);
 
 /**
+ * @brief 获取当前背光亮度
+ * @return 亮度值（0-100）
+ */
+uint8_t ion_display_get_brightness(void);
+
+/**
  * @brief 填充整个屏幕为指定颜色
  * @param color RGB565 颜色值
  */
