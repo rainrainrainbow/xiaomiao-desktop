@@ -6,8 +6,8 @@
  * 支持 6 键手柄：UP, DOWN, LEFT, RIGHT, A, B
  */
 
-#ifndef ION_BUTTON_H
-#define ION_BUTTON_H
+#ifndef BUTTON_H
+#define BUTTON_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -68,4 +68,4 @@ ion_button_t ion_button_last_pressed(void);
  */
 ion_button_t ion_button_wait(uint32_t timeout_ms);
 
-#endif /* ION_BUTTON_H */
+#endif /* BUTTON_H */
