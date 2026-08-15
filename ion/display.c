@@ -7,6 +7,7 @@
  */
 
 #include "ion/display.h"
+#include "ion/spi_mutex.h"
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -247,7 +248,12 @@ bool ion_display_init(void)
     gpio_set_level(PIN_NUM_DC, 1);
     gpio_set_level(PIN_NUM_RST, 1);
 
-    /* 初始化 SPI 总线 */
+    /* 初始化 SPI 互斥锁 */
+    ion_spi_mutex_init();
+
+    /* 初始化 SPI 总线
+     * 注意：SD 卡也使用 SPI2_HOST，此处由 LCD 先初始化总线。
+     * SD 卡初始化时检测到总线已存在（ESP_ERR_INVALID_STATE）会跳过重初始化。 */
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = PIN_NUM_MOSI,
         .miso_io_num = -1,  /* 不使用 MISO */
@@ -279,11 +285,16 @@ bool ion_display_init(void)
         return false;
     }
 
+    /* 初始化序列需要 SPI 总线访问，获取互斥锁 */
+    ion_spi_mutex_lock(5000);
+
     /* 硬件复位 */
     st7735_hardware_reset();
 
     /* 发送初始化序列 */
     st7735_init_sequence();
+
+    ion_spi_mutex_unlock();
 
     /* 分配帧缓冲区（PSRAM 优先） */
     s_framebuffer = heap_caps_malloc(FB_SIZE * sizeof(ion_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -363,6 +374,12 @@ void ion_display_flush(void)
 {
     if (!s_framebuffer || !s_spi_handle) return;
     
+    /* 获取 SPI 总线锁（SD 卡可能正在使用总线） */
+    if (!ion_spi_mutex_lock(1000)) {
+        ESP_LOGW(TAG, "SPI bus lock timeout, skipping flush");
+        return;
+    }
+    
     /* 设置地址窗口为整个屏幕 */
     st7735_set_address_window(0, 0, ION_DISPLAY_WIDTH - 1, ION_DISPLAY_HEIGHT - 1);
     
@@ -371,4 +388,7 @@ void ion_display_flush(void)
     
     /* 批量传输帧缓冲区数据 */
     st7735_write_data_bulk((const uint8_t *)s_framebuffer, FB_SIZE * sizeof(ion_color_t));
+    
+    /* 释放 SPI 总线锁 */
+    ion_spi_mutex_unlock();
 }

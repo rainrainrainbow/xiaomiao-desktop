@@ -8,6 +8,7 @@
  */
 
 #include "ion/sdcard.h"
+#include "ion/spi_mutex.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
@@ -25,9 +26,9 @@ static const char *TAG = "ION_SD";
 #define SD_PIN_SCLK        GPIO_NUM_18
 #define SD_PIN_CS          GPIO_NUM_22
 
-/* 注意：SD 卡与 LCD 共享 SPI2 总线，需要分时复用
+/* 注意：SD 卡与 LCD 共享 SPI2 总线，通过 ion_spi_mutex 互斥锁保护
  * LCD 使用 SPI2（CS=GPIO5，DC=GPIO4），SD 卡使用 SPI2（CS=GPIO22）
- * 两者不能同时使用，需确保驱动互斥 */
+ * 所有 SPI 操作前需获取互斥锁，完成后释放 */
 
 /* ========== 内部状态 ========== */
 static bool s_mounted = false;
@@ -50,9 +51,14 @@ bool ion_sdcard_init(const char *mount_point)
 
     ESP_LOGI(TAG, "Initializing SD card (SPI mode, mount=%s)", s_mount_point);
 
+    /* 确保 SPI 互斥锁已初始化（LCD 可能在之前已初始化） */
+    ion_spi_mutex_init();
+
     /* 配置 SPI 总线
-     * 注意：如果 LCD 已经初始化了 SPI2，这里需要额外的互斥处理
-     * 当前方案：SD 卡和 LCD 共享 SPI2，但不同时使用 */
+     * 注意：如果 LCD 已经初始化了 SPI2，spi_bus_initialize 会返回 ESP_ERR_INVALID_STATE，
+     * 这表示总线已被 LCD 占用，SD 卡共享同一总线。
+     * 共享总线时，MISO 引脚由 LCD 的显示驱动配置，
+     * 此处忽略 MISO 的重配置。 */
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = SD_PIN_MOSI,
         .miso_io_num = SD_PIN_MISO,
@@ -81,8 +87,11 @@ bool ion_sdcard_init(const char *mount_point)
         .allocation_unit_size = 16 * 1024,
     };
 
-    /* 挂载 SD 卡 */
+    /* 挂载 SD 卡
+     * 挂载过程涉及 SPI 总线通信，获取互斥锁保护 */
+    ion_spi_mutex_lock(5000);
     ret = esp_vfs_fat_sdspi_mount(s_mount_point, &bus_cfg, &slot_cfg, &mount_cfg, &s_card);
+    ion_spi_mutex_unlock();
     if (ret != ESP_OK) {
         if (ret == ESP_ERR_NOT_FOUND) {
             ESP_LOGW(TAG, "SD card not found (no card inserted)");
@@ -135,7 +144,10 @@ bool ion_sdcard_unmount(void)
 
     ESP_LOGI(TAG, "Unmounting SD card from %s", s_mount_point);
 
+    /* 卸载过程涉及 SPI 通信，获取互斥锁保护 */
+    ion_spi_mutex_lock(5000);
     esp_err_t ret = esp_vfs_fat_sdcard_unmount(s_mount_point, s_card);
+    ion_spi_mutex_unlock();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to unmount SD card: %d", ret);
         return false;

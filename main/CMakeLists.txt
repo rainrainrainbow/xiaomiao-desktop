@@ -16,6 +16,7 @@ idf_component_register(
         "../ion/button.c"
         "../ion/battery.c"
         "../ion/sdcard.c"
+        "../ion/spi_mutex.c"
         "../kandinsky/canvas.c"
         "../kandinsky/font.c"
         "../escher/widget.c"
