@@ -7,8 +7,11 @@
 #include "app_micropython.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "system/sys_nvs.h"
 #include "driver/drv_backlight.h"
+#include "driver/drv_battery.h"
+#include "poincare/runtime.h"
 #include <string.h>
 
 static const char *TAG = "APP_BUILTIN";
@@ -20,6 +23,11 @@ static void settings_init(void *data);
 static void settings_activate(void);
 static void settings_destroy(void);
 static bool settings_on_key(int key);
+
+// 关于系统子页面
+static void about_init(void *data);
+static void about_destroy(void);
+static bool about_on_key(int key);
 
 // 应用列表
 static void applist_init(void *data);
@@ -52,6 +60,12 @@ static const page_callbacks_t s_settings_callbacks = {
     .activate = settings_activate,
     .destroy = settings_destroy,
     .on_key = settings_on_key,
+};
+
+static const page_callbacks_t s_about_callbacks = {
+    .init = about_init,
+    .destroy = about_destroy,
+    .on_key = about_on_key,
 };
 
 static const page_callbacks_t s_applist_callbacks = {
@@ -199,8 +213,8 @@ static void settings_refresh_label(int idx)
                      st->theme == THEME_DARK ? "深色" : "浅色"); break;
     case 2: snprintf(buf, sizeof(buf), "%s: %s", items[2], st->sound_on ? "开" : "关"); break;
     case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
-    case 4: snprintf(buf, sizeof(buf), "%s: %d 每页",
-                     items[4], st->layout == 0 ? 4 : 2); break;
+    case 4: snprintf(buf, sizeof(buf), "%s: %s",
+                     items[4], st->layout == 0 ? "3列" : "2列"); break;
     case 5: snprintf(buf, sizeof(buf), "%s", items[5]); break;  // 关于系统
     case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;  // 恢复默认
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
@@ -334,9 +348,9 @@ static bool settings_on_key(int key)
         case 4: // 布局
             st->layout = (st->layout == 0) ? 1 : 0;
             break;
-        case 5: // 关于系统 - 显示版本信息（暂不处理，仅作占位）
-            ESP_LOGI(TAG, "About system: version=%s, build=%s", XIAOMIAO_VERSION, XIAOMIAO_BUILD);
-            break;
+        case 5: // 关于系统 - 进入关于页面
+            ui_stack_push(PAGE_APP_PLACEHOLDER, &s_about_callbacks, NULL);
+            return true;
         case 6: // 恢复默认设置
             st->brightness = 50;
             st->theme = THEME_DARK;
@@ -346,7 +360,11 @@ static bool settings_on_key(int key)
             drv_backlight_set_brightness(st->brightness);
             ui_theme_set(st->theme);
             ESP_LOGI(TAG, "Settings reset to defaults");
-            break;
+            /* 刷新所有设置项标签 */
+            for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
+                settings_refresh_label(i);
+            }
+            return true;
         case 7: // Save & Exit
             sys_nvs_save_settings(st->brightness, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
@@ -358,6 +376,89 @@ static bool settings_on_key(int key)
     }
 
     return false;
+}
+
+/* ========== 关于系统页面 ========== */
+static lv_obj_t *s_about_obj = NULL;
+
+static void about_init(void *data)
+{
+    ESP_LOGI(TAG, "About page init");
+    lv_obj_t *scr = lv_screen_active();
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(scr);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    ui_statusbar_create(scr);
+    ui_titlebar_create(scr, 14, "关于系统");
+
+    // 信息列表
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 0, 26);
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 系统信息行
+    const char *lines[8];
+    char buf[8][48];
+    snprintf(buf[0], sizeof(buf[0]), "系统: 小喵桌面");
+    snprintf(buf[1], sizeof(buf[1]), "版本: %s", XIAOMIAO_VERSION);
+    snprintf(buf[2], sizeof(buf[2]), "构建: %s", XIAOMIAO_BUILD);
+    snprintf(buf[3], sizeof(buf[3]), "芯片: ESP32-WROVER-B");
+    snprintf(buf[4], sizeof(buf[4]), "屏幕: ST7735 160x128");
+    // MicroPython 运行时状态
+    snprintf(buf[5], sizeof(buf[5]), "Python: %s",
+             poincare_runtime_is_ready() ? "就绪" : "未初始化");
+    // 电池信息
+    float vbat = drv_battery_get_voltage();
+    if (vbat >= BAT_MIN_VALID_V) {
+        int pct = drv_battery_get_percent(vbat);
+        snprintf(buf[6], sizeof(buf[6]), "电池: %d%% (%.2fV)", pct, vbat);
+    } else {
+        snprintf(buf[6], sizeof(buf[6]), "电池: 未检测到");
+    }
+    snprintf(buf[7], sizeof(buf[7]), "内存: %d KB 空闲",
+             heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+    lines[0] = buf[0]; lines[1] = buf[1]; lines[2] = buf[2];
+    lines[3] = buf[3]; lines[4] = buf[4]; lines[5] = buf[5];
+    lines[6] = buf[6]; lines[7] = buf[7];
+
+    int item_h = (LCD_V_RES - 26 - DOCK_H) / 8;
+    for (int i = 0; i < 8; i++) {
+        lv_obj_t *row = lv_obj_create(list);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_pos(row, 0, i * item_h);
+        lv_obj_set_size(row, LCD_H_RES, item_h);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_label_set_text(lbl, lines[i]);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+    }
+
+    s_about_obj = list;
+    ui_dock_create(scr, 1, 0);
+}
+
+static void about_destroy(void)
+{
+    ESP_LOGI(TAG, "About page destroy");
+    s_about_obj = NULL;
+}
+
+static bool about_on_key(int key)
+{
+    if (key == KEY_B) {
+        if (ui_stack_depth() > 1) ui_stack_pop();
+        return true;
+    }
+    return true;
 }
 
 /* ========== 应用列表页 ========== */
