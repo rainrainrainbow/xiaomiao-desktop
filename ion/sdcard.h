@@ -5,8 +5,8 @@
  * 参考 NumWorks Epsilon 的 Ion 层设计，提供统一的 SD 卡管理接口。
  */
 
-#ifndef ION_SDCARD_H
-#define ION_SDCARD_H
+#ifndef SDCARD_H
+#define SDCARD_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -42,4 +42,4 @@ uint64_t ion_sdcard_get_total_space(void);
  */
 bool ion_sdcard_unmount(void);
 
-#endif /* ION_SDCARD_H */
+#endif /* SDCARD_H */
