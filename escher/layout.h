@@ -7,8 +7,8 @@
  * 布局管理器直接操作控件的 x/y 坐标。
  */
 
-#ifndef ESCHER_LAYOUT_H
-#define ESCHER_LAYOUT_H
+#ifndef LAYOUT_H
+#define LAYOUT_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -67,4 +67,4 @@ void es_layout_grid_fill(es_widget_t *container, int cols, int spacing_x, int sp
  */
 void es_layout_center(es_widget_t *container, es_widget_t *child);
 
-#endif /* ESCHER_LAYOUT_H */
+#endif /* LAYOUT_H */
