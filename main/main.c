@@ -51,6 +51,9 @@
 // 系统服务
 #include "system/sys_nvs.h"
 
+// 新架构：Poincaré MicroPython 运行时（启动时在 PSRAM 任务中预初始化，避免 main 任务栈溢出）
+#include "poincare/runtime.h"
+
 static const char *TAG = "MAIN";
 
 /* ========== LCD驱动（保留在main.c，因为与LVGL紧密耦合） ========== */
@@ -570,6 +573,21 @@ static StackType_t *s_ui_task_stack = NULL;
 static void ui_init_task(void *arg)
 {
     ESP_LOGI(TAG, "UI init task started");
+    
+    /*
+     * 提前初始化 MicroPython 运行时（在 PSRAM 64KB 栈中执行）。
+     * MicroPython 初始化（mp_init + gc_init + machine_init + machine_pins_init）
+     * 需要大量栈空间（>16KB），而 main 任务栈只有 16KB 内部 DRAM，
+     * 在 main 任务中初始化 MicroPython 会栈溢出导致 StoreProhibited 崩溃。
+     * 详见 Run #516 的崩溃日志：EXCVADDR=0x00000000（写入 NULL 地址）。
+     * 这里在 PSRAM 64KB 栈中提前初始化，后续 main 任务中 poincare_runtime_init
+     * 因幂等性（s_initialized=true）直接返回，不会触发栈溢出。
+     */
+    if (!poincare_runtime_init(0)) {
+        ESP_LOGE(TAG, "Failed to pre-init MicroPython runtime");
+    } else {
+        ESP_LOGI(TAG, "MicroPython runtime pre-initialized successfully");
+    }
     
     // 推入桌面页面
     ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
