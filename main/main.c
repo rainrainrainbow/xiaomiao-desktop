@@ -563,27 +563,39 @@ static bool recents_page_on_key(int key)
     return true;
 }
 
-/* ========== UI 初始化任务（独立任务，栈在 PSRAM，避免 main 任务栈溢出） ========== */
+/* ========== MicroPython 运行时初始化任务（独立任务，PSRAM 栈，避免 main 任务栈溢出） ========== */
 
-/* 使用 xTaskCreate 动态分配（利用 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST
- * 自动从 PSRAM 分配栈），替代手动 heap_caps_malloc + xTaskCreateStatic 的方式。
- * 必须启用 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y 才能让栈在 PSRAM 中正常运行。
- * 64KB PSRAM 栈足够 MicroPython 运行时初始化（mp_init + gc_init + machine_init + machine_pins_init）。
+/*
+ * MicroPython 运行时初始化（mp_init + gc_init + machine_init + machine_pins_init）
+ * 需要大量栈空间（>16KB），而 main 任务栈只有 16KB 内部 DRAM，
+ * 在 main 任务中初始化 MicroPython 会栈溢出导致 StoreProhibited 崩溃。
+ * 
+ * 使用 xTaskCreateStatic + heap_caps_malloc 从 PSRAM 手动分配栈：
+ * 1. 先在 PSRAM 中分配栈空间（64KB）
+ * 2. 如果 PSRAM 分配失败，回退到内部 DRAM 分配（32KB）
+ * 3. 使用 xTaskCreateStatic 绑定栈和 TCB
+ * 4. 任务完成后保持空闲循环，避免栈被释放
+ * 
+ * 注意：xTaskCreate 动态分配（依赖 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST）
+ * 在真机上可能因 PSRAM 碎片化或配置问题回退到 DRAM，导致 64KB 栈在 DRAM 中不稳定。
+ * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
  */
-#define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，在 PSRAM
+#define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，优先从 PSRAM 分配
+#define UI_TASK_STACK_DRAM   (32 * 1024)   // 32KB 回退栈，从 DRAM 分配
+
+/* 静态 TCB 和栈（用于 xTaskCreateStatic） */
+static StaticTask_t s_ui_task_tcb;
+static void *s_ui_task_stack = NULL;
 
 static void ui_init_task(void *arg)
 {
-    ESP_LOGI(TAG, "UI init task started");
+    ESP_LOGI(TAG, "UI init task started (stack=%p, size=%d)", 
+             s_ui_task_stack, 
+             heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 ? UI_TASK_STACK_SIZE : UI_TASK_STACK_DRAM);
     
     /*
      * 提前初始化 MicroPython 运行时（在 PSRAM 64KB 栈中执行）。
-     * MicroPython 初始化（mp_init + gc_init + machine_init + machine_pins_init）
-     * 需要大量栈空间（>16KB），而 main 任务栈只有 16KB 内部 DRAM，
-     * 在 main 任务中初始化 MicroPython 会栈溢出导致 StoreProhibited 崩溃。
-     * 详见 Run #516 的崩溃日志：EXCVADDR=0x00000000（写入 NULL 地址）。
-     * 这里在 PSRAM 64KB 栈中提前初始化，后续 main 任务中 poincare_runtime_init
-     * 因幂等性（s_initialized=true）直接返回，不会触发栈溢出。
+     * 后续 main 任务中 poincare_runtime_init 因幂等性（s_initialized=true）直接返回。
      */
     if (!poincare_runtime_init(0)) {
         ESP_LOGE(TAG, "Failed to pre-init MicroPython runtime");
@@ -678,16 +690,35 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（动态分配 PSRAM 栈，64KB）
-    // 利用 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST + CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY
-    // 自动从 PSRAM 分配栈空间，避免 main 任务栈（16KB 内部 DRAM）溢出
-    TaskHandle_t ui_task_handle = NULL;
-    xTaskCreate(ui_init_task, "ui_init", UI_TASK_STACK_SIZE,
-                NULL, 5, &ui_task_handle);
-    if (ui_task_handle) {
-        ESP_LOGI(TAG, "ui_init_task created successfully (PSRAM stack, %d bytes)", UI_TASK_STACK_SIZE);
+    // 创建 UI 初始化任务（手动分配 PSRAM 栈，64KB）
+    // 使用 xTaskCreateStatic + heap_caps_malloc 确保栈从 PSRAM 分配
+    // 先尝试在 PSRAM 分配 64KB，失败则回退到 DRAM 32KB
+    size_t stack_size = UI_TASK_STACK_SIZE;
+    uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    s_ui_task_stack = heap_caps_malloc(stack_size, caps);
+    if (s_ui_task_stack == NULL) {
+        ESP_LOGW(TAG, "PSRAM stack allocation failed (%d bytes), trying DRAM...", stack_size);
+        stack_size = UI_TASK_STACK_DRAM;
+        s_ui_task_stack = malloc(stack_size);
+        if (s_ui_task_stack == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate UI task stack even from DRAM");
+        } else {
+            ESP_LOGI(TAG, "UI task stack allocated from DRAM (%d bytes)", stack_size);
+        }
     } else {
-        ESP_LOGE(TAG, "Failed to create ui_init_task");
+        ESP_LOGI(TAG, "UI task stack allocated from PSRAM (%d bytes)", stack_size);
+    }
+    
+    if (s_ui_task_stack) {
+        TaskHandle_t ui_task_handle = xTaskCreateStatic(
+            ui_init_task, "ui_init", stack_size / sizeof(StackType_t),
+            NULL, 5, (StackType_t *)s_ui_task_stack, &s_ui_task_tcb);
+        if (ui_task_handle) {
+            ESP_LOGI(TAG, "ui_init_task created (stack=%p, size=%d)", 
+                     s_ui_task_stack, stack_size);
+        } else {
+            ESP_LOGE(TAG, "xTaskCreateStatic failed for ui_init_task");
+        }
     }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
