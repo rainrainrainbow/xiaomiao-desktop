@@ -8,8 +8,8 @@
  * 颜色格式：RGB565。
  */
 
-#ifndef KANDINSKY_CANVAS_H
-#define KANDINSKY_CANVAS_H
+#ifndef CANVAS_H
+#define CANVAS_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -126,4 +126,4 @@ void kd_color_split(ion_color_t color, uint8_t *r, uint8_t *g, uint8_t *b);
  */
 ion_color_t kd_color_blend(ion_color_t fg, ion_color_t bg, uint8_t alpha);
 
-#endif /* KANDINSKY_CANVAS_H */
+#endif /* CANVAS_H */
