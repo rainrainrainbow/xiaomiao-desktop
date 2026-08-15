@@ -5,8 +5,8 @@
  * 参考 NumWorks Epsilon 的 Ion 层设计，提供统一的电池管理接口。
  */
 
-#ifndef ION_BATTERY_H
-#define ION_BATTERY_H
+#ifndef BATTERY_H
+#define BATTERY_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -41,4 +41,4 @@ bool ion_battery_is_charging(void);
  */
 const char* ion_battery_get_status_string(void);
 
-#endif /* ION_BATTERY_H */
+#endif /* BATTERY_H */
