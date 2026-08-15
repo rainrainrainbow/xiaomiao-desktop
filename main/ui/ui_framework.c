@@ -251,6 +251,28 @@ bool ui_stack_pop(void)
     
     if (s_stack_top >= 0) {
         stack_entry_v2_t *prev = &s_page_stack_v2[s_stack_top];
+        /*
+         * v1 页面兼容的生命周期修复：
+         *
+         * push 时对 v1 页面执行的是 init + activate（见 ui_stack_push）。
+         * 但 pop 回上一个 v1 页面时，只调用了 activate（DID_APPEAR），
+         * 没有重新执行 init（LOAD）。
+         *
+         * 问题后果：当上层应用在 activate 里执行 lv_obj_clean(scr) 清空屏幕后，
+         * 底层页面（如桌面）自己创建的 LVGL 对象已被销毁，成为悬空指针。
+         * 若该页面在 on_key 中继续访问这些对象（例如 desktop_page_on_key
+         * 里的 s_app_cells[]），就会访问已释放内存，引发 LoadProhibited 崩溃，
+         * 且屏幕上无法重建该页面的 UI（表现为"没有返回到桌面"）。
+         *
+         * 修复：pop 回 v1 页面时，恢复与 push 对称的生命周期——
+         * 先重新执行 init（重建 LVGL 对象），再 activate。
+         * v2 页面有 cached/should_cache 机制，走原有生命周期即可。
+         */
+        if (prev->callbacks_v1) {
+            if (prev->callbacks_v1->init) {
+                prev->callbacks_v1->init(prev->data);
+            }
+        }
         execute_lifecycle(PAGE_STATE_WILL_APPEAR, prev);
         execute_lifecycle(PAGE_STATE_DID_APPEAR, prev);
         prev->state = PAGE_STATE_ACTIVITY;

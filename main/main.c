@@ -398,8 +398,15 @@ static bool desktop_page_on_key(int key)
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
     const theme_colors_t *colors = ui_theme_colors();
 
-    // 取消当前高亮
-    if (s_app_cells[s_desktop_selected]) {
+    /*
+     * 防御性保护：
+     * 在极端情况下（例如页面切换生命周期存在遗漏），s_app_cells[] 中的指针
+     * 可能指向已被 LVGL 销毁的对象（悬空指针）。lv_obj_is_valid() 会校验
+     * 对象是否仍位于 LVGL 对象池中，避免对已释放内存解引用导致
+     * LoadProhibited 崩溃（曾出现 EXCVADDR=0xfffffffb）。
+     */
+    if (s_app_cells[s_desktop_selected] &&
+        lv_obj_is_valid(s_app_cells[s_desktop_selected])) {
         ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], false);
     }
 
@@ -446,7 +453,8 @@ static bool desktop_page_on_key(int key)
     if (s_desktop_selected < 0) s_desktop_selected = 0;
 
     // 高亮新选中项（模拟器：棕色背景）
-    if (s_app_cells[s_desktop_selected]) {
+    if (s_app_cells[s_desktop_selected] &&
+        lv_obj_is_valid(s_app_cells[s_desktop_selected])) {
         ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], true);
     }
 
