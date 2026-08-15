@@ -113,4 +113,15 @@ const app_def_t* app_manager_get_recents(int *count);
  */
 const app_def_t* app_manager_get_recents_at(int i);
 
+/**
+ * 获取当前正在运行的应用名称
+ * @return 应用名，桌面时返回 NULL
+ */
+const char* app_manager_get_current_name(void);
+
+/**
+ * 清除当前应用名（回到桌面时调用）
+ */
+void app_manager_clear_current(void);
+
 #endif /* APP_MANAGER_H */

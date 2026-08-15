@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小喵桌面 - 设置应用模拟器</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #2a2a2a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  }
+
+  /* 设备外壳 */
+  .device {
+    background: #1a1a1a;
+    border-radius: 24px;
+    padding: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+
+  /* 屏幕：160x128 模拟 ST7735 */
+  .screen {
+    width: 320px;        /* 2x 缩放 */
+    height: 256px;
+    background: #F6D34A;  /* 小喵黄 */
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
+  }
+
+  /* ========== 状态栏 ========== */
+  .statusbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 24px;
+    background: #5C4220;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    z-index: 10;
+  }
+  .statusbar .brand {
+    color: #F6D34A;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .statusbar .time {
+    color: #F6D34A;
+    font-size: 10px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .statusbar .battery {
+    color: #F6D34A;
+    font-size: 10px;
+    margin-left: auto;
+  }
+
+  /* ========== 标题栏 ========== */
+  .titlebar {
+    position: absolute;
+    top: 24px; left: 0; right: 0;
+    height: 28px;
+    background: #5C4220;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+  }
+  .titlebar span {
+    color: #F6D34A;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  /* ========== 设置列表 ========== */
+  .settings-list {
+    position: absolute;
+    top: 52px; left: 0; right: 0;
+    bottom: 28px; /* dock 高度 */
+    overflow: hidden;
+  }
+
+  .settings-item {
+    height: 25px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    cursor: pointer;
+    transition: background 0.1s;
+    position: relative;
+  }
+  .settings-item.selected {
+    background: #5C4220;
+  }
+  .settings-item .label {
+    color: #1B1713;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .settings-item.selected .label {
+    color: #F6D34A;
+  }
+  .settings-item .value {
+    margin-left: auto;
+    color: #5C4220;
+    font-size: 10px;
+  }
+  .settings-item.selected .value {
+    color: #F6D34A;
+  }
+
+  /* ========== 底部 Dock ========== */
+  .dock {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 28px;
+    background: #5C4220;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    z-index: 10;
+  }
+  .dock .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(246, 211, 74, 0.3);
+  }
+  .dock .dot.active {
+    background: #F6D34A;
+  }
+
+  /* ========== 控制面板 ========== */
+  .controls {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .controls button {
+    background: #5C4220;
+    color: #F6D34A;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-width: 60px;
+  }
+  .controls button:hover {
+    background: #7a5a2e;
+    transform: translateY(-1px);
+  }
+  .controls button:active {
+    transform: translateY(0);
+  }
+  .controls button.key-a {
+    background: #2DD466;
+    color: #1B1713;
+  }
+  .controls button.key-a:hover {
+    background: #3ee877;
+  }
+  .controls button.key-b {
+    background: #E64B3C;
+    color: #fff;
+  }
+  .controls button.key-b:hover {
+    background: #f05a4a;
+  }
+
+  .controls .key-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  .status-msg {
+    margin-top: 12px;
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+    min-height: 18px;
+  }
+
+  /* ========== 关于系统子页面 ========== */
+  .about-list {
+    position: absolute;
+    top: 52px; left: 0; right: 0;
+    bottom: 28px;
+    overflow: hidden;
+  }
+  .about-item {
+    height: 25px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+  }
+  .about-item .label {
+    color: #1B1713;
+    font-size: 10px;
+  }
+
+  /* ========== 桌面页面 ========== */
+  .desktop-grid {
+    position: absolute;
+    top: 24px; left: 0; right: 0;
+    bottom: 28px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 4px;
+    padding: 8px;
+  }
+  .desktop-icon {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.1s;
+  }
+  .desktop-icon.selected {
+    background: rgba(92, 66, 32, 0.2);
+  }
+  .desktop-icon .icon-box {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+  }
+  .desktop-icon .app-name {
+    color: #1B1713;
+    font-size: 9px;
+    font-weight: 500;
+  }
+
+  /* 隐藏 */
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div class="device">
+  <div class="screen" id="screen">
+    <!-- 由 JS 动态渲染 -->
+  </div>
+
+  <div class="controls">
+    <div class="key-group">
+      <button onclick="pressKey('UP')">▲ 上</button>
+      <button onclick="pressKey('DOWN')">▼ 下</button>
+      <button onclick="pressKey('LEFT')">◀ 左</button>
+      <button onclick="pressKey('RIGHT')">▶ 右</button>
+    </div>
+    <div class="key-group">
+      <button class="key-a" onclick="pressKey('A')">A 确认</button>
+      <button class="key-b" onclick="pressKey('B')">B 返回</button>
+    </div>
+  </div>
+  <div class="status-msg" id="statusMsg">▲▼ 选择 · A 确认/切换 · B 返回</div>
+</div>
+
+<script>
+// ========== 状态管理 ==========
+const state = {
+  // 页面栈
+  pageStack: ['desktop'],
+  // 设置状态
+  brightness: 75,
+  theme: 'dark',     // 'dark' | 'light'
+  soundOn: true,
+  wifiOn: true,
+  layout: 0,         // 0=3列, 1=2列
+  // 桌面状态
+  desktopPage: 0,
+  desktopSel: 0,
+  desktopApps: [
+    { name: '应用', icon: '☰', color: '#F6D34A' },
+    { name: '设置', icon: '⚙', color: '#5C4220' },
+    { name: '积木', icon: '✎', color: '#2DD466' },
+    { name: '商店', icon: '⬇', color: '#E64B3C' },
+    { name: '贪吃蛇', icon: '▶', color: '#22C55E' },
+    { name: '音乐', icon: '♪', color: '#8B5CF6' },
+    { name: 'Python', icon: '📄', color: '#3B82F6' },
+  ],
+  // 设置选中
+  settingsSel: 0,
+  // 关于系统
+  aboutLines: [],
+};
+
+const SETTINGS_ITEMS = [
+  '亮度', '主题', '声音', 'WiFi', '布局', '关于系统', '恢复默认', '保存并退出'
+];
+
+// ========== 渲染引擎 ==========
+function render() {
+  const screen = document.getElementById('screen');
+  const currentPage = state.pageStack[state.pageStack.length - 1];
+
+  switch (currentPage) {
+    case 'desktop': renderDesktop(screen); break;
+    case 'settings': renderSettings(screen); break;
+    case 'about': renderAbout(screen); break;
+  }
+}
+
+function renderDesktop(screen) {
+  const apps = state.desktopApps;
+  const cols = 3, rows = 2;
+  const perPage = cols * rows;
+  const totalPages = Math.ceil(apps.length / perPage);
+  const page = Math.min(state.desktopPage, totalPages - 1);
+  const startIdx = page * perPage;
+
+  screen.innerHTML = `
+    <div class="statusbar">
+      <span class="brand">XiaoMiaoOS</span>
+      <span class="time" id="timeDisplay">${getTime()}</span>
+      <span class="battery">${state.brightness}%</span>
+    </div>
+    <div class="desktop-grid">
+      ${apps.slice(startIdx, startIdx + perPage).map((app, i) => {
+        const globalIdx = startIdx + i;
+        const isSel = globalIdx === state.desktopSel;
+        return `
+          <div class="desktop-icon ${isSel ? 'selected' : ''}" onclick="launchApp(${globalIdx})">
+            <div class="icon-box" style="background:${app.color}20; color:${app.color}">${app.icon}</div>
+            <span class="app-name">${app.name}</span>
+          </div>
+        `;
+      }).join('')}
+    </div>
+    <div class="dock">
+      ${Array.from({length: totalPages}, (_, i) =>
+        `<span class="dot ${i === page ? 'active' : ''}"></span>`
+      ).join('')}
+    </div>
+  `;
+}
+
+function renderSettings(screen) {
+  const sel = state.settingsSel;
+  const items = getSettingsItems();
+
+  screen.innerHTML = `
+    <div class="statusbar">
+      <span class="brand">设置</span>
+      <span class="time">${getTime()}</span>
+      <span class="battery">${state.brightness}%</span>
+    </div>
+    <div class="titlebar"><span>设置</span></div>
+    <div class="settings-list">
+      ${items.map((item, i) => `
+        <div class="settings-item ${i === sel ? 'selected' : ''}" onclick="clickSetting(${i})">
+          <span class="label">${item.label}</span>
+          ${item.value ? `<span class="value">${item.value}</span>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    <div class="dock"><span class="dot active"></span></div>
+  `;
+}
+
+function renderAbout(screen) {
+  const lines = getAboutLines();
+
+  screen.innerHTML = `
+    <div class="statusbar">
+      <span class="brand">设置</span>
+      <span class="time">${getTime()}</span>
+      <span class="battery">${state.brightness}%</span>
+    </div>
+    <div class="titlebar"><span>关于系统</span></div>
+    <div class="about-list">
+      ${lines.map(line => `
+        <div class="about-item">
+          <span class="label">${line}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div class="dock"><span class="dot active"></span></div>
+  `;
+}
+
+// ========== 数据获取 ==========
+function getSettingsItems() {
+  return [
+    { label: '亮度', value: `${state.brightness}%` },
+    { label: '主题', value: state.theme === 'dark' ? '深色' : '浅色' },
+    { label: '声音', value: state.soundOn ? '开' : '关' },
+    { label: 'WiFi', value: state.wifiOn ? '开' : '关' },
+    { label: '布局', value: state.layout === 0 ? '3列' : '2列' },
+    { label: '关于系统' },
+    { label: '恢复默认' },
+    { label: '保存并退出' },
+  ];
+}
+
+function getAboutLines() {
+  const now = new Date();
+  return [
+    '系统: 小喵桌面',
+    '版本: v65 Epsilon',
+    '构建: 2025-08-15',
+    '芯片: ESP32-WROVER-B',
+    '屏幕: ST7735 160x128',
+    'Python: 就绪',
+    `电池: ${Math.floor(60 + Math.random() * 20)}% (3.85V)`,
+    '内存: 192 KB 空闲',
+  ];
+}
+
+function getTime() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+// ========== 按键处理 ==========
+function pressKey(key) {
+  const page = state.pageStack[state.pageStack.length - 1];
+  let msg = '';
+
+  switch (page) {
+    case 'desktop': msg = handleDesktopKey(key); break;
+    case 'settings': msg = handleSettingsKey(key); break;
+    case 'about': msg = handleAboutKey(key); break;
+  }
+
+  document.getElementById('statusMsg').textContent = msg || '▲▼ 选择 · A 确认/切换 · B 返回';
+  render();
+}
+
+function handleDesktopKey(key) {
+  const apps = state.desktopApps;
+  const perPage = 6;
+  const totalPages = Math.ceil(apps.length / perPage);
+  const page = state.desktopPage;
+  const startIdx = page * perPage;
+  const pageApps = apps.slice(startIdx, startIdx + perPage);
+
+  switch (key) {
+    case 'UP':
+      if (state.desktopSel - 3 >= 0) {
+        state.desktopSel -= 3;
+      } else if (state.desktopSel >= 3) {
+        state.desktopSel -= 3;
+      }
+      return `选中: ${apps[state.desktopSel]?.name || ''}`;
+
+    case 'DOWN':
+      if (state.desktopSel + 3 < apps.length) {
+        state.desktopSel += 3;
+      }
+      return `选中: ${apps[state.desktopSel]?.name || ''}`;
+
+    case 'LEFT':
+      if (state.desktopSel > 0) {
+        state.desktopSel--;
+      } else if (state.desktopPage > 0) {
+        state.desktopPage--;
+        state.desktopSel = perPage - 1;
+      }
+      return `选中: ${apps[state.desktopSel]?.name || ''}`;
+
+    case 'RIGHT':
+      if (state.desktopSel < apps.length - 1) {
+        state.desktopSel++;
+      } else if (state.desktopPage < totalPages - 1) {
+        state.desktopPage++;
+        state.desktopSel = 0;
+      }
+      return `选中: ${apps[state.desktopSel]?.name || ''}`;
+
+    case 'A':
+      const app = apps[state.desktopSel];
+      if (app) launchApp(state.desktopSel);
+      return `启动: ${app?.name || ''}`;
+
+    case 'B':
+      return '已在桌面';
+  }
+  return '';
+}
+
+function launchApp(index) {
+  const app = state.desktopApps[index];
+  if (!app) return;
+
+  if (app.name === '设置') {
+    state.pageStack.push('settings');
+    state.settingsSel = 0;
+  } else {
+    // 其他应用：显示占位
+    alert(`「${app.name}」应用\n\n这是一个占位应用，尚未实现完整功能。\n\n在真机上会显示对应的页面回调。`);
+  }
+}
+
+function handleSettingsKey(key) {
+  const items = SETTINGS_ITEMS;
+  const sel = state.settingsSel;
+
+  switch (key) {
+    case 'UP':
+      state.settingsSel = (sel - 1 + items.length) % items.length;
+      return `选中: ${items[state.settingsSel]}`;
+
+    case 'DOWN':
+      state.settingsSel = (sel + 1) % items.length;
+      return `选中: ${items[state.settingsSel]}`;
+
+    case 'LEFT':
+      return adjustSetting(sel, -1);
+
+    case 'RIGHT':
+    case 'A':
+      if (sel === 5) { // 关于系统
+        state.pageStack.push('about');
+        return '进入关于系统';
+      }
+      if (sel === 6) { // 恢复默认
+        resetDefaults();
+        return '已恢复默认设置';
+      }
+      if (sel === 7) { // 保存并退出
+        state.pageStack.pop();
+        return '设置已保存';
+      }
+      return adjustSetting(sel, 1);
+
+    case 'B':
+      if (state.pageStack.length > 1) {
+        state.pageStack.pop();
+        return '返回桌面';
+      }
+      return '';
+  }
+  return '';
+}
+
+function adjustSetting(idx, delta) {
+  switch (idx) {
+    case 0: // 亮度
+      state.brightness = Math.max(10, Math.min(100, state.brightness + delta * 10));
+      return `亮度: ${state.brightness}%`;
+    case 1: // 主题
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      return `主题: ${state.theme === 'dark' ? '深色' : '浅色'}`;
+    case 2: // 声音
+      state.soundOn = !state.soundOn;
+      return `声音: ${state.soundOn ? '开' : '关'}`;
+    case 3: // WiFi
+      state.wifiOn = !state.wifiOn;
+      return `WiFi: ${state.wifiOn ? '开' : '关'}`;
+    case 4: // 布局
+      state.layout = state.layout === 0 ? 1 : 0;
+      return `布局: ${state.layout === 0 ? '3列' : '2列'}`;
+  }
+  return '';
+}
+
+function resetDefaults() {
+  state.brightness = 50;
+  state.theme = 'dark';
+  state.soundOn = true;
+  state.wifiOn = false;
+  state.layout = 0;
+}
+
+function handleAboutKey(key) {
+  if (key === 'B' && state.pageStack.length > 1) {
+    state.pageStack.pop();
+    return '返回设置';
+  }
+  return '';
+}
+
+function clickSetting(index) {
+  state.settingsSel = index;
+  // 模拟 A 键
+  pressKey('A');
+}
+
+// ========== 初始化 ==========
+render();
+// 更新时间
+setInterval(() => {
+  const timeEl = document.getElementById('timeDisplay');
+  if (timeEl) timeEl.textContent = getTime();
+}, 10000);
+
+// 键盘快捷键
+document.addEventListener('keydown', (e) => {
+  const map = {
+    'ArrowUp': 'UP', 'ArrowDown': 'DOWN',
+    'ArrowLeft': 'LEFT', 'ArrowRight': 'RIGHT',
+    'z': 'A', 'Z': 'A', 'x': 'B', 'X': 'B',
+    'Enter': 'A', 'Escape': 'B',
+  };
+  if (map[e.key]) {
+    e.preventDefault();
+    pressKey(map[e.key]);
+  }
+});
+</script>
+</body>
+</html>

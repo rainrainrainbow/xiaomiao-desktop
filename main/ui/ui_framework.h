@@ -246,6 +246,12 @@ const theme_colors_t* ui_theme_colors(void);
 lv_obj_t* ui_statusbar_create(lv_obj_t *parent);
 
 /**
+ * 设置状态栏左上角文字（应用名或品牌名）
+ * @param title 显示的文字（如"设置"、"贪吃蛇"），传 NULL 恢复为"XiaoMiaoOS"
+ */
+void ui_statusbar_set_title(const char *title);
+
+/**
  * 更新状态栏时间
  */
 void ui_statusbar_update_time(void);
@@ -301,6 +307,7 @@ typedef enum {
  */
 typedef struct {
     lv_obj_t *statusbar;        // 状态栏
+    lv_obj_t *brand_label;      // 状态栏左上角品牌/应用名标签
     lv_obj_t *time_label;       // 时间标签
     lv_obj_t *bat_label;        // 电池标签
     theme_type_t theme;         // 当前主题

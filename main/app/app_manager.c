@@ -5,6 +5,7 @@
 
 #include "app_manager.h"
 #include "app_micropython.h"
+#include "ui_framework.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -23,6 +24,9 @@ static int s_python_count = 0;
 /* ========== 最近任务列表 ========== */
 static const app_def_t *s_recents[MAX_RECENTS];
 static int s_recents_count = 0;
+
+/* ========== 当前运行的应用 ========== */
+static const char *s_current_app_name = NULL;
 
 /* ========== 应用管理器初始化 ========== */
 void app_manager_init(void)
@@ -81,6 +85,12 @@ void app_manager_launch(const app_def_t *app)
     }
 
     ESP_LOGI(TAG, "Launching app: %s (type=%d)", app->name, app->type);
+
+    // 记录当前应用名（用于状态栏显示）
+    s_current_app_name = app->name;
+
+    // 更新状态栏左上角为当前应用名
+    ui_statusbar_set_title(app->name);
 
     // 记录到最近任务
     app_manager_add_recents(app);
@@ -157,6 +167,17 @@ const app_def_t* app_manager_get_recents_at(int i)
         return s_recents[i];
     }
     return NULL;
+}
+
+/* ========== 获取当前应用名 ========== */
+const char* app_manager_get_current_name(void)
+{
+    return s_current_app_name;
+}
+
+void app_manager_clear_current(void)
+{
+    s_current_app_name = NULL;
 }
 
 /* ========== 获取应用页面回调 ========== */

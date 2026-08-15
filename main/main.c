@@ -294,13 +294,22 @@ static void desktop_page_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    // 创建状态栏
+    // 回到桌面时清除当前应用名（状态栏显示"XiaoMiaoOS"）
+    // 必须在 ui_statusbar_create 之前清除，因为 create 中会读取 app_manager_get_current_name()
+    app_manager_clear_current();
     ui_statusbar_create(scr);
 
-    // 模拟器风格：3列×2行网格，gap:2px，padding:3px 4px
-    int cols = 3;
-    int rows = 2;
-    int app_count = cols * rows;  // 6 个/页
+    // 布局模式：0=6应用/页（3列×2行），1=2应用/页（2列×1行）
+    // 从设置读取布局，让设置应用中的"布局"选项真正生效
+    int cols, rows;
+    if (state->layout == 1) {
+        cols = 2;
+        rows = 1;
+    } else {
+        cols = 3;
+        rows = 2;
+    }
+    int app_count = cols * rows;
 
     lv_coord_t grid_top = 14;  // STATUS_H(12) + 2
     lv_coord_t grid_bottom = LCD_V_RES - DOCK_H;  // 128 - 8 = 120
@@ -394,9 +403,16 @@ static bool desktop_page_on_key(int key)
     }
 
     ui_state_t *state = ui_state_get();
-    const int cols = 3;
-    const int rows = 2;
-    const int app_count = cols * rows;  // 6 个/页
+    // 与 desktop_page_init 保持一致的布局
+    int cols, rows;
+    if (state->layout == 1) {
+        cols = 2;
+        rows = 1;
+    } else {
+        cols = 3;
+        rows = 2;
+    }
+    const int app_count = cols * rows;
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
     const theme_colors_t *colors = ui_theme_colors();

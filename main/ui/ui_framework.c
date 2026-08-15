@@ -9,6 +9,7 @@
  */
 
 #include "ui_framework.h"
+#include "app/app_manager.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
@@ -64,6 +65,7 @@ static const theme_colors_t s_themes[THEME_MAX] = {
 /* ========== UI全局状态 ========== */
 static ui_state_t s_ui_state = {
     .statusbar = NULL,
+    .brand_label = NULL,
     .time_label = NULL,
     .bat_label = NULL,
     .theme = THEME_DARK,
@@ -387,11 +389,18 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     
-    // 品牌名（英文，使用默认字体避免乱码）
+    // 品牌名/应用名（英文，使用默认字体避免乱码）
     lv_obj_t *brand = lv_label_create(bar);
-    lv_label_set_text(brand, "XiaoMiaoOS");
+    // 如果当前有应用在运行，显示应用名；否则显示品牌名
+    const char *app_name = app_manager_get_current_name();
+    if (app_name) {
+        lv_label_set_text(brand, app_name);
+    } else {
+        lv_label_set_text(brand, "XiaoMiaoOS");
+    }
     lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
     lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
+    s_ui_state.brand_label = brand;
     
     // 时间标签
     lv_obj_t *time = lv_label_create(bar);
@@ -428,6 +437,16 @@ void ui_statusbar_update_time(void)
 void ui_statusbar_update_battery(void)
 {
     // 由主循环调用，此处留空
+}
+
+void ui_statusbar_set_title(const char *title)
+{
+    if (!s_ui_state.brand_label) return;
+    if (title && title[0] != '\0') {
+        lv_label_set_text(s_ui_state.brand_label, title);
+    } else {
+        lv_label_set_text(s_ui_state.brand_label, "XiaoMiaoOS");
+    }
 }
 
 lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
