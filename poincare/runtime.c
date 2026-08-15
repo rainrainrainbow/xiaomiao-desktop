@@ -153,12 +153,31 @@ bool poincare_runtime_is_ready(void)
 
 /* ========== 脚本执行 ========== */
 
+/* 确保当前任务的 MicroPython 线程状态（TLS 指针）已设置。
+ * 关键：mp_thread_init() 只在初始化时调用一次（通常位于 ui_init_task 中），
+ * 它通过 vTaskSetThreadLocalStoragePointer(NULL, 1, &mp_state_ctx.thread) 设置
+ * 当前任务的 TLS 指针。但按键处理、应用 activate 等运行在 main 任务中，
+ * 其 TLS 指针从未被设置，导致 mp_thread_get_state() 返回 NULL。
+ * 此时 MP_STATE_THREAD(x) 展开为 mp_thread_get_state()->x，对 NULL 解引用
+ * 会在 gc_alloc 等函数中触发 LoadProhibited 崩溃（EXCVADDR=0x00000008）。
+ * 因此在每次执行脚本前，确保当前任务已绑定到全局线程状态。 */
+static void poincare_ensure_thread_state(void)
+{
+#if MICROPY_PY_THREAD
+    if (mp_thread_get_state() == NULL) {
+        mp_thread_set_state(&mp_state_ctx.thread);
+    }
+#endif
+}
+
 int poincare_runtime_exec(const char *source, const char *source_name)
 {
     if (!source) {
         ESP_LOGE(TAG, "NULL source");
         return -1;
     }
+
+    poincare_ensure_thread_state();
 
     if (!poincare_runtime_init(s_heap_size)) {
         ESP_LOGE(TAG, "Runtime not initialized");
@@ -198,6 +217,8 @@ int poincare_runtime_exec_file(const char *filename)
         ESP_LOGE(TAG, "NULL filename");
         return -1;
     }
+
+    poincare_ensure_thread_state();
 
     if (!poincare_runtime_init(s_heap_size)) {
         ESP_LOGE(TAG, "Runtime not initialized");
