@@ -1,3 +1,6 @@
+#ifndef MPCONFIGBOARD_H
+#define MPCONFIGBOARD_H
+
 // 小喵掌机 MicroPython 板级配置
 // XiaoMiao Desktop Board Configuration for MicroPython
 
@@ -94,3 +97,5 @@
 // 实际上，这些宏必须在 mpconfigport.h 中的 #define 之后生效。
 // 让 build.yml 中的编译器 -D 标志覆盖它们是最可靠的方案。
 // 请参考 build.yml 中的 EXTRA_CFLAGS 设置。
+
+#endif // MPCONFIGBOARD_H

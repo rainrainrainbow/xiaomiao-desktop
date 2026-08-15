@@ -1,3 +1,6 @@
+#ifndef MPCONFIGBOARD_H
+#define MPCONFIGBOARD_H
+
 // 小喵掌机 MicroPython 板级配置
 // XiaoMiao Desktop Board Configuration for MicroPython
 
@@ -65,3 +68,5 @@
 #ifndef MICROPY_ESP_IDF_ENTRY
 #define MICROPY_ESP_IDF_ENTRY xiaomiao_mp_entry
 #endif
+
+#endif // MPCONFIGBOARD_H
