@@ -479,7 +479,7 @@ static void about_init(void *data)
     extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end, _bss_start, _bss_end;
     uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
                         + (uint32_t)&_data_end - (uint32_t)&_data_start;
-    snprintf(buf[9], sizeof(buf[9]), "固件: %d KB", flash_size / 1024);
+    snprintf(buf[9], sizeof(buf[9]), "固件: %lu KB", (unsigned long)(flash_size / 1024));
     lines[0] = buf[0]; lines[1] = buf[1]; lines[2] = buf[2];
     lines[3] = buf[3]; lines[4] = buf[4]; lines[5] = buf[5];
     lines[6] = buf[6]; lines[7] = buf[7]; lines[8] = buf[8]; lines[9] = buf[9];
