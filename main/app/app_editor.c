@@ -93,11 +93,16 @@ static void editor_refresh_pane_l(void)
 {
     if (!s_editor_pane_l) return;
     lv_obj_clean(s_editor_pane_l);
+    // 行高和字体根据设置自适应
+    int font_px = ui_state_get()->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    int row_h = font_px + 2;
     char cat_buf[32];
     for (int i = 0; i < BLOCK_CAT_COUNT; i++) {
         lv_obj_t *row = lv_obj_create(s_editor_pane_l);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 76, 10);
+        lv_obj_set_size(row, 76, row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_all(row, 0, 0);
         lv_obj_t *lbl = lv_label_create(row);
@@ -109,7 +114,7 @@ static void editor_refresh_pane_l(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[i]), 0);
         }
         lv_label_set_text(lbl, cat_buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -120,7 +125,7 @@ static void editor_refresh_pane_l(void)
     for (int i = 0; i < BLOCKS_PER_CAT; i++) {
         lv_obj_t *row = lv_obj_create(s_editor_pane_l);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 76, 10);
+        lv_obj_set_size(row, 76, row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_t *lbl = lv_label_create(row);
         if (i == s_editor_block_sel) {
@@ -134,7 +139,7 @@ static void editor_refresh_pane_l(void)
         editor_get_block_display_name(s_editor_cat_sel, i,
             s_block_params[s_editor_cat_sel][i], block_buf, sizeof(block_buf));
         lv_label_set_text(lbl, block_buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -144,13 +149,18 @@ static void editor_refresh_pane_r(void)
 {
     if (!s_editor_pane_r) return;
     lv_obj_clean(s_editor_pane_r);
+    // 行高和字体根据设置自适应
+    int font_px = ui_state_get()->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    int row_h = font_px + 2;
     if (s_editor_prog_mode == 1) {
         const char *menu_items[] = {"删除", "上移", "下移", "取消"};
         int menu_count = sizeof(menu_items) / sizeof(menu_items[0]);
         for (int i = 0; i < menu_count; i++) {
             lv_obj_t *row = lv_obj_create(s_editor_pane_r);
             lv_obj_remove_style_all(row);
-            lv_obj_set_size(row, 76, 12);
+            lv_obj_set_size(row, 76, row_h);
             lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_t *lbl = lv_label_create(row);
             if (i == s_editor_prog_menu_sel) {
@@ -161,7 +171,7 @@ static void editor_refresh_pane_r(void)
                 lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
             }
             lv_label_set_text(lbl, menu_items[i]);
-            lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
             lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(lbl, 76);
         }
@@ -171,7 +181,7 @@ static void editor_refresh_pane_r(void)
         lv_obj_t *lbl = lv_label_create(s_editor_pane_r);
         lv_label_set_text(lbl, "空");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x5C4220), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
         return;
@@ -182,7 +192,7 @@ static void editor_refresh_pane_r(void)
         int blk = idx % BLOCKS_PER_CAT;
         lv_obj_t *row = lv_obj_create(s_editor_pane_r);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 76, 10);
+        lv_obj_set_size(row, 76, row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         char buf[24];
         char name_buf[20];
@@ -197,7 +207,7 @@ static void editor_refresh_pane_r(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[cat]), 0);
         }
         lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -208,22 +218,23 @@ static void editor_init(void *data)
     ESP_LOGI(TAG, "Editor init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "积木编辑器");
+    ui_titlebar_create(scr, ui_titlebar_y(), "积木编辑器");
     lv_obj_t *split = lv_obj_create(scr);
     lv_obj_remove_style_all(split);
-    lv_obj_set_pos(split, 0, 26);
-    lv_obj_set_size(split, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_pos(split, 0, ui_content_y());
+    lv_obj_set_size(split, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(split, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(split, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(split, LV_FLEX_ALIGN_SPACE_EVENLY,
                           LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_t *pane_l = lv_obj_create(split);
     lv_obj_remove_style_all(pane_l);
-    lv_obj_set_size(pane_l, 76, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_size(pane_l, 76, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(pane_l, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(pane_l, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(pane_l, 1, 0);
@@ -233,7 +244,7 @@ static void editor_init(void *data)
     s_editor_pane_l = pane_l;
     lv_obj_t *pane_r = lv_obj_create(split);
     lv_obj_remove_style_all(pane_r);
-    lv_obj_set_size(pane_r, 76, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_size(pane_r, 76, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(pane_r, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(pane_r, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(pane_r, 1, 0);
@@ -269,7 +280,7 @@ static bool editor_on_key(int key)
             if (s_editor_param_val > s_editor_param_max) s_editor_param_val = s_editor_param_max;
             char title[32];
             snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-            ui_titlebar_create(lv_screen_active(), 14, title);
+            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
             return true;
         }
         if (key == KEY_DOWN) {
@@ -277,7 +288,7 @@ static bool editor_on_key(int key)
             if (s_editor_param_val < s_editor_param_min) s_editor_param_val = s_editor_param_min;
             char title[32];
             snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-            ui_titlebar_create(lv_screen_active(), 14, title);
+            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
             return true;
         }
         if (key == KEY_A) {
@@ -285,13 +296,13 @@ static bool editor_on_key(int key)
                 s_editor_prog_blocks[s_editor_prog_sel].param_val = s_editor_param_val;
             }
             s_editor_param_mode = 0;
-            ui_titlebar_create(lv_screen_active(), 14, "积木编辑器");
+            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
             editor_refresh_pane_r();
             return true;
         }
         if (key == KEY_B) {
             s_editor_param_mode = 0;
-            ui_titlebar_create(lv_screen_active(), 14, "积木编辑器");
+            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
             editor_refresh_pane_r();
             return true;
         }
@@ -382,7 +393,7 @@ static bool editor_on_key(int key)
                     { s_editor_param_min = 0; s_editor_param_max = 100; }
                 char title[32];
                 snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-                ui_titlebar_create(lv_screen_active(), 14, title);
+                ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
             }
             return true;
         }

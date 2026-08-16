@@ -145,20 +145,19 @@ static void settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "设置");
+    ui_titlebar_create(scr, ui_titlebar_y(), "设置");
     
     /* 根据字体大小动态计算行高和可见行数 */
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
     s_settings_row_h = font_px + 2;  /* 字体高度 + 2px间距 */
-    s_settings_vis_rows = SETTINGS_LIST_H / s_settings_row_h;
+    /* 可见行数根据实际内容区高度（ui_content_y）计算 */
+    s_settings_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_settings_row_h;
     if (s_settings_vis_rows < 1) s_settings_vis_rows = 1;
     
-    /* 列表起始位置：标题栏y(14) + 标题栏高度(根据字体自适应) */
-    lv_coord_t title_h = font_px + 2;
-    if (title_h < 14) title_h = 14;
-    lv_coord_t list_y = 14 + title_h;
+    /* 列表起始位置：状态栏 + 标题栏高度（根据字体自适应） */
+    lv_coord_t list_y = ui_content_y();
     
     s_settings_list = lv_obj_create(scr);
     lv_obj_remove_style_all(s_settings_list);
@@ -355,20 +354,19 @@ static void about_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "关于系统");
+    ui_titlebar_create(scr, ui_titlebar_y(), "关于系统");
     
     /* 根据字体大小动态计算行高和可见行数 */
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
     s_about_row_h = font_px + 2;  /* 字体高度 + 2px间距 */
-    s_about_vis_rows = ABOUT_LIST_H / s_about_row_h;
+    /* 可见行数根据实际内容区高度（ui_content_y）计算 */
+    s_about_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_about_row_h;
     if (s_about_vis_rows < 1) s_about_vis_rows = 1;
     
-    /* 列表起始位置：标题栏y(14) + 标题栏高度(根据字体自适应) */
-    lv_coord_t title_h = font_px + 2;
-    if (title_h < 14) title_h = 14;
-    lv_coord_t list_y = 14 + title_h;
+    /* 列表起始位置：状态栏 + 标题栏高度（根据字体自适应） */
+    lv_coord_t list_y = ui_content_y();
     
     s_about_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(s_about_obj);

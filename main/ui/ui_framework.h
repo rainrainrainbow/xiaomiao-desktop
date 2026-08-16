@@ -22,7 +22,7 @@
 /* ========== 屏幕尺寸定义 ========== */
 #define LCD_H_RES           160
 #define LCD_V_RES           128
-#define STATUS_H            12   // 状态栏高度
+#define STATUS_H            12   // 状态栏高度（默认值，实际高度在ui_statusbar_create中根据字体自适应）
 #define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 系统版本信息 ========== */
@@ -278,6 +278,18 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx);
  * @return 标题栏对象
  */
 lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text);
+
+/**
+ * 获取标题栏应放置的Y坐标（状态栏高度，根据字体大小自适应）
+ * @return 标题栏Y坐标
+ */
+lv_coord_t ui_titlebar_y(void);
+
+/**
+ * 获取内容区起始Y坐标（状态栏 + 标题栏高度，根据字体大小自适应）
+ * @return 内容区起始Y坐标
+ */
+lv_coord_t ui_content_y(void);
 
 /**
  * 设置桌面图标选中状态（棕色背景替代边框）

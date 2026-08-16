@@ -19,11 +19,11 @@ static void snake_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0xF6D34A), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "贪吃蛇");
+    ui_titlebar_create(scr, ui_titlebar_y(), "贪吃蛇");
     lv_obj_t *lbl = lv_label_create(scr);
     lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+    lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 

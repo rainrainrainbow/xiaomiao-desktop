@@ -110,7 +110,7 @@ static void python_app_activate(void)
     /* 获取当前应用名（从 app_manager 或标题） */
     const char *app_name = app_manager_get_current_name();
     if (!app_name) app_name = "Python";
-    ui_titlebar_create(scr, 14, app_name);
+    ui_titlebar_create(scr, ui_titlebar_y(), app_name);
 
     // LV_FONT_DECLARE removed, using lv_font_cn_get()
 
@@ -134,7 +134,7 @@ static void python_app_activate(void)
         /* 显示测试结果 */
         lv_obj_t *lbl = lv_label_create(scr);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
 
         if (ret == 0) {
@@ -153,7 +153,7 @@ static void python_app_activate(void)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "未找到入口文件");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
         ui_dock_create(scr, 1, 0);
         return;
@@ -166,7 +166,7 @@ static void python_app_activate(void)
     /* 显示执行结果 */
     lv_obj_t *lbl = lv_label_create(scr);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+    lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
 
     if (ret == 0) {

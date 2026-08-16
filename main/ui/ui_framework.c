@@ -381,6 +381,18 @@ ui_state_t* ui_state_get(void)
 
 /* ========== 通用UI组件 ========== */
 
+/* 根据字体大小计算状态栏高度 */
+static lv_coord_t ui_statusbar_h(void)
+{
+    ui_state_t *state = ui_state_get();
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    lv_coord_t h = font_px + 2;
+    if (h < 12) h = 12;
+    return h;
+}
+
 lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
 {
     const theme_colors_t *colors = ui_theme_colors();
@@ -388,7 +400,7 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_t *bar = lv_obj_create(parent);
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, 0);
-    lv_obj_set_size(bar, LCD_H_RES, STATUS_H);
+    lv_obj_set_size(bar, LCD_H_RES, ui_statusbar_h());
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -510,6 +522,24 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     
     return bar;
+}
+
+/* 获取标题栏应放置的Y坐标（状态栏高度，根据字体大小自适应） */
+lv_coord_t ui_titlebar_y(void)
+{
+    return ui_statusbar_h();
+}
+
+/* 获取内容区起始Y坐标（状态栏 + 标题栏高度，根据字体大小自适应） */
+lv_coord_t ui_content_y(void)
+{
+    ui_state_t *state = ui_state_get();
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    lv_coord_t title_h = font_px + 2;
+    if (title_h < 14) title_h = 14;
+    return ui_statusbar_h() + title_h;
 }
 
 void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected)

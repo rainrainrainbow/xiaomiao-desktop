@@ -19,7 +19,8 @@ static const char *TAG = "APP_FILEMGR";
 
 #define FILEMGR_MAX_ENTRIES 20
 #define FILEMGR_PATH_LEN   1024
-#define FILEMGR_ROW_H 15
+/* 行高根据字体大小动态计算，在 filemgr_init 中设置 */
+static int s_filemgr_row_h = 15;
 
 static lv_obj_t *s_filemgr_obj = NULL;
 static int s_filemgr_sel = 0;
@@ -33,23 +34,24 @@ static void filemgr_refresh_list(void)
 {
     if (!s_filemgr_obj) return;
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(s_filemgr_obj);
-    int avail_h = LCD_V_RES - 26 - DOCK_H;
-    int vis_rows = (avail_h - FILEMGR_ROW_H - 2) / FILEMGR_ROW_H;
+    int avail_h = LCD_V_RES - ui_content_y() - DOCK_H;
+    int vis_rows = (avail_h - s_filemgr_row_h - 2) / s_filemgr_row_h;
     if (vis_rows < 1) vis_rows = 1;
     char header[FILEMGR_PATH_LEN + 8];
     snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
     lv_obj_t *path_lbl = lv_label_create(s_filemgr_obj);
     lv_label_set_text(path_lbl, header);
     lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(14), 0);
+    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(st->font_size), 0);
     lv_obj_set_style_text_align(path_lbl, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_pos(path_lbl, 4, 2);
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, "(空目录)");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
         return;
     }
@@ -62,8 +64,8 @@ static void filemgr_refresh_list(void)
         snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
-        int row_y = FILEMGR_ROW_H + 2 + (i - start) * FILEMGR_ROW_H;
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        int row_y = s_filemgr_row_h + 2 + (i - start) * s_filemgr_row_h;
         lv_obj_set_pos(lbl, 4, row_y);
         if (i == s_filemgr_sel) {
             lv_obj_set_style_bg_color(lbl, lv_color_hex(0x5C4220), 0);
@@ -103,15 +105,23 @@ static void filemgr_init(void *data)
     ESP_LOGI(TAG, "File manager init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "文件管理");
+    ui_titlebar_create(scr, ui_titlebar_y(), "文件管理");
+    
+    /* 根据字体大小动态计算行高 */
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    s_filemgr_row_h = font_px + 1;  /* 字体高度 + 1px间距 */
+    
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, 0, 26);
-    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_pos(list, 0, ui_content_y());
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 1, 0);
@@ -149,8 +159,8 @@ static bool filemgr_on_key(int key)
         return true;
     }
     if (s_filemgr_count == 0) return true;
-    int avail_h = LCD_V_RES - 26 - DOCK_H;
-    int vis_rows = (avail_h - FILEMGR_ROW_H - 2) / FILEMGR_ROW_H;
+    int avail_h = LCD_V_RES - ui_content_y() - DOCK_H;
+    int vis_rows = (avail_h - s_filemgr_row_h - 2) / s_filemgr_row_h;
     if (vis_rows < 1) vis_rows = 1;
     if (key == KEY_UP) {
         if (s_filemgr_sel > 0) {

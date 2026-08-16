@@ -27,7 +27,7 @@ static void applist_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "应用管理");
+    ui_titlebar_create(scr, ui_titlebar_y(), "应用管理");
 
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
@@ -36,14 +36,20 @@ static void applist_init(void *data)
     s_applist_total = builtin_count + py_count;
     if (s_applist_total <= 0) s_applist_total = 1;
 
+    // 字体大小根据设置自适应
+    ui_state_t *st = ui_state_get();
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, 0, 26);
-    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_pos(list, 0, ui_content_y());
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-    int item_h = (LCD_V_RES - 26 - DOCK_H) / s_applist_total;
-    if (item_h < 12) item_h = 12;
+    int item_h = (LCD_V_RES - ui_content_y() - DOCK_H) / s_applist_total;
+    if (item_h < font_px + 2) item_h = font_px + 2;
     if (item_h > 18) item_h = 18;
 
     int row_idx = 0;
@@ -61,7 +67,7 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, builtin_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *type_lbl = lv_label_create(row);
         lv_label_set_text(type_lbl, "内置");
@@ -82,7 +88,7 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, py_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *status_lbl = lv_label_create(row);
         if (py_apps[i].install_status == APP_INSTALL_OK) {

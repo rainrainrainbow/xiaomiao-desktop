@@ -22,11 +22,11 @@ static void store_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, 14, "应用商店");
+    ui_titlebar_create(scr, ui_titlebar_y(), "应用商店");
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
-    lv_obj_set_pos(list, 0, 26);
-    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_set_pos(list, 0, ui_content_y());
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     s_store_obj = list;
     ui_dock_create(scr, 1, 0);

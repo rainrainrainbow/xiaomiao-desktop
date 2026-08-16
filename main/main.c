@@ -545,20 +545,23 @@ static void recents_page_init(void *data)
 
     // 状态栏
     ui_statusbar_create(scr);
-    // 标题栏（中文，CJK 字体）
-    ui_titlebar_create(scr, 14, "最近任务");
+    // 标题栏（中文，CJK 字体）— Y坐标根据字体自适应
+    ui_titlebar_create(scr, ui_titlebar_y(), "最近任务");
 
     int rec_count = 0;
     app_manager_get_recents(&rec_count);
     if (rec_count > 0) {
         lv_obj_t *list = lv_obj_create(scr);
         lv_obj_remove_style_all(list);
-        lv_obj_set_pos(list, 0, 26);
-        lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+        lv_obj_set_pos(list, 0, ui_content_y());
+        lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
         lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
         int max_show = (rec_count < 6) ? rec_count : 6;
-        int item_h = 14;
+        // 行高根据字体大小自适应
+        ui_state_t *st = ui_state_get();
+        int item_h = st->font_size + 2;
+        if (item_h < 14) item_h = 14;
         for (int i = 0; i < max_show; i++) {
             lv_obj_t *row = lv_obj_create(list);
             lv_obj_remove_style_all(row);
@@ -575,7 +578,7 @@ static void recents_page_init(void *data)
             lv_label_set_text(lbl, buf);
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             // 应用名为中文，使用统一中文字体
-            lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
         }
         s_recents_obj = list;
@@ -583,7 +586,7 @@ static void recents_page_init(void *data)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "暂无最近任务");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
     }
 
