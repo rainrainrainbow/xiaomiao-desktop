@@ -317,13 +317,31 @@ static void desktop_page_init(void *data)
     }
     int app_count = cols * rows;
 
-    lv_coord_t grid_top = 14;  // STATUS_H(12) + 2
+    // 根据字体大小自适应布局
+    // 字体越大，状态栏/标题栏越高，网格间距越大
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
+    // 状态栏高度：字体大小 + 2px padding
+    lv_coord_t status_h = font_px + 2;
+    if (status_h < 12) status_h = 12;  // 最小12px
+
+    // 网格顶部：状态栏高度 + 2px间距
+    lv_coord_t grid_top = status_h + 2;
     lv_coord_t grid_bottom = LCD_V_RES - DOCK_H;  // 128 - 8 = 120
-    lv_coord_t grid_h = grid_bottom - grid_top;    // 106
-    // 模拟器：padding: 3px 4px, gap: 2px
-    lv_coord_t pad_x = 4;
-    lv_coord_t pad_y = 3;
-    lv_coord_t gap = 2;
+    lv_coord_t grid_h = grid_bottom - grid_top;
+
+    // 间距根据字体大小自适应缩放
+    // 基础值：font=14px时 pad_x=4, pad_y=3, gap=2
+    // 字体每增大1px，间距增加0.5px（取整）
+    lv_coord_t pad_x = 4 + (font_px - 14) / 2;
+    lv_coord_t pad_y = 3 + (font_px - 14) / 2;
+    lv_coord_t gap = 2 + (font_px - 14) / 4;
+    if (pad_x > 8) pad_x = 8;
+    if (pad_y > 6) pad_y = 6;
+    if (gap > 4) gap = 4;
+
     lv_coord_t cell_w = (LCD_H_RES - 2 * pad_x - (cols - 1) * gap) / cols;
     lv_coord_t cell_h = (grid_h - 2 * pad_y - (rows - 1) * gap) / rows;
 
@@ -375,16 +393,20 @@ static void desktop_page_init(void *data)
         lv_obj_t *icon = lv_label_create(cell);
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
-        // 使用 LVGL 内置较大字体——montserrat_20 或 16（如果可用）
+        // 图标字体根据字体大小自适应
+        // 注意：LVGL内置Montserrat只有14px可用，所以图标固定用14px
+        // 但cell的flex布局会自适应大小
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
 
         // 名称标签（模拟器：font-size:7px, color:var(--black)）
         // 应用名为中文，使用统一中文字体（优先FreeType，回退内置）
+        // 字体大小根据设置自适应：14px→14px, 16px→14px, 20px→16px, 24px→20px
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(name, lv_font_cn_14(), 0);
+        int name_font_size = (font_px <= 14) ? 14 : (font_px <= 16) ? 14 : (font_px <= 20) ? 16 : 20;
+        lv_obj_set_style_text_font(name, lv_font_cn_get(name_font_size), 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
@@ -553,7 +575,7 @@ static void recents_page_init(void *data)
             lv_label_set_text(lbl, buf);
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             // 应用名为中文，使用统一中文字体
-            lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
         }
         s_recents_obj = list;
@@ -561,7 +583,7 @@ static void recents_page_init(void *data)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "暂无最近任务");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
     }
 

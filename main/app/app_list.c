@@ -61,7 +61,7 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, builtin_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *type_lbl = lv_label_create(row);
         lv_label_set_text(type_lbl, "内置");
@@ -82,7 +82,7 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, py_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *status_lbl = lv_label_create(row);
         if (py_apps[i].install_status == APP_INSTALL_OK) {

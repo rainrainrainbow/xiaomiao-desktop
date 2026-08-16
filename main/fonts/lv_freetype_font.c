@@ -175,3 +175,28 @@ const lv_font_t* lv_font_cn_16(void)
     LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
     return &lv_font_xiaomiao_cn_14;
 }
+
+/**
+ * @brief 根据指定大小获取中文显示字体
+ * 
+ * 优先返回 FreeType 字体（完整中文支持），
+ * 如果 FreeType 未就绪则回退到内置自定义字体。
+ * 支持大小：14、16、20、24，其他大小回退到14px。
+ */
+const lv_font_t* lv_font_cn_get(int size)
+{
+    if (s_freetype_initialized) {
+        lv_freetype_font_size_t ft_size;
+        switch (size) {
+        case 16: ft_size = LV_FREETYPE_FONT_SIZE_16; break;
+        case 20: ft_size = LV_FREETYPE_FONT_SIZE_20; break;
+        case 24: ft_size = LV_FREETYPE_FONT_SIZE_24; break;
+        default: ft_size = LV_FREETYPE_FONT_SIZE_14; break;
+        }
+        const lv_font_t *ft = lv_freetype_font_get(ft_size);
+        if (ft != NULL) return ft;
+    }
+    /* 回退到内置自定义字体 */
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    return &lv_font_xiaomiao_cn_14;
+}

@@ -69,6 +69,18 @@ const lv_font_t* lv_font_cn_14(void);
 const lv_font_t* lv_font_cn_16(void);
 
 /**
+ * @brief 根据指定大小获取中文显示字体
+ * 
+ * 优先返回 FreeType 字体（完整中文支持），
+ * 如果 FreeType 未就绪则回退到内置自定义字体。
+ * 支持大小：14、16、20、24，其他大小回退到14px。
+ * 
+ * @param size 字体大小（px），支持14/16/20/24
+ * @return const lv_font_t* 字体指针（始终非NULL）
+ */
+const lv_font_t* lv_font_cn_get(int size);
+
+/**
  * @brief 检查 FreeType 字体是否已就绪
  * 
  * @return true 字体已加载，false 未加载

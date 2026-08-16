@@ -23,7 +23,9 @@ static const char *TAG = "APP_SETTINGS";
 
 /* ========== 设置应用（可滚动列表） ========== */
 #define SETTINGS_HDR_H  12
-#define SETTINGS_ROW_H  14   /* 每行高度（与字体14px匹配） */
+/* 行高根据字体大小动态计算，在 settings_init 中设置 */
+static int s_settings_row_h = 14;
+static int s_settings_vis_rows = 6;
 
 /* 设置项：11项，分组显示 */
 static const char *s_settings_items[] = {
@@ -44,7 +46,7 @@ static const char *s_settings_items[] = {
 /* 可见区域 */
 #define SETTINGS_LIST_Y     (14 + SETTINGS_HDR_H)  /* 标题栏下方 */
 #define SETTINGS_LIST_H     (LCD_V_RES - SETTINGS_LIST_Y - DOCK_H)
-#define SETTINGS_VIS_ROWS   (SETTINGS_LIST_H / SETTINGS_ROW_H)
+/* 可见行数使用动态变量 s_settings_vis_rows，在 settings_init 中根据字体大小计算 */
 
 static lv_obj_t *s_settings_list = NULL;
 static lv_obj_t *s_settings_labels[11] = {0};
@@ -88,7 +90,8 @@ static void settings_rebuild_visible(void)
 {
     if (!s_settings_list) return;
     const theme_colors_t *colors = ui_theme_colors();
-    int vis_rows = SETTINGS_VIS_ROWS;
+    ui_state_t *st = ui_state_get();
+    int vis_rows = s_settings_vis_rows;
     if (vis_rows < 1) vis_rows = 1;
     /* 清除所有子对象 */
     lv_obj_clean(s_settings_list);
@@ -98,8 +101,8 @@ static void settings_rebuild_visible(void)
         int idx = s_settings_scroll + i;
         lv_obj_t *row = lv_obj_create(s_settings_list);
         lv_obj_remove_style_all(row);
-        lv_obj_set_pos(row, 0, i * SETTINGS_ROW_H);
-        lv_obj_set_size(row, LCD_H_RES, SETTINGS_ROW_H);
+        lv_obj_set_pos(row, 0, i * s_settings_row_h);
+        lv_obj_set_size(row, LCD_H_RES, s_settings_row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         if (idx == s_settings_sel) {
             lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
@@ -109,7 +112,8 @@ static void settings_rebuild_visible(void)
         }
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        /* 设置页面的字体根据 font_size 自适应 */
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[idx] = lbl;
         settings_refresh_label(idx);
@@ -121,12 +125,12 @@ static void settings_scroll_to_sel(void)
     /* 确保选中项在可见范围内 */
     if (s_settings_sel < s_settings_scroll) {
         s_settings_scroll = s_settings_sel;
-    } else if (s_settings_sel >= s_settings_scroll + SETTINGS_VIS_ROWS) {
-        s_settings_scroll = s_settings_sel - SETTINGS_VIS_ROWS + 1;
+    } else if (s_settings_sel >= s_settings_scroll + s_settings_vis_rows) {
+        s_settings_scroll = s_settings_sel - s_settings_vis_rows + 1;
     }
     /* 限制滚动范围 */
-    if (s_settings_scroll > SETTINGS_ITEM_COUNT - SETTINGS_VIS_ROWS) {
-        s_settings_scroll = SETTINGS_ITEM_COUNT - SETTINGS_VIS_ROWS;
+    if (s_settings_scroll > SETTINGS_ITEM_COUNT - s_settings_vis_rows) {
+        s_settings_scroll = SETTINGS_ITEM_COUNT - s_settings_vis_rows;
     }
     if (s_settings_scroll < 0) s_settings_scroll = 0;
 }
@@ -136,15 +140,30 @@ static void settings_init(void *data)
     ESP_LOGI(TAG, "Settings app init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
     ui_titlebar_create(scr, 14, "设置");
+    
+    /* 根据字体大小动态计算行高和可见行数 */
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    s_settings_row_h = font_px + 2;  /* 字体高度 + 2px间距 */
+    s_settings_vis_rows = SETTINGS_LIST_H / s_settings_row_h;
+    if (s_settings_vis_rows < 1) s_settings_vis_rows = 1;
+    
+    /* 列表起始位置：标题栏y(14) + 标题栏高度(根据字体自适应) */
+    lv_coord_t title_h = font_px + 2;
+    if (title_h < 14) title_h = 14;
+    lv_coord_t list_y = 14 + title_h;
+    
     s_settings_list = lv_obj_create(scr);
     lv_obj_remove_style_all(s_settings_list);
-    lv_obj_set_pos(s_settings_list, 0, SETTINGS_LIST_Y);
-    lv_obj_set_size(s_settings_list, LCD_H_RES, SETTINGS_LIST_H);
+    lv_obj_set_pos(s_settings_list, 0, list_y);
+    lv_obj_set_size(s_settings_list, LCD_H_RES, LCD_V_RES - list_y - DOCK_H);
     lv_obj_clear_flag(s_settings_list, LV_OBJ_FLAG_SCROLLABLE);
     s_settings_sel = 0;
     s_settings_scroll = 0;
@@ -259,11 +278,12 @@ static bool settings_on_key(int key)
 }
 
 /* ========== 关于系统页面（可滚动） ========== */
-#define ABOUT_ROW_H     14
 #define ABOUT_LIST_Y    26
 #define ABOUT_LIST_H    (LCD_V_RES - ABOUT_LIST_Y - DOCK_H)
-#define ABOUT_VIS_ROWS  (ABOUT_LIST_H / ABOUT_ROW_H)
 #define ABOUT_TOTAL     10
+/* 行高根据字体大小动态计算，在 about_init 中设置 */
+static int s_about_row_h = 14;
+static int s_about_vis_rows = 6;
 
 static lv_obj_t *s_about_obj = NULL;
 static int s_about_scroll = 0;
@@ -272,20 +292,22 @@ static void about_rebuild_visible(void)
 {
     if (!s_about_obj) return;
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(s_about_obj);
-    int vis = ABOUT_VIS_ROWS;
+    int vis = s_about_vis_rows;
     if (vis < 1) vis = 1;
     for (int i = 0; i < vis && (s_about_scroll + i) < ABOUT_TOTAL; i++) {
         int idx = s_about_scroll + i;
         lv_obj_t *row = lv_obj_create(s_about_obj);
         lv_obj_remove_style_all(row);
-        lv_obj_set_pos(row, 0, i * ABOUT_ROW_H);
-        lv_obj_set_size(row, LCD_H_RES, ABOUT_ROW_H);
+        lv_obj_set_pos(row, 0, i * s_about_row_h);
+        lv_obj_set_size(row, LCD_H_RES, s_about_row_h);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        /* 关于页面的字体根据 font_size 自适应 */
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         char buf[48];
         switch (idx) {
@@ -328,15 +350,30 @@ static void about_init(void *data)
     ESP_LOGI(TAG, "About page init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
     ui_titlebar_create(scr, 14, "关于系统");
+    
+    /* 根据字体大小动态计算行高和可见行数 */
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    s_about_row_h = font_px + 2;  /* 字体高度 + 2px间距 */
+    s_about_vis_rows = ABOUT_LIST_H / s_about_row_h;
+    if (s_about_vis_rows < 1) s_about_vis_rows = 1;
+    
+    /* 列表起始位置：标题栏y(14) + 标题栏高度(根据字体自适应) */
+    lv_coord_t title_h = font_px + 2;
+    if (title_h < 14) title_h = 14;
+    lv_coord_t list_y = 14 + title_h;
+    
     s_about_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(s_about_obj);
-    lv_obj_set_pos(s_about_obj, 0, ABOUT_LIST_Y);
-    lv_obj_set_size(s_about_obj, LCD_H_RES, ABOUT_LIST_H);
+    lv_obj_set_pos(s_about_obj, 0, list_y);
+    lv_obj_set_size(s_about_obj, LCD_H_RES, LCD_V_RES - list_y - DOCK_H);
     lv_obj_clear_flag(s_about_obj, LV_OBJ_FLAG_SCROLLABLE);
     s_about_scroll = 0;
     about_rebuild_visible();
@@ -364,7 +401,7 @@ static bool about_on_key(int key)
         return true;
     }
     if (key == KEY_DOWN) {
-        if (s_about_scroll + ABOUT_VIS_ROWS < ABOUT_TOTAL) {
+        if (s_about_scroll + s_about_vis_rows < ABOUT_TOTAL) {
             s_about_scroll++;
             about_rebuild_visible();
         }

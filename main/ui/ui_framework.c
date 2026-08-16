@@ -485,11 +485,19 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
 lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
 {
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *state = ui_state_get();
+    
+    // 标题栏高度根据字体大小自适应
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    lv_coord_t title_h = font_px + 2;  // 字体高度 + 2px padding
+    if (title_h < 14) title_h = 14;
     
     lv_obj_t *bar = lv_obj_create(parent);
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, y);
-    lv_obj_set_size(bar, LCD_H_RES, 14);
+    lv_obj_set_size(bar, LCD_H_RES, title_h);
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -497,8 +505,8 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_t *lbl = lv_label_create(bar);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    // 标题为中文，使用统一中文字体（优先FreeType，回退内置）
-    lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+    // 标题为中文，使用统一中文字体（优先FreeType，回退内置），根据字体大小自适应
+    lv_obj_set_style_text_font(lbl, lv_font_cn_get(state->font_size), 0);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     
     return bar;

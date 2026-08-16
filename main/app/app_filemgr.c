@@ -42,14 +42,14 @@ static void filemgr_refresh_list(void)
     lv_obj_t *path_lbl = lv_label_create(s_filemgr_obj);
     lv_label_set_text(path_lbl, header);
     lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(path_lbl, lv_font_cn_14(), 0);
+    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(14), 0);
     lv_obj_set_style_text_align(path_lbl, LV_TEXT_ALIGN_LEFT, 0);
     lv_obj_set_pos(path_lbl, 4, 2);
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, "(空目录)");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
         return;
     }
@@ -62,7 +62,7 @@ static void filemgr_refresh_list(void)
         snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         int row_y = FILEMGR_ROW_H + 2 + (i - start) * FILEMGR_ROW_H;
         lv_obj_set_pos(lbl, 4, row_y);
         if (i == s_filemgr_sel) {

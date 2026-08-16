@@ -109,7 +109,7 @@ static void editor_refresh_pane_l(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[i]), 0);
         }
         lv_label_set_text(lbl, cat_buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -134,7 +134,7 @@ static void editor_refresh_pane_l(void)
         editor_get_block_display_name(s_editor_cat_sel, i,
             s_block_params[s_editor_cat_sel][i], block_buf, sizeof(block_buf));
         lv_label_set_text(lbl, block_buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -161,7 +161,7 @@ static void editor_refresh_pane_r(void)
                 lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
             }
             lv_label_set_text(lbl, menu_items[i]);
-            lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
             lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(lbl, 76);
         }
@@ -171,7 +171,7 @@ static void editor_refresh_pane_r(void)
         lv_obj_t *lbl = lv_label_create(s_editor_pane_r);
         lv_label_set_text(lbl, "空");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x5C4220), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
         return;
@@ -197,12 +197,12 @@ static void editor_refresh_pane_r(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[cat]), 0);
         }
         lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
 }
-
+ 
 static void editor_init(void *data)
 {
     ESP_LOGI(TAG, "Editor init");
