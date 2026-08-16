@@ -10,6 +10,7 @@
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
