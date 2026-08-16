@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-/* 蜂鸣器引脚定义在 drv_backlight.h 中：PIN_BUZZER = GPIO_NUM_25 */
+/* 蜂鸣器引脚定义在 drv_backlight.h 中：PIN_BUZZER = GPIO14 */
 
 #define BUZZER_TIMER     LEDC_TIMER_1  /* 使用独立定时器，避免与背光冲突 */
 #define BUZZER_CHANNEL   LEDC_CHANNEL_1

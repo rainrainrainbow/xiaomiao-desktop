@@ -12,7 +12,7 @@
 #define PIN_LCD_BL     GPIO_NUM_0      /* Backlight PWM */
 
 /* ========== 蜂鸣器引脚定义（LEDC PWM） ========== */
-#define PIN_BUZZER     GPIO_NUM_25     /* 蜂鸣器 PWM 引脚（ESP32-S3，未占用） */
+#define PIN_BUZZER     GPIO_NUM_14     /* 蜂鸣器 PWM 引脚 */
 
 #define LEDC_TIMER          LEDC_TIMER_0
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
