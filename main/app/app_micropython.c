@@ -241,6 +241,9 @@ static uint32_t app_simple_hash(const char *data, int len)
     return hash;
 }
 
+/* 解析 app.json 中的字符串值（前置声明，供 app_verify_signature 使用） */
+static char* json_get_string(const char *json, const char *key, char *buf, int buf_size);
+
 /*
  * 验证应用签名。
  * 
