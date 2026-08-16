@@ -1335,7 +1335,7 @@ static bool music_on_key(int key) {
 #include <unistd.h>
 
 #define FILEMGR_MAX_ENTRIES 20
-#define FILEMGR_PATH_LEN   512
+#define FILEMGR_PATH_LEN   1024
 
 static lv_obj_t *s_filemgr_obj = NULL;
 static int s_filemgr_sel = 0;
