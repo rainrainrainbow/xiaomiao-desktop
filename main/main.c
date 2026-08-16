@@ -699,7 +699,7 @@ void app_main(void)
     // 加载保存的设置
     ui_state_t *state = ui_state_get();
     sys_nvs_load_settings(&state->brightness, &state->volume, &state->sound_on, 
-                      (int*)&state->theme, &state->wifi_on, &state->layout);
+                      (int*)&state->theme, &state->wifi_on, &state->layout, &state->font_size);
     
     // 应用设置
     drv_backlight_set_brightness(state->brightness);

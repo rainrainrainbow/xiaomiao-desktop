@@ -16,6 +16,7 @@
 #define NVS_KEY_THEME       "theme"
 #define NVS_KEY_WIFI        "wifi"
 #define NVS_KEY_LAYOUT      "layout"
+#define NVS_KEY_FONT_SIZE   "font_size"
 #define NVS_KEY_FIRST_RUN   "first_run"  // 首次运行标志
 
 /* ========== NVS存储接口 ========== */
@@ -34,9 +35,10 @@ int sys_nvs_init(void);
  * @param theme 主题 (0=Dark, 1=Light)
  * @param wifi_on WiFi开关
  * @param layout 布局 (0=4应用, 1=2应用)
+ * @param font_size 字体大小 (14/16/20/24)
  */
 void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme, 
-                           bool wifi_on, int layout);
+                           bool wifi_on, int layout, int font_size);
 
 /**
  * 从NVS加载设置
@@ -46,9 +48,10 @@ void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
  * @param theme 输出主题
  * @param wifi_on 输出WiFi开关
  * @param layout 输出布局
+ * @param font_size 输出字体大小
  * @return true成功加载，false使用默认值
  */
 bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *theme,
-                           bool *wifi_on, int *layout);
+                           bool *wifi_on, int *layout, int *font_size);
 
 #endif /* SYS_NVS_H */

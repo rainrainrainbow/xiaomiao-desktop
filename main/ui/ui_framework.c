@@ -76,6 +76,7 @@ static ui_state_t s_ui_state = {
     .sound_on = true,
     .wifi_on = true,
     .layout = 0,
+    .font_size = 14,
 };
 
 /* ========== v1 兼容辅助函数 ========== */

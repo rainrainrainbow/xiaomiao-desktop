@@ -37,7 +37,7 @@ int sys_nvs_init(void)
 
 /* ========== 保存设置到NVS ========== */
 void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
-                           bool wifi_on, int layout)
+                           bool wifi_on, int layout, int font_size)
 {
     nvs_set_i32(s_nvs_handle, NVS_KEY_BRIGHTNESS, brightness);
     nvs_set_i32(s_nvs_handle, NVS_KEY_VOLUME, volume);
@@ -45,15 +45,16 @@ void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
     nvs_set_i32(s_nvs_handle, NVS_KEY_THEME, theme);
     nvs_set_i32(s_nvs_handle, NVS_KEY_WIFI, wifi_on ? 1 : 0);
     nvs_set_i32(s_nvs_handle, NVS_KEY_LAYOUT, layout);
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, font_size);
     nvs_commit(s_nvs_handle);
     
-    ESP_LOGI(TAG, "Settings saved: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d",
-             brightness, volume, sound_on, theme, wifi_on, layout);
+    ESP_LOGI(TAG, "Settings saved: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d, font_size=%d",
+             brightness, volume, sound_on, theme, wifi_on, layout, font_size);
 }
 
 /* ========== 从NVS加载设置 ========== */
 bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *theme,
-                           bool *wifi_on, int *layout)
+                           bool *wifi_on, int *layout, int *font_size)
 {
     int32_t val;
     bool loaded = false;
@@ -77,10 +78,13 @@ bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *th
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_LAYOUT, &val) == ESP_OK) {
         *layout = val;
     }
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, &val) == ESP_OK) {
+        *font_size = val;
+    }
     
     if (loaded) {
-        ESP_LOGI(TAG, "Settings loaded: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d",
-                 *brightness, *volume, *sound_on, *theme, *wifi_on, *layout);
+        ESP_LOGI(TAG, "Settings loaded: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d, font_size=%d",
+                 *brightness, *volume, *sound_on, *theme, *wifi_on, *layout, *font_size);
     } else {
         ESP_LOGI(TAG, "No saved settings, using defaults");
     }

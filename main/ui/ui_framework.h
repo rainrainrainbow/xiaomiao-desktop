@@ -316,6 +316,7 @@ typedef struct {
     bool sound_on;              // 声音开关
     bool wifi_on;               // WiFi开关
     int layout;                 // 布局模式 (0=4应用, 1=2应用)
+    int font_size;              // 字体大小 (14/16/20/24)
 } ui_state_t;
 
 /**
