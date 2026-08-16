@@ -7,6 +7,7 @@
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "fonts/lv_freetype_font.h"
 
 static const char *TAG = "APP_SNAKE";
 

@@ -9,6 +9,7 @@
 #include "app_manager.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "fonts/lv_freetype_font.h"
 #include <string.h>
 
 static const char *TAG = "APP_LIST";
