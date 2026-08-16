@@ -18,6 +18,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+// FreeType 字体支持（统一中文字体入口）
+#include "fonts/lv_freetype_font.h"
 
 static const char *TAG = "APP_PY";
 
@@ -110,7 +112,7 @@ static void python_app_activate(void)
     if (!app_name) app_name = "Python";
     ui_titlebar_create(scr, 14, app_name);
 
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    // LV_FONT_DECLARE removed, using lv_font_cn_14()
 
     /* 查找当前应用的入口文件 */
     int py_count = 0;
@@ -132,7 +134,7 @@ static void python_app_activate(void)
         /* 显示测试结果 */
         lv_obj_t *lbl = lv_label_create(scr);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
 
         if (ret == 0) {
@@ -151,7 +153,7 @@ static void python_app_activate(void)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "未找到入口文件");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
         ui_dock_create(scr, 1, 0);
         return;
@@ -164,7 +166,7 @@ static void python_app_activate(void)
     /* 显示执行结果 */
     lv_obj_t *lbl = lv_label_create(scr);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
 
     if (ret == 0) {

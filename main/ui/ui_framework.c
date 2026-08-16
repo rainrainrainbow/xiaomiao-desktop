@@ -14,6 +14,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+// FreeType 字体支持（统一中文字体入口）
+#include "fonts/lv_freetype_font.h"
 
 static const char *TAG = "UI_FW";
 
@@ -493,9 +495,8 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_t *lbl = lv_label_create(bar);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    // 标题为中文，使用 CJK 字体
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    // 标题为中文，使用统一中文字体（优先FreeType，回退内置）
+    lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     
     return bar;

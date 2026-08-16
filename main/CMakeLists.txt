@@ -12,6 +12,7 @@ idf_component_register(
         "system/sys_nvs.c"
         "return_to_loader.c"
         "fonts/lv_font_xiaomiao_cn_14.c"
+        "fonts/lv_freetype_font.c"
         "../ion/display.c"
         "../ion/button.c"
         "../ion/battery.c"

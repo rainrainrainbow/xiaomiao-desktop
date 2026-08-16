@@ -14,6 +14,8 @@
 #include "poincare/runtime.h"
 #include "esp_system.h"
 #include <string.h>
+// FreeType 字体支持（统一中文字体入口）
+#include "fonts/lv_freetype_font.h"
 
 static const char *TAG = "APP_BUILTIN";
 
@@ -312,8 +314,8 @@ static void settings_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         // 设置项含中文，使用 CJK 字体
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[i] = lbl;
         settings_refresh_label(i);
@@ -483,8 +485,8 @@ static void about_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, lines[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
     }
 
@@ -568,8 +570,8 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, builtin_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
 
         // 类型标签
@@ -598,8 +600,8 @@ static void applist_init(void *data)
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, py_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
 
         // 安装状态标签
@@ -827,8 +829,8 @@ static void editor_refresh_pane_l(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[i]), 0);
         }
         lv_label_set_text(lbl, cat_buf);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -859,8 +861,8 @@ static void editor_refresh_pane_l(void)
         editor_get_block_display_name(s_editor_cat_sel, i, 
             s_block_params[s_editor_cat_sel][i], block_buf, sizeof(block_buf));
         lv_label_set_text(lbl, block_buf);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -891,8 +893,8 @@ static void editor_refresh_pane_r(void)
                 lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
             }
             lv_label_set_text(lbl, menu_items[i]);
-            LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-            lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+            // LV_FONT_DECLARE removed, using lv_font_cn_14()
+            lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
             lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
             lv_obj_set_width(lbl, 76);
         }
@@ -903,8 +905,8 @@ static void editor_refresh_pane_r(void)
         lv_obj_t *lbl = lv_label_create(s_editor_pane_r);
         lv_label_set_text(lbl, "空");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x5C4220), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
         return;
@@ -936,8 +938,8 @@ static void editor_refresh_pane_r(void)
             lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[cat]), 0);
         }
         lv_label_set_text(lbl, buf);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(lbl, 76);
     }
@@ -1288,8 +1290,8 @@ static void snake_init(void *data)
     lv_obj_t *lbl = lv_label_create(scr);
     lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    // LV_FONT_DECLARE removed, using lv_font_cn_14()
+    lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
@@ -1315,8 +1317,8 @@ static void music_init(void *data)
     lv_obj_t *lbl = lv_label_create(scr);
     lv_label_set_text(lbl, "敬请期待");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    // LV_FONT_DECLARE removed, using lv_font_cn_14()
+    lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
     lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 6);
 }
 
@@ -1350,45 +1352,46 @@ static void filemgr_refresh_list(void)
     if (!s_filemgr_obj) return;
     const theme_colors_t *colors = ui_theme_colors();
     lv_obj_clean(s_filemgr_obj);
-
-    // 计算可见行数
-    int vis_rows = (LCD_V_RES - 26 - DOCK_H) / 10;
+    // 行高：字体14px + 1px间距 = 15px，路径行额外+2px
+    #define FILEMGR_ROW_H 15
+    // 计算可用高度和可见行数（路径行占1行，文件行占剩余行）
+    int avail_h = LCD_V_RES - 26 - DOCK_H;
+    int vis_rows = (avail_h - FILEMGR_ROW_H - 2) / FILEMGR_ROW_H;
     if (vis_rows < 1) vis_rows = 1;
-
-    // 显示当前路径
+    // 显示当前路径（使用文字图标代替Emoji，避免字体不支持）
     char header[FILEMGR_PATH_LEN + 8];
-    snprintf(header, sizeof(header), "📁 %s", s_filemgr_current_path);
+    snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
     lv_obj_t *path_lbl = lv_label_create(s_filemgr_obj);
     lv_label_set_text(path_lbl, header);
     lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(path_lbl, &lv_font_xiaomiao_cn_14, 0);
+    lv_obj_set_style_text_font(path_lbl, lv_font_cn_14(), 0);
     lv_obj_set_style_text_align(path_lbl, LV_TEXT_ALIGN_LEFT, 0);
-
+    lv_obj_set_pos(path_lbl, 4, 2);
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, "(空目录)");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
         return;
     }
-
-    // 显示可见条目（带滚动）
+    // 显示可见条目（带滚动），使用绝对定位精确控制每行位置
     int start = s_filemgr_scroll;
     int end = start + vis_rows;
     if (end > s_filemgr_count) end = s_filemgr_count;
-
     for (int i = start; i < end; i++) {
         char buf[FILEMGR_PATH_LEN + 4];
-        const char *prefix = s_filemgr_is_dir[i] ? "📁 " : "📄 ";
+        // 使用文字图标代替Emoji：目录用[D] 文件用[F]
+        const char *prefix = s_filemgr_is_dir[i] ? "[D] " : "[F] ";
         snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
-
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, buf);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
-
+        // LV_FONT_DECLARE removed, using lv_font_cn_14()
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
+        // 绝对定位：路径行之后，每行FILEMGR_ROW_H像素
+        int row_y = FILEMGR_ROW_H + 2 + (i - start) * FILEMGR_ROW_H;
+        lv_obj_set_pos(lbl, 4, row_y);
         if (i == s_filemgr_sel) {
             lv_obj_set_style_bg_color(lbl, lv_color_hex(0x5C4220), 0);
             lv_obj_set_style_bg_opa(lbl, LV_OPA_COVER, 0);
@@ -1486,7 +1489,8 @@ static bool filemgr_on_key(int key)
 
     if (s_filemgr_count == 0) return true;
 
-    int vis_rows = (LCD_V_RES - 26 - DOCK_H) / 10;
+    int avail_h = LCD_V_RES - 26 - DOCK_H;
+    int vis_rows = (avail_h - FILEMGR_ROW_H - 2) / FILEMGR_ROW_H;
     if (vis_rows < 1) vis_rows = 1;
 
     if (key == KEY_UP) {

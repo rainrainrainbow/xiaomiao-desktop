@@ -57,6 +57,9 @@
 // 新架构：Ion SD 卡驱动（用于扫描 MicroPython 应用）
 #include "ion/sdcard.h"
 
+// FreeType 字体支持（从SD卡加载TrueType/OpenType字体，实现完整中文显示）
+#include "fonts/lv_freetype_font.h"
+
 static const char *TAG = "MAIN";
 
 /* ========== LCD驱动（保留在main.c，因为与LVGL紧密耦合） ========== */
@@ -377,12 +380,11 @@ static void desktop_page_init(void *data)
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
 
         // 名称标签（模拟器：font-size:7px, color:var(--black)）
-        // 应用名为中文，使用 CJK 14px 字体（LVGL 9.5 无更小 CJK 字体）
+        // 应用名为中文，使用统一中文字体（优先FreeType，回退内置）
         lv_obj_t *name = lv_label_create(cell);
         lv_label_set_text(name, app->name);
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(name, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_font(name, lv_font_cn_14(), 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
@@ -550,9 +552,8 @@ static void recents_page_init(void *data)
             snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app->name);
             lv_label_set_text(lbl, buf);
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-            // 应用名为中文，使用 CJK 字体
-            LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-            lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+            // 应用名为中文，使用统一中文字体
+            lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
         }
         s_recents_obj = list;
@@ -560,8 +561,7 @@ static void recents_page_init(void *data)
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "暂无最近任务");
         lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_14(), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
     }
 
@@ -654,8 +654,19 @@ static void ui_init_task(void *arg)
     if (ion_sdcard_init("/sdcard")) {
         int app_count = app_manager_scan_sdcard();
         ESP_LOGI(TAG, "SD card ready, found %d MicroPython apps", app_count);
+        
+        // SD卡就绪后，初始化 FreeType 字体引擎（从SD卡加载字体文件）
+        if (lv_freetype_font_init() == LV_RESULT_OK) {
+            ESP_LOGI(TAG, "FreeType font engine initialized from SD card");
+        } else {
+            ESP_LOGW(TAG, "FreeType font init failed, falling back to built-in fonts");
+        }
     } else {
         ESP_LOGW(TAG, "SD card not available (no card inserted?)");
+        // SD卡不可用时，尝试从其他路径加载字体
+        if (lv_freetype_font_init() == LV_RESULT_OK) {
+            ESP_LOGI(TAG, "FreeType font engine initialized (fallback path)");
+        }
     }
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
