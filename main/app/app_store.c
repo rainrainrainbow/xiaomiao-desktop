@@ -142,12 +142,12 @@ static void install_selected_app(void)
     mkdir(dest_dir, 0755);
     
     // 复制 app.json
-    char src[STORE_PATH_LEN], dst[STORE_PATH_LEN];
+    char src[STORE_PATH_LEN + 16], dst[STORE_PATH_LEN + 16];
     if (app->has_app_json) {
         snprintf(src, sizeof(src), "%s/app.json", app->path);
         snprintf(dst, sizeof(dst), "%s/app.json", dest_dir);
         // 使用文件复制（简化版：通过系统命令）
-        char cmd[STORE_PATH_LEN * 2];
+        char cmd[STORE_PATH_LEN * 2 + 32];
         snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
         system(cmd);
     }
@@ -156,7 +156,7 @@ static void install_selected_app(void)
     if (app->has_main_py) {
         snprintf(src, sizeof(src), "%s/main.py", app->path);
         snprintf(dst, sizeof(dst), "%s/main.py", dest_dir);
-        char cmd[STORE_PATH_LEN * 2];
+        char cmd[STORE_PATH_LEN * 2 + 32];
         snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
         system(cmd);
     }
