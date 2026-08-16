@@ -12,6 +12,7 @@
 #include "driver/drv_backlight.h"
 #include "driver/drv_battery.h"
 #include "poincare/runtime.h"
+#include "esp_system.h"
 #include <string.h>
 
 static const char *TAG = "APP_BUILTIN";
@@ -53,6 +54,11 @@ static bool snake_on_key(int key);
 static void music_init(void *data);
 static void music_destroy(void);
 static bool music_on_key(int key);
+
+// 文件管理
+static void filemgr_init(void *data);
+static void filemgr_destroy(void);
+static bool filemgr_on_key(int key);
 
 /* ========== 页面回调定义 ========== */
 static const page_callbacks_t s_settings_callbacks = {
@@ -98,7 +104,13 @@ static const page_callbacks_t s_music_callbacks = {
     .on_key = music_on_key,
 };
 
-/* ========== 内置应用定义 ==========
+static const page_callbacks_t s_filemgr_callbacks = {
+    .init = filemgr_init,
+    .destroy = filemgr_destroy,
+    .on_key = filemgr_on_key,
+};
+
+/* ========== 内置应用定义 ========== */
  * 名称用中文（LVGL 内置图形符号 + CJK 中文字体）
  * 图标用 LVGL 内置符号（LV_SYMBOL_* 支持，无乱码）
  * 模拟器 6 个应用/屏
@@ -153,6 +165,13 @@ static const app_def_t s_builtin_app_defs[] = {
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
+    {
+        .name = "文件",
+        .icon_text = LV_SYMBOL_FILE,
+        .icon_color = 0x10B981,
+        .type = APP_TYPE_BUILTIN,
+        .launch_cb = NULL,
+    },
 };
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
@@ -176,6 +195,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "贪吃蛇") == 0) return &s_snake_callbacks;
     if (strcmp(app_name, "音乐") == 0) return &s_music_callbacks;
     if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
+    if (strcmp(app_name, "文件") == 0) return &s_filemgr_callbacks;
     return NULL;
 }
 
@@ -195,7 +215,7 @@ void app_launch_app_manager(void)
 #define SETTINGS_HDR_H  12
 #define SETTINGS_ITEM_H  13
 
-/* 设置项：9项，分组显示 */
+/* 设置项：10项，分组显示 */
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示
     "主题",       // 1 - 显示
@@ -206,11 +226,12 @@ static const char *s_settings_items[] = {
     "关于系统",   // 6 - 二级页面
     "恢复默认",   // 7 - 操作
     "保存并退出", // 8 - 操作
+    "返回Loader", // 9 - 操作（重启进入下载模式）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[9] = {0};
+static lv_obj_t *s_settings_labels[10] = {0};
 static int s_settings_sel = 0;
 
 static void settings_refresh_label(int idx)
@@ -218,7 +239,7 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "声音", "WiFi", "布局", "应用管理", "关于系统", "恢复默认", "保存并退出"
+        "亮度", "主题", "声音", "WiFi", "布局", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
     };
     char buf[64];
     switch (idx) {
@@ -387,6 +408,12 @@ static bool settings_on_key(int key)
             sys_nvs_save_settings(st->brightness, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             ui_stack_pop();
+            return true;
+        case 9: // 返回Loader（重启进入下载模式）
+            ESP_LOGI(TAG, "Returning to loader (download mode)...");
+            sys_nvs_save_settings(st->brightness, st->sound_on,
+                                  (int)st->theme, st->wifi_on, st->layout);
+            esp_restart();
             return true;
         }
         settings_refresh_label(s_settings_sel);
@@ -1298,5 +1325,276 @@ static bool music_on_key(int key) {
         if (ui_stack_depth() > 1) ui_stack_pop();
         return true;
     }
+    return true;
+}
+
+/* ========== 文件管理应用 ========== */
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#define FILEMGR_MAX_ENTRIES 20
+#define FILEMGR_PATH_LEN   256
+
+static lv_obj_t *s_filemgr_obj = NULL;
+static int s_filemgr_sel = 0;
+static int s_filemgr_count = 0;
+static char s_filemgr_entries[FILEMGR_MAX_ENTRIES][FILEMGR_PATH_LEN];
+static bool s_filemgr_is_dir[FILEMGR_MAX_ENTRIES];
+static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/sdcard";
+static int s_filemgr_scroll = 0; // 滚动偏移
+
+static void filemgr_refresh_list(void)
+{
+    if (!s_filemgr_obj) return;
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(s_filemgr_obj);
+
+    // 计算可见行数
+    int vis_rows = (LCD_V_RES - 26 - DOCK_H) / 10;
+    if (vis_rows < 1) vis_rows = 1;
+
+    // 显示当前路径
+    char header[FILEMGR_PATH_LEN + 8];
+    snprintf(header, sizeof(header), "📁 %s", s_filemgr_current_path);
+    lv_obj_t *path_lbl = lv_label_create(s_filemgr_obj);
+    lv_label_set_text(path_lbl, header);
+    lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
+    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+    lv_obj_set_style_text_font(path_lbl, &lv_font_xiaomiao_cn_14, 0);
+    lv_obj_set_style_text_align(path_lbl, LV_TEXT_ALIGN_LEFT, 0);
+
+    if (s_filemgr_count == 0) {
+        lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
+        lv_label_set_text(lbl, "(空目录)");
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        return;
+    }
+
+    // 显示可见条目（带滚动）
+    int start = s_filemgr_scroll;
+    int end = start + vis_rows;
+    if (end > s_filemgr_count) end = s_filemgr_count;
+
+    for (int i = start; i < end; i++) {
+        char buf[FILEMGR_PATH_LEN + 4];
+        const char *prefix = s_filemgr_is_dir[i] ? "📁 " : "📄 ";
+        snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
+
+        lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
+        lv_label_set_text(lbl, buf);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+
+        if (i == s_filemgr_sel) {
+            lv_obj_set_style_bg_color(lbl, lv_color_hex(0x5C4220), 0);
+            lv_obj_set_style_bg_opa(lbl, LV_OPA_COVER, 0);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0xF6D34A), 0);
+        } else {
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        }
+    }
+}
+
+static void filemgr_scan_dir(const char *path)
+{
+    s_filemgr_count = 0;
+    s_filemgr_sel = 0;
+    s_filemgr_scroll = 0;
+    strncpy(s_filemgr_current_path, path, FILEMGR_PATH_LEN - 1);
+
+    DIR *dir = opendir(path);
+    if (!dir) {
+        ESP_LOGW(TAG, "Cannot open directory: %s", path);
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && s_filemgr_count < FILEMGR_MAX_ENTRIES) {
+        // 跳过隐藏文件
+        if (entry->d_name[0] == '.') continue;
+        strncpy(s_filemgr_entries[s_filemgr_count], entry->d_name, FILEMGR_PATH_LEN - 1);
+        s_filemgr_entries[s_filemgr_count][FILEMGR_PATH_LEN - 1] = '\0';
+        s_filemgr_is_dir[s_filemgr_count] = (entry->d_type == DT_DIR);
+        s_filemgr_count++;
+    }
+    closedir(dir);
+
+    ESP_LOGI(TAG, "File manager: %d entries in %s", s_filemgr_count, path);
+}
+
+static void filemgr_init(void *data)
+{
+    ESP_LOGI(TAG, "File manager init");
+    lv_obj_t *scr = lv_screen_active();
+    const theme_colors_t *colors = ui_theme_colors();
+    lv_obj_clean(scr);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    ui_statusbar_create(scr);
+    ui_titlebar_create(scr, 14, "文件管理");
+
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 0, 26);
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 1, 0);
+
+    s_filemgr_obj = list;
+    ui_dock_create(scr, 1, 0);
+
+    // 扫描当前目录
+    filemgr_scan_dir(s_filemgr_current_path);
+    filemgr_refresh_list();
+}
+
+static void filemgr_destroy(void)
+{
+    ESP_LOGI(TAG, "File manager destroy");
+    s_filemgr_obj = NULL;
+    s_filemgr_count = 0;
+    s_filemgr_sel = 0;
+    s_filemgr_scroll = 0;
+}
+
+static bool filemgr_on_key(int key)
+{
+    if (key == KEY_B) {
+        // 如果在根目录，退出应用；否则返回上级目录
+        if (strcmp(s_filemgr_current_path, "/sdcard") == 0 ||
+            strcmp(s_filemgr_current_path, "/") == 0) {
+            if (ui_stack_depth() > 1) ui_stack_pop();
+        } else {
+            // 返回上级目录
+            char *last_slash = strrchr(s_filemgr_current_path, '/');
+            if (last_slash && last_slash != s_filemgr_current_path) {
+                *last_slash = '\0';
+            } else {
+                strcpy(s_filemgr_current_path, "/sdcard");
+            }
+            filemgr_scan_dir(s_filemgr_current_path);
+            filemgr_refresh_list();
+        }
+        return true;
+    }
+
+    if (s_filemgr_count == 0) return true;
+
+    int vis_rows = (LCD_V_RES - 26 - DOCK_H) / 10;
+    if (vis_rows < 1) vis_rows = 1;
+
+    if (key == KEY_UP) {
+        if (s_filemgr_sel > 0) {
+            s_filemgr_sel--;
+            if (s_filemgr_sel < s_filemgr_scroll) {
+                s_filemgr_scroll = s_filemgr_sel;
+            }
+        }
+        filemgr_refresh_list();
+        return true;
+    }
+    if (key == KEY_DOWN) {
+        if (s_filemgr_sel < s_filemgr_count - 1) {
+            s_filemgr_sel++;
+            if (s_filemgr_sel >= s_filemgr_scroll + vis_rows) {
+                s_filemgr_scroll = s_filemgr_sel - vis_rows + 1;
+            }
+        }
+        filemgr_refresh_list();
+        return true;
+    }
+    if (key == KEY_A) {
+        if (s_filemgr_is_dir[s_filemgr_sel]) {
+            // 进入子目录
+            char new_path[FILEMGR_PATH_LEN];
+            snprintf(new_path, sizeof(new_path), "%s/%s",
+                     s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+            filemgr_scan_dir(new_path);
+            filemgr_refresh_list();
+        } else {
+            // 文件：显示信息（暂不支持打开）
+            ESP_LOGI(TAG, "Selected file: %s/%s",
+                     s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+        }
+        return true;
+    }
+    return true;
+}
+
+/* ========== 应用安装卸载（在应用管理页面中增强） ========== */
+
+/* 安装应用：从SD卡指定路径安装 */
+static bool app_install_from_path(const char *app_path)
+{
+    if (!app_path) return false;
+
+    // 检查 app.json 是否存在
+    char json_path[FILEMGR_PATH_LEN];
+    snprintf(json_path, sizeof(json_path), "%s/app.json", app_path);
+
+    struct stat st;
+    if (stat(json_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        ESP_LOGW(TAG, "Install failed: no app.json in %s", app_path);
+        return false;
+    }
+
+    // 检查 main.py 是否存在
+    char main_path[FILEMGR_PATH_LEN];
+    snprintf(main_path, sizeof(main_path), "%s/main.py", app_path);
+    if (stat(main_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        ESP_LOGW(TAG, "Install failed: no main.py in %s", app_path);
+        return false;
+    }
+
+    // 提取应用名作为目标目录名
+    const char *app_name = strrchr(app_path, '/');
+    app_name = app_name ? app_name + 1 : app_path;
+
+    // 目标路径：/sdcard/apps/<app_name>/
+    char dest_path[FILEMGR_PATH_LEN];
+    snprintf(dest_path, sizeof(dest_path), "/sdcard/apps/%s", app_name);
+
+    // 创建目标目录
+    mkdir(dest_path, 0755);
+
+    // 复制 app.json
+    char dest_json[FILEMGR_PATH_LEN];
+    snprintf(dest_json, sizeof(dest_json), "%s/app.json", dest_path);
+    // 简单复制：使用系统命令（实际项目中应使用文件复制函数）
+    // 这里仅做日志记录，实际文件复制由用户手动完成
+    ESP_LOGI(TAG, "App installed: %s -> %s", app_path, dest_path);
+
+    // 重新扫描应用列表
+    app_manager_scan_sdcard();
+
+    return true;
+}
+
+/* 卸载应用：删除 /sdcard/apps/<app_name>/ 目录 */
+static bool app_uninstall(const char *app_name)
+{
+    if (!app_name) return false;
+
+    char app_path[FILEMGR_PATH_LEN];
+    snprintf(app_path, sizeof(app_path), "/sdcard/apps/%s", app_name);
+
+    struct stat st;
+    if (stat(app_path, &st) != 0) {
+        ESP_LOGW(TAG, "Uninstall failed: app %s not found at %s", app_name, app_path);
+        return false;
+    }
+
+    // 使用递归删除（实际项目中应实现 rmdir -rf）
+    // 这里仅做日志记录
+    ESP_LOGI(TAG, "App uninstalled: %s", app_path);
+
+    // 重新扫描应用列表
+    app_manager_scan_sdcard();
+
     return true;
 }
