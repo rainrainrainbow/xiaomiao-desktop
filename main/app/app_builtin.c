@@ -111,6 +111,7 @@ static const page_callbacks_t s_filemgr_callbacks = {
 };
 
 /* ========== 内置应用定义 ========== */
+/*
  * 名称用中文（LVGL 内置图形符号 + CJK 中文字体）
  * 图标用 LVGL 内置符号（LV_SYMBOL_* 支持，无乱码）
  * 模拟器 6 个应用/屏
