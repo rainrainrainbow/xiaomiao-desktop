@@ -245,7 +245,7 @@ static void store_rebuild_visible(void)
         lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
         lv_obj_set_style_text_color(status_lbl, 
             lv_color_hex(app->installed ? 0x22C55E : 0x9CA3AF), 0);
-        lv_obj_align(status_lbl, LV_ALIGN_RIGHT, -2, 0);
+        lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
         lv_label_set_text(status_lbl, app->installed ? "已安装" : "未安装");
     }
     
