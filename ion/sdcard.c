@@ -54,28 +54,18 @@ bool ion_sdcard_init(const char *mount_point)
     /* 确保 SPI 互斥锁已初始化（LCD 可能在之前已初始化） */
     ion_spi_mutex_init();
 
-    /* 配置 SPI 总线
-     * 注意：如果 LCD 已经初始化了 SPI2，spi_bus_initialize 会返回 ESP_ERR_INVALID_STATE，
-     * 这表示总线已被 LCD 占用，SD 卡共享同一总线。
-     * 共享总线时，MISO 引脚由 LCD 的显示驱动配置，
-     * 此处忽略 MISO 的重配置。 */
-    spi_bus_config_t bus_cfg = {
-        .mosi_io_num = SD_PIN_MOSI,
-        .miso_io_num = SD_PIN_MISO,
-        .sclk_io_num = SD_PIN_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = 4000,
-    };
+    /* 注意：SD 卡与 LCD 共享 SPI2 总线。
+     * LCD 在 main.c 的 lcd_init() 中已经初始化了 SPI2 总线，
+     * 因此此处不再调用 spi_bus_initialize()，避免 "SPI bus already initialized" 错误。
+     * 如果 LCD 尚未初始化（例如先调用本函数），则需初始化 SPI2。
+     * 共享总线时，MISO/MOSI/SCLK 引脚由 LCD 的显示驱动配置，
+     * SD 卡使用不同的 CS 引脚（GPIO22），通过 sdspi_device_config_t 指定。 */
 
-    esp_err_t ret = spi_bus_initialize(SD_SPI_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        /* ESP_ERR_INVALID_STATE 表示总线已初始化（被 LCD 使用），可以接受 */
-        ESP_LOGE(TAG, "Failed to initialize SPI bus: %d", ret);
-        return false;
-    }
-
-    /* 配置 SD 卡 SPI 接口 */
+    /* 配置 SD 卡 SPI 接口（使用默认的 SDSPI 主机配置） */
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+    /* SDSPI_HOST_DEFAULT 使用 SPI2_HOST，与 LCD 共享总线 */
+    host.slot = SD_SPI_HOST;
+    
     sdspi_device_config_t slot_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_cfg.gpio_cs = SD_PIN_CS;
     slot_cfg.host_id = SD_SPI_HOST;
@@ -90,7 +80,7 @@ bool ion_sdcard_init(const char *mount_point)
     /* 挂载 SD 卡
      * 挂载过程涉及 SPI 总线通信，获取互斥锁保护 */
     ion_spi_mutex_lock(5000);
-    ret = esp_vfs_fat_sdspi_mount(s_mount_point, &bus_cfg, &slot_cfg, &mount_cfg, &s_card);
+    esp_err_t ret = esp_vfs_fat_sdspi_mount(s_mount_point, &host, &slot_cfg, &mount_cfg, &s_card);
     ion_spi_mutex_unlock();
     if (ret != ESP_OK) {
         if (ret == ESP_ERR_NOT_FOUND) {
