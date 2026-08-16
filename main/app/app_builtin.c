@@ -1513,8 +1513,11 @@ static bool filemgr_on_key(int key)
         if (s_filemgr_is_dir[s_filemgr_sel]) {
             // 进入子目录
             char new_path[FILEMGR_PATH_LEN];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
             snprintf(new_path, sizeof(new_path), "%s/%s",
                      s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+#pragma GCC diagnostic pop
             filemgr_scan_dir(new_path);
             filemgr_refresh_list();
         } else {
