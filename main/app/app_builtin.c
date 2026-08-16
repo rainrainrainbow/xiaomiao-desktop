@@ -84,6 +84,13 @@ static const app_def_t s_builtin_app_defs[] = {
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
+    {
+        .name = "MID播放",
+        .icon_text = LV_SYMBOL_AUDIO,
+        .icon_color = 0xF59E0B,
+        .type = APP_TYPE_BUILTIN,
+        .launch_cb = NULL,
+    },
 };
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
