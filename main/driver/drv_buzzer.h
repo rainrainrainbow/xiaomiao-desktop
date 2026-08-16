@@ -12,13 +12,13 @@
 #include <stdint.h>
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "driver/drv_backlight.h"  /* 引脚定义：PIN_BUZZER */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ========== 蜂鸣器引脚定义 ========== */
-#define PIN_BUZZER       GPIO_NUM_25   /* 蜂鸣器 PWM 引脚（ESP32-S3，未占用） */
+/* 蜂鸣器引脚定义在 drv_backlight.h 中：PIN_BUZZER = GPIO_NUM_25 */
 
 #define BUZZER_TIMER     LEDC_TIMER_1  /* 使用独立定时器，避免与背光冲突 */
 #define BUZZER_CHANNEL   LEDC_CHANNEL_1
