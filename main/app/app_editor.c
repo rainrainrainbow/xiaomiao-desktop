@@ -108,7 +108,6 @@ static void editor_generate_code(char *buf, int buf_size)
         int cat = idx / BLOCKS_PER_CAT;
         int blk = idx % BLOCKS_PER_CAT;
         int param = s_editor_prog_blocks[i].param_val;
-        const char *name = s_block_names[cat][blk];
         int remaining = buf_size - pos - 1;
         if (remaining <= 0) break;
         
@@ -160,7 +159,7 @@ static void editor_generate_code(char *buf, int buf_size)
             } else if (blk == 2) {  // 乘
                 pos += snprintf(buf + pos, remaining, "print(2*3)\n");
             } else {  // 取余
-                pos += snprintf(buf + pos, remaining, "print(7%2)\n");
+                pos += snprintf(buf + pos, remaining, "print(7%%2)\n");
             }
         } else if (cat == 5) {  // 变量
             if (blk == 0) {  // 设变量
@@ -198,7 +197,7 @@ static void editor_run_program(void)
     if (s_editor_run_mode) {
         // 停止运行
         s_editor_run_mode = 0;
-        ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
+        ui_statusbar_set_title("积木编辑器");
         return;
     }
     
@@ -209,7 +208,7 @@ static void editor_run_program(void)
     ESP_LOGI(TAG, "Running program:\n%s", code);
     
     s_editor_run_mode = 1;
-    ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "运行中...");
+    ui_statusbar_set_title("运行中...");
     
     // 执行MicroPython代码
     int ret = app_micropython_exec(code, "<blockly>");
@@ -218,7 +217,7 @@ static void editor_run_program(void)
     }
     
     s_editor_run_mode = 0;
-    ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
+    ui_statusbar_set_title("积木编辑器");
 }
 
 static void editor_refresh_pane_l(void)
@@ -287,7 +286,7 @@ static void editor_refresh_pane_r(void)
     if (font_px > 24) font_px = 24;
     int row_h = font_px + 2;
     if (s_editor_prog_mode == 1) {
-        const char *menu_items[] = {"删除", "上移", "下移", "取消"};
+        const char *menu_items[] = {"运行", "删除", "上移", "下移"};
         int menu_count = sizeof(menu_items) / sizeof(menu_items[0]);
         for (int i = 0; i < menu_count; i++) {
             lv_obj_t *row = lv_obj_create(s_editor_pane_r);
@@ -354,7 +353,7 @@ static void editor_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, ui_titlebar_y(), "积木编辑器");
+    ui_statusbar_set_title("积木编辑器");
     lv_obj_t *split = lv_obj_create(scr);
     lv_obj_remove_style_all(split);
     lv_obj_set_pos(split, 0, ui_content_y());
@@ -412,7 +411,7 @@ static bool editor_on_key(int key)
             if (s_editor_param_val > s_editor_param_max) s_editor_param_val = s_editor_param_max;
             char title[32];
             snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
+            ui_statusbar_set_title(title);
             return true;
         }
         if (key == KEY_DOWN) {
@@ -420,7 +419,7 @@ static bool editor_on_key(int key)
             if (s_editor_param_val < s_editor_param_min) s_editor_param_val = s_editor_param_min;
             char title[32];
             snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
+            ui_statusbar_set_title(title);
             return true;
         }
         if (key == KEY_A) {
@@ -428,13 +427,13 @@ static bool editor_on_key(int key)
                 s_editor_prog_blocks[s_editor_prog_sel].param_val = s_editor_param_val;
             }
             s_editor_param_mode = 0;
-            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
+            ui_statusbar_set_title("积木编辑器");
             editor_refresh_pane_r();
             return true;
         }
         if (key == KEY_B) {
             s_editor_param_mode = 0;
-            ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
+            ui_statusbar_set_title("积木编辑器");
             editor_refresh_pane_r();
             return true;
         }
@@ -446,18 +445,20 @@ static bool editor_on_key(int key)
         if (key == KEY_A) {
             int sel = s_editor_prog_menu_sel;
             s_editor_prog_mode = 0;
-            if (sel == 0 && s_editor_prog_count > 0 && s_editor_prog_sel < s_editor_prog_count) {
+            if (sel == 0) {  // 运行
+                editor_run_program();
+            } else if (sel == 1 && s_editor_prog_count > 0 && s_editor_prog_sel < s_editor_prog_count) {  // 删除
                 for (int i = s_editor_prog_sel; i < s_editor_prog_count - 1; i++)
                     s_editor_prog_blocks[i] = s_editor_prog_blocks[i + 1];
                 s_editor_prog_count--;
                 if (s_editor_prog_sel >= s_editor_prog_count && s_editor_prog_count > 0)
                     s_editor_prog_sel = s_editor_prog_count - 1;
-            } else if (sel == 1 && s_editor_prog_count > 1 && s_editor_prog_sel > 0) {
+            } else if (sel == 2 && s_editor_prog_count > 1 && s_editor_prog_sel > 0) {  // 上移
                 prog_block_t tmp = s_editor_prog_blocks[s_editor_prog_sel];
                 s_editor_prog_blocks[s_editor_prog_sel] = s_editor_prog_blocks[s_editor_prog_sel - 1];
                 s_editor_prog_blocks[s_editor_prog_sel - 1] = tmp;
                 s_editor_prog_sel--;
-            } else if (sel == 2 && s_editor_prog_count > 1 && s_editor_prog_sel < s_editor_prog_count - 1) {
+            } else if (sel == 3 && s_editor_prog_count > 1 && s_editor_prog_sel < s_editor_prog_count - 1) {  // 下移
                 prog_block_t tmp = s_editor_prog_blocks[s_editor_prog_sel];
                 s_editor_prog_blocks[s_editor_prog_sel] = s_editor_prog_blocks[s_editor_prog_sel + 1];
                 s_editor_prog_blocks[s_editor_prog_sel + 1] = tmp;
@@ -527,7 +528,7 @@ static bool editor_on_key(int key)
                     { s_editor_param_min = 0; s_editor_param_max = 100; }
                 char title[32];
                 snprintf(title, sizeof(title), "参数: %d", s_editor_param_val);
-                ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), title);
+                ui_statusbar_set_title(title);
             }
             return true;
         }

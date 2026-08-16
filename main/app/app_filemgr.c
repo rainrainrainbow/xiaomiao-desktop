@@ -3,6 +3,7 @@
  * @brief 文件管理应用
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_filemgr_callbacks。
+ * 功能：浏览目录、打开文本文件、播放MID文件。
  */
 #include "app_builtin.h"
 #include "app_manager.h"
@@ -11,6 +12,7 @@
 #include "fonts/lv_freetype_font.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -29,6 +31,152 @@ static char s_filemgr_entries[FILEMGR_MAX_ENTRIES][FILEMGR_PATH_LEN];
 static bool s_filemgr_is_dir[FILEMGR_MAX_ENTRIES];
 static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/sdcard";
 static int s_filemgr_scroll = 0;
+
+/* ========== 文本查看器状态 ========== */
+#define TXT_MAX_LINES   64
+#define TXT_LINE_LEN    80
+static lv_obj_t *s_txt_obj = NULL;
+static char s_txt_lines[TXT_MAX_LINES][TXT_LINE_LEN];
+static int s_txt_line_count = 0;
+static int s_txt_scroll = 0;
+static int s_txt_viewer_active = 0;
+
+/* ========== 文本查看器 ========== */
+
+static void txt_viewer_open(const char *path)
+{
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        ESP_LOGE(TAG, "Cannot open text file: %s", path);
+        return;
+    }
+    s_txt_line_count = 0;
+    s_txt_scroll = 0;
+    char line[TXT_LINE_LEN];
+    while (s_txt_line_count < TXT_MAX_LINES &&
+           fgets(line, sizeof(line), fp)) {
+        /* 去掉换行符 */
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+            line[--len] = '\0';
+        }
+        strncpy(s_txt_lines[s_txt_line_count], line, TXT_LINE_LEN - 1);
+        s_txt_lines[s_txt_line_count][TXT_LINE_LEN - 1] = '\0';
+        s_txt_line_count++;
+    }
+    fclose(fp);
+    s_txt_viewer_active = 1;
+    ESP_LOGI(TAG, "Text viewer: %d lines from %s", s_txt_line_count, path);
+}
+
+static void txt_viewer_refresh(void)
+{
+    if (!s_txt_obj) return;
+    const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
+    lv_obj_clean(s_txt_obj);
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    int row_h = font_px + 1;
+    int avail_h = LCD_V_RES - ui_content_y() - DOCK_H;
+    int vis_rows = (avail_h - row_h - 2) / row_h;
+    if (vis_rows < 1) vis_rows = 1;
+    int start = s_txt_scroll;
+    int end = start + vis_rows;
+    if (end > s_txt_line_count) end = s_txt_line_count;
+    for (int i = start; i < end; i++) {
+        lv_obj_t *lbl = lv_label_create(s_txt_obj);
+        lv_label_set_text(lbl, s_txt_lines[i]);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+        int row_y = row_h + 2 + (i - start) * row_h;
+        lv_obj_set_pos(lbl, 4, row_y);
+    }
+}
+
+static void txt_viewer_close(void)
+{
+    s_txt_viewer_active = 0;
+    s_txt_line_count = 0;
+    s_txt_scroll = 0;
+    s_txt_obj = NULL;
+}
+
+/* ========== 文件打开处理 ========== */
+
+/* 判断是否为文本文件扩展名 */
+static bool file_is_text(const char *name)
+{
+    const char *ext = strrchr(name, '.');
+    if (!ext) return false;
+    if (strcasecmp(ext, ".txt") == 0) return true;
+    if (strcasecmp(ext, ".py") == 0) return true;
+    if (strcasecmp(ext, ".c") == 0) return true;
+    if (strcasecmp(ext, ".h") == 0) return true;
+    if (strcasecmp(ext, ".cpp") == 0) return true;
+    if (strcasecmp(ext, ".json") == 0) return true;
+    if (strcasecmp(ext, ".md") == 0) return true;
+    if (strcasecmp(ext, ".ini") == 0) return true;
+    if (strcasecmp(ext, ".cfg") == 0) return true;
+    if (strcasecmp(ext, ".log") == 0) return true;
+    if (strcasecmp(ext, ".csv") == 0) return true;
+    if (strcasecmp(ext, ".xml") == 0) return true;
+    if (strcasecmp(ext, ".html") == 0) return true;
+    if (strcasecmp(ext, ".conf") == 0) return true;
+    return false;
+}
+
+/* 判断是否为MIDI文件 */
+static bool file_is_mid(const char *name)
+{
+    const char *ext = strrchr(name, '.');
+    if (!ext) return false;
+    if (strcasecmp(ext, ".mid") == 0) return true;
+    if (strcasecmp(ext, ".midi") == 0) return true;
+    return false;
+}
+
+/* 判断是否为音频文件 */
+static bool file_is_audio(const char *name)
+{
+    const char *ext = strrchr(name, '.');
+    if (!ext) return false;
+    if (strcasecmp(ext, ".wav") == 0) return true;
+    if (strcasecmp(ext, ".mp3") == 0) return true;
+    if (strcasecmp(ext, ".ogg") == 0) return true;
+    if (strcasecmp(ext, ".flac") == 0) return true;
+    return false;
+}
+
+/* 打开文件（根据类型分发） */
+static void filemgr_open_file(const char *path, const char *name)
+{
+    if (file_is_mid(name)) {
+        /* 通过 stash 传递文件路径到 MID 播放器 */
+        page_stash_t stash;
+        size_t path_len = strlen(path);
+        stash.valid = true;
+        stash.size = (path_len + 1 > PAGE_STASH_SIZE) ? PAGE_STASH_SIZE : path_len + 1;
+        memcpy(stash.data, path, stash.size - 1);
+        stash.data[stash.size - 1] = '\0';
+        ui_stash_set(&stash);
+        ui_stack_push(PAGE_APP_PLACEHOLDER, &g_midplayer_callbacks, NULL);
+        ESP_LOGI(TAG, "Opened MID file: %s", path);
+    } else if (file_is_text(name)) {
+        /* 打开文本查看器 */
+        txt_viewer_open(path);
+        txt_viewer_refresh();
+        ESP_LOGI(TAG, "Opened text file: %s", path);
+    } else if (file_is_audio(name)) {
+        ESP_LOGW(TAG, "Audio file not supported yet: %s", path);
+        /* 状态栏显示提示 */
+        ui_statusbar_set_title("音频暂不支持");
+    } else {
+        ESP_LOGW(TAG, "Unknown file type: %s", name);
+        ui_statusbar_set_title("不支持的文件");
+    }
+}
 
 static void filemgr_refresh_list(void)
 {
@@ -110,7 +258,7 @@ static void filemgr_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, ui_titlebar_y(), "文件管理");
+    ui_statusbar_set_title("文件管理");
     
     /* 根据字体大小动态计算行高 */
     int font_px = st->font_size;
@@ -126,6 +274,7 @@ static void filemgr_init(void *data)
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 1, 0);
     s_filemgr_obj = list;
+    s_txt_obj = list;  /* 文本查看器复用同一内容区 */
     ui_dock_create(scr, 1, 0);
     filemgr_scan_dir(s_filemgr_current_path);
     filemgr_refresh_list();
@@ -135,13 +284,43 @@ static void filemgr_destroy(void)
 {
     ESP_LOGI(TAG, "File manager destroy");
     s_filemgr_obj = NULL;
+    s_txt_obj = NULL;
     s_filemgr_count = 0;
     s_filemgr_sel = 0;
     s_filemgr_scroll = 0;
+    txt_viewer_close();
 }
 
 static bool filemgr_on_key(int key)
 {
+    /* 文本查看器模式 */
+    if (s_txt_viewer_active) {
+        if (key == KEY_B) {
+            txt_viewer_close();
+            s_txt_obj = s_filemgr_obj;
+            filemgr_refresh_list();
+            return true;
+        }
+        if (key == KEY_UP) {
+            if (s_txt_scroll > 0) s_txt_scroll--;
+            txt_viewer_refresh();
+            return true;
+        }
+        if (key == KEY_DOWN) {
+            int avail_h = LCD_V_RES - ui_content_y() - DOCK_H;
+            int font_px = ui_state_get()->font_size;
+            if (font_px < 14) font_px = 14;
+            if (font_px > 24) font_px = 24;
+            int row_h = font_px + 1;
+            int vis_rows = (avail_h - row_h - 2) / row_h;
+            if (vis_rows < 1) vis_rows = 1;
+            if (s_txt_scroll + vis_rows < s_txt_line_count) s_txt_scroll++;
+            txt_viewer_refresh();
+            return true;
+        }
+        return true;
+    }
+
     if (key == KEY_B) {
         if (strcmp(s_filemgr_current_path, "/sdcard") == 0 ||
             strcmp(s_filemgr_current_path, "/") == 0) {
@@ -190,8 +369,14 @@ static bool filemgr_on_key(int key)
             filemgr_scan_dir(new_path);
             filemgr_refresh_list();
         } else {
-            ESP_LOGI(TAG, "Selected file: %s/%s",
+            /* 打开文件 */
+            char file_path[FILEMGR_PATH_LEN];
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+            snprintf(file_path, sizeof(file_path), "%s/%s",
                      s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+#pragma GCC diagnostic pop
+            filemgr_open_file(file_path, s_filemgr_entries[s_filemgr_sel]);
         }
         return true;
     }

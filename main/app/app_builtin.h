@@ -59,4 +59,9 @@ extern const page_callbacks_t g_music_callbacks;
  */
 extern const page_callbacks_t g_filemgr_callbacks;
 
+/**
+ * MID蜂鸣器播放器页面回调
+ */
+extern const page_callbacks_t g_midplayer_callbacks;
+
 #endif /* APP_BUILTIN_H */

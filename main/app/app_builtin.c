@@ -108,6 +108,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "音乐") == 0) return &g_music_callbacks;
     if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
     if (strcmp(app_name, "文件") == 0) return &g_filemgr_callbacks;
+    if (strcmp(app_name, "MID播放") == 0) return &g_midplayer_callbacks;
     return NULL;
 }
 

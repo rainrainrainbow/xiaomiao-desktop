@@ -47,6 +47,7 @@
 #include "driver/drv_button.h"
 #include "driver/drv_battery.h"
 #include "driver/drv_backlight.h"
+#include "driver/drv_buzzer.h"
 
 // 系统服务
 #include "system/sys_nvs.h"
@@ -545,8 +546,7 @@ static void recents_page_init(void *data)
 
     // 状态栏
     ui_statusbar_create(scr);
-    // 标题栏（中文，CJK 字体）— Y坐标根据字体自适应
-    ui_titlebar_create(scr, ui_titlebar_y(), "最近任务");
+    ui_statusbar_set_title("最近任务");
 
     int rec_count = 0;
     app_manager_get_recents(&rec_count);
@@ -716,6 +716,7 @@ void app_main(void)
     drv_button_init();
     drv_backlight_init();
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
+    drv_buzzer_init();   // 初始化蜂鸣器（GPIO25，LEDC PWM）
     
     // 启动按键任务（独立任务，5ms扫描周期）
     xTaskCreate(drv_button_task, "btn_task", 2048, NULL, 10, NULL);
