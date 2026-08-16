@@ -189,6 +189,21 @@ jobs:
 
           # Resolve and build
           idf.py reconfigure
+          # Patch LVGL's esp.cmake after reconfigure (managed_components are downloaded)
+          LVGL_ESP_CMAKE="managed_components/lvgl__lvgl/env_support/cmake/esp.cmake"
+          if [ -f "$LVGL_ESP_CMAKE" ]; then
+            echo "Patching $LVGL_ESP_CMAKE to add freetype to PRIV_REQUIRES..."
+            sed -i 's/PRIV_REQUIRES ${IDF_COMPONENTS}/PRIV_REQUIRES ${IDF_COMPONENTS} freetype/' "$LVGL_ESP_CMAKE"
+            echo "Patched successfully. Changed line:"
+            grep "PRIV_REQUIRES" "$LVGL_ESP_CMAKE"
+            # Re-run reconfigure to pick up the patched CMake file
+            echo "Re-running idf.py reconfigure to apply patch..."
+            idf.py reconfigure
+          else
+            echo "WARNING: $LVGL_ESP_CMAKE not found after reconfigure!"
+            echo "Contents of managed_components:"
+            find managed_components -name "esp.cmake" 2>/dev/null || echo "  (no esp.cmake found)"
+          fi
           idf.py build -DCMAKE_C_FLAGS="$EXTRA_CFLAGS $CMAKE_C_FLAGS"
 
           # Generate merged binary for ota_0 partition
