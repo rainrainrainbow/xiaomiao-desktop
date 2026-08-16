@@ -4,8 +4,11 @@
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_editor_callbacks。
  * 参考 LiClock 的 App 架构设计，每个 App 独立文件。
+ * 功能：编辑积木序列，支持事件/运动/外观/控制/运算/变量/声音分类，
+ *       可将积木序列转换为MicroPython代码并执行。
  */
 #include "app_builtin.h"
+#include "app_micropython.h"
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
@@ -15,32 +18,34 @@
 static const char *TAG = "APP_EDITOR";
 
 /* ========== 积木数据 ========== */
-#define BLOCK_CAT_COUNT 5
+#define BLOCK_CAT_COUNT 7
 static const char *s_block_cats[BLOCK_CAT_COUNT] = {
-    "运动", "外观", "控制", "运算", "变量"
+    "事件", "运动", "外观", "控制", "运算", "变量", "声音"
 };
 
 #define BLOCKS_PER_CAT 4
 static const char *s_block_names[BLOCK_CAT_COUNT][BLOCKS_PER_CAT] = {
+    {"当启动时", "当按键按下", "当收到消息", "重复执行"},
     {"移动10", "转向15", "移到随机", "滑行1秒"},
     {"说你好", "显示", "隐藏", "切换造型"},
     {"等待1秒", "重复10次", "如果那么", "停止"},
     {"加", "减", "乘", "取余"},
     {"设变量", "变量+1", "显示变量", "清空变量"},
+    {"播放音效", "播放旋律", "静音", "音量50"},
 };
 
 static const int s_block_params[BLOCK_CAT_COUNT][BLOCKS_PER_CAT] = {
-    {10, 15, -1, 1}, {-1, -1, -1, -1}, {1, 10, -1, -1},
-    {-1, -1, -1, -1}, {-1, -1, -1, -1},
+    {-1, -1, -1, -1}, {10, 15, -1, 1}, {-1, -1, -1, -1}, {1, 10, -1, -1},
+    {-1, -1, -1, -1}, {-1, -1, -1, -1}, {-1, -1, -1, 50},
 };
 
 static const bool s_block_has_param[BLOCK_CAT_COUNT][BLOCKS_PER_CAT] = {
-    {true, true, false, true}, {false, false, false, false},
+    {false, false, false, false}, {true, true, false, true}, {false, false, false, false},
     {true, true, false, false}, {false, false, false, false},
-    {false, false, false, false},
+    {false, false, false, false}, {false, false, false, true},
 };
 
-#define MAX_PROG_BLOCKS 12
+#define MAX_PROG_BLOCKS 16
 
 typedef struct {
     int block_idx;
@@ -62,9 +67,10 @@ static int s_editor_param_mode = 0;
 static int s_editor_param_val = 0;
 static int s_editor_param_min = 0;
 static int s_editor_param_max = 0;
+static int s_editor_run_mode = 0;   // 1=运行中
 
 static uint32_t s_cat_colors[BLOCK_CAT_COUNT] = {
-    0x22C55E, 0x3B82F6, 0xE64B3C, 0xF59E0B, 0x8B5CF6,
+    0xE64B3C, 0x22C55E, 0x3B82F6, 0xE64B3C, 0xF59E0B, 0x8B5CF6, 0x06B6D4,
 };
 
 static void editor_get_block_display_name(int cat, int blk, int param, char *buf, int buf_size)
@@ -87,6 +93,132 @@ static void editor_get_block_display_name(int cat, int blk, int param, char *buf
     } else {
         snprintf(buf, buf_size, "%s", name);
     }
+}
+
+/* ========== 生成MicroPython代码 ========== */
+
+/** 将积木序列转换为MicroPython代码 */
+static void editor_generate_code(char *buf, int buf_size)
+{
+    int pos = 0;
+    buf[0] = '\0';
+    
+    for (int i = 0; i < s_editor_prog_count; i++) {
+        int idx = s_editor_prog_blocks[i].block_idx;
+        int cat = idx / BLOCKS_PER_CAT;
+        int blk = idx % BLOCKS_PER_CAT;
+        int param = s_editor_prog_blocks[i].param_val;
+        const char *name = s_block_names[cat][blk];
+        int remaining = buf_size - pos - 1;
+        if (remaining <= 0) break;
+        
+        if (cat == 0) {  // 事件
+            if (blk == 0) {  // 当启动时
+                pos += snprintf(buf + pos, remaining, "print('启动')\n");
+            } else if (blk == 1) {  // 当按键按下
+                pos += snprintf(buf + pos, remaining, "print('按键')\n");
+            } else if (blk == 2) {  // 当收到消息
+                pos += snprintf(buf + pos, remaining, "print('消息')\n");
+            } else {  // 重复执行
+                pos += snprintf(buf + pos, remaining, "while True:\n");
+            }
+        } else if (cat == 1) {  // 运动
+            if (blk == 0) {  // 移动
+                pos += snprintf(buf + pos, remaining, "print('移动%d')\n", param);
+            } else if (blk == 1) {  // 转向
+                pos += snprintf(buf + pos, remaining, "print('转向%d')\n", param);
+            } else if (blk == 2) {  // 移到随机
+                pos += snprintf(buf + pos, remaining, "print('随机位置')\n");
+            } else {  // 滑行
+                pos += snprintf(buf + pos, remaining, "print('滑行%d秒')\n", param);
+            }
+        } else if (cat == 2) {  // 外观
+            if (blk == 0) {  // 说
+                pos += snprintf(buf + pos, remaining, "print('你好')\n");
+            } else if (blk == 1) {  // 显示
+                pos += snprintf(buf + pos, remaining, "print('显示')\n");
+            } else if (blk == 2) {  // 隐藏
+                pos += snprintf(buf + pos, remaining, "print('隐藏')\n");
+            } else {  // 切换造型
+                pos += snprintf(buf + pos, remaining, "print('切换造型')\n");
+            }
+        } else if (cat == 3) {  // 控制
+            if (blk == 0) {  // 等待
+                pos += snprintf(buf + pos, remaining, "import time\ntime.sleep(%d)\n", param);
+            } else if (blk == 1) {  // 重复
+                pos += snprintf(buf + pos, remaining, "for _ in range(%d):\n", param);
+            } else if (blk == 2) {  // 如果那么
+                pos += snprintf(buf + pos, remaining, "if True:\n");
+            } else {  // 停止
+                pos += snprintf(buf + pos, remaining, "break\n");
+            }
+        } else if (cat == 4) {  // 运算
+            if (blk == 0) {  // 加
+                pos += snprintf(buf + pos, remaining, "print(1+1)\n");
+            } else if (blk == 1) {  // 减
+                pos += snprintf(buf + pos, remaining, "print(2-1)\n");
+            } else if (blk == 2) {  // 乘
+                pos += snprintf(buf + pos, remaining, "print(2*3)\n");
+            } else {  // 取余
+                pos += snprintf(buf + pos, remaining, "print(7%2)\n");
+            }
+        } else if (cat == 5) {  // 变量
+            if (blk == 0) {  // 设变量
+                pos += snprintf(buf + pos, remaining, "x = 0\n");
+            } else if (blk == 1) {  // 变量+1
+                pos += snprintf(buf + pos, remaining, "x = x + 1\nprint(x)\n");
+            } else if (blk == 2) {  // 显示变量
+                pos += snprintf(buf + pos, remaining, "print(x)\n");
+            } else {  // 清空变量
+                pos += snprintf(buf + pos, remaining, "x = 0\n");
+            }
+        } else if (cat == 6) {  // 声音
+            if (blk == 0) {  // 播放音效
+                pos += snprintf(buf + pos, remaining, "print('播放音效')\n");
+            } else if (blk == 1) {  // 播放旋律
+                pos += snprintf(buf + pos, remaining, "print('播放旋律')\n");
+            } else if (blk == 2) {  // 静音
+                pos += snprintf(buf + pos, remaining, "print('静音')\n");
+            } else {  // 音量
+                pos += snprintf(buf + pos, remaining, "print('音量%d')\n", param);
+            }
+        }
+    }
+    
+    // 确保有输出
+    if (s_editor_prog_count == 0) {
+        snprintf(buf, buf_size, "print('空程序')\n");
+    }
+}
+
+/* ========== 运行程序 ========== */
+
+static void editor_run_program(void)
+{
+    if (s_editor_run_mode) {
+        // 停止运行
+        s_editor_run_mode = 0;
+        ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
+        return;
+    }
+    
+    if (s_editor_prog_count == 0) return;
+    
+    char code[1024];
+    editor_generate_code(code, sizeof(code));
+    ESP_LOGI(TAG, "Running program:\n%s", code);
+    
+    s_editor_run_mode = 1;
+    ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "运行中...");
+    
+    // 执行MicroPython代码
+    int ret = app_micropython_exec(code, "<blockly>");
+    if (ret != 0) {
+        ESP_LOGE(TAG, "Program execution failed");
+    }
+    
+    s_editor_run_mode = 0;
+    ui_titlebar_create(lv_screen_active(), ui_titlebar_y(), "积木编辑器");
 }
 
 static void editor_refresh_pane_l(void)
@@ -212,13 +344,12 @@ static void editor_refresh_pane_r(void)
         lv_obj_set_width(lbl, 76);
     }
 }
- 
+
 static void editor_init(void *data)
 {
     ESP_LOGI(TAG, "Editor init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
-    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
@@ -270,6 +401,7 @@ static void editor_destroy(void)
     s_editor_prog_mode = 0;
     s_editor_prog_menu_sel = 0;
     s_editor_param_mode = 0;
+    s_editor_run_mode = 0;
 }
 
 static bool editor_on_key(int key)
@@ -389,6 +521,8 @@ static bool editor_on_key(int key)
                     { s_editor_param_min = 1; s_editor_param_max = 100; }
                 else if (strstr(s_block_names[cat][blk], "滑行"))
                     { s_editor_param_min = 1; s_editor_param_max = 10; }
+                else if (strstr(s_block_names[cat][blk], "音量"))
+                    { s_editor_param_min = 0; s_editor_param_max = 100; }
                 else
                     { s_editor_param_min = 0; s_editor_param_max = 100; }
                 char title[32];
@@ -397,6 +531,8 @@ static bool editor_on_key(int key)
             }
             return true;
         }
+        // A键在程序区：运行程序（长按A运行）
+        // 这里使用KEY_A的另一种处理：在程序区按A弹出菜单，长按运行由外部处理
     }
     return true;
 }
