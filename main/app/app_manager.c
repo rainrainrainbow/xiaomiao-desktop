@@ -194,6 +194,68 @@ void app_manager_clear_current(void)
     s_current_app_name = NULL;
 }
 
+/* ========== 应用安装阻止机制 ========== */
+
+/*
+ * 内置可信应用白名单。
+ * 这些应用ID是经过官方签名的可信应用，允许从SD卡安装。
+ * 格式：{"应用ID"}
+ * 空列表表示只允许签名应用，不允许任何未签名应用。
+ */
+static const char *s_trusted_app_ids[] = {
+    // 官方应用示例（实际使用时替换为真实应用ID）
+    // "com.xiaomiao.clock",
+    // "com.xiaomiao.weather",
+    // "com.xiaomiao.calculator",
+};
+#define TRUSTED_APP_COUNT (sizeof(s_trusted_app_ids) / sizeof(s_trusted_app_ids[0]))
+
+/* 检查应用ID是否在白名单中 */
+static bool app_is_in_whitelist(const char *app_id)
+{
+    if (!app_id || !app_id[0]) return false;
+    
+    for (int i = 0; i < (int)TRUSTED_APP_COUNT; i++) {
+        if (strcmp(app_id, s_trusted_app_ids[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+app_install_status_t app_check_install_permission(const char *app_id, const char *signature)
+{
+    // 模式1：白名单模式 — 如果应用ID在白名单中，直接允许
+    if (app_id && app_id[0] && app_is_in_whitelist(app_id)) {
+        return APP_INSTALL_OK;
+    }
+    
+    // 模式2：签名模式 — 如果有签名，允许安装
+    // （签名内容已在 app_micropython_scan 中验证）
+    if (signature && signature[0]) {
+        return APP_INSTALL_OK;
+    }
+    
+    // 模式3：无签名且不在白名单 — 阻止安装
+    ESP_LOGW(TAG, "App install blocked: id=%s, no signature and not in whitelist", 
+             app_id ? app_id : "(null)");
+    return APP_INSTALL_BLOCKED;
+}
+
+const char* app_install_status_desc(app_install_status_t status)
+{
+    switch (status) {
+        case APP_INSTALL_OK:
+            return "已安装";
+        case APP_INSTALL_BLOCKED:
+            return "已阻止 - 未签名应用";
+        case APP_INSTALL_UNTRUSTED:
+            return "已阻止 - 不受信任来源";
+        default:
+            return "未知状态";
+    }
+}
+
 /* ========== 获取应用页面回调 ========== */
 page_callbacks_t app_manager_get_callbacks(const app_def_t *app)
 {

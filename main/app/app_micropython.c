@@ -17,6 +17,7 @@
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 static const char *TAG = "APP_PY";
 
@@ -211,20 +212,95 @@ const page_callbacks_t* app_micropython_get_callbacks(void)
 
 /* Python 应用目录结构：
  * /sdcard/apps/<app_name>/
- *   ├── app.json     # 应用元数据（名称、图标、颜色等）
+ *   ├── app.json     # 应用元数据（名称、图标、颜色、签名等）
  *   └── main.py      # 入口文件
  *
  * app.json 格式：
  * {
+ *   "id": "com.xiaomiao.appname",
  *   "name": "应用名",
  *   "icon": "图标字符（1-2个LVGL符号）",
  *   "color": "图标颜色（十六进制，如"#FF0000"）",
  *   "version": "1.0",
- *   "author": "作者名"
+ *   "author": "作者名",
+ *   "signature": "A1B2C3D4"
  * }
  *
  * 如果 app.json 不存在，则使用目录名作为应用名，默认图标和颜色。
+ * 如果没有 signature 字段，应用将被阻止安装。
  */
+
+/* 简单哈希函数：FNV-1a 算法，用于签名验证 */
+static uint32_t app_simple_hash(const char *data, int len)
+{
+    uint32_t hash = 0x811C9DC5; // FNV-1a 初始值
+    for (int i = 0; i < len; i++) {
+        hash ^= (unsigned char)data[i];
+        hash *= 0x01000193; // FNV-1a 素数
+    }
+    return hash;
+}
+
+/*
+ * 验证应用签名。
+ * 
+ * 签名机制：
+ * 1. 从 app.json 中提取 name + icon + color + version + author 拼接成字符串
+ * 2. 使用 FNV-1a 哈希计算校验和
+ * 3. 将校验和与 app.json 中的 signature 字段比较
+ * 
+ * signature 计算方式（Python脚本，供开发者使用）：
+ *   data = f"{name}|{icon}|{color}|{version}|{author}"
+ *   hash = 0x811C9DC5
+ *   for c in data.encode():
+ *       hash ^= c
+ *       hash = (hash * 0x01000193) & 0xFFFFFFFF
+ *   sig = format(hash, '08X')
+ */
+static bool app_verify_signature(const char *json_content)
+{
+    if (!json_content) return false;
+    
+    // 提取签名字段
+    char signature[16];
+    if (!json_get_string(json_content, "signature", signature, sizeof(signature))) {
+        ESP_LOGW(TAG, "  No signature found in app.json");
+        return false;
+    }
+    
+    // 提取用于签名的字段
+    char name_buf[64], icon_buf[16], color_buf[16], version_buf[16], author_buf[64];
+    bool has_name = json_get_string(json_content, "name", name_buf, sizeof(name_buf)) != NULL;
+    bool has_icon = json_get_string(json_content, "icon", icon_buf, sizeof(icon_buf)) != NULL;
+    bool has_color = json_get_string(json_content, "color", color_buf, sizeof(color_buf)) != NULL;
+    bool has_version = json_get_string(json_content, "version", version_buf, sizeof(version_buf)) != NULL;
+    bool has_author = json_get_string(json_content, "author", author_buf, sizeof(author_buf)) != NULL;
+    
+    // 构建签名字符串：name|icon|color|version|author
+    char sig_data[256];
+    snprintf(sig_data, sizeof(sig_data), "%s|%s|%s|%s|%s",
+             has_name ? name_buf : "",
+             has_icon ? icon_buf : "",
+             has_color ? color_buf : "",
+             has_version ? version_buf : "",
+             has_author ? author_buf : "");
+    
+    // 计算哈希
+    uint32_t hash = app_simple_hash(sig_data, strlen(sig_data));
+    
+    // 将哈希转换为十六进制字符串
+    char hash_str[16];
+    snprintf(hash_str, sizeof(hash_str), "%08X", (unsigned int)hash);
+    
+    // 比较签名（不区分大小写）
+    bool valid = (strcasecmp(signature, hash_str) == 0);
+    
+    if (!valid) {
+        ESP_LOGW(TAG, "  Signature mismatch: expected=%s, got=%s", hash_str, signature);
+    }
+    
+    return valid;
+}
 
 /* 解析 app.json 中的字符串值 */
 static char* json_get_string(const char *json, const char *key, char *buf, int buf_size)
@@ -317,6 +393,7 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
     }
     
     int count = 0;
+    int blocked_count = 0;
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL && count < max_count) {
         // 跳过 . 和 ..
@@ -335,7 +412,7 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
             continue;
         }
         
-        // 读取 app.json（可选）
+        // 读取 app.json（可选，但签名验证需要）
         char json_path[256];
         snprintf(json_path, sizeof(json_path), "%s/%s/app.json", base_path, entry->d_name);
         char *json_content = read_file_to_heap(json_path);
@@ -375,17 +452,48 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         
         app->type = APP_TYPE_MICROPYTHON;
         
+        // 读取应用ID（用于签名验证）
+        char app_id_buf[64];
+        if (json_content && json_get_string(json_content, "id", app_id_buf, sizeof(app_id_buf))) {
+            app->app_id = strdup(app_id_buf);
+        }
+        
+        // ========== 应用安装阻止检查 ==========
+        // 验证签名：如果 app.json 存在且有 signature 字段，验证签名
+        bool signature_valid = false;
+        char signature_buf[16];
+        if (json_content && json_get_string(json_content, "signature", signature_buf, sizeof(signature_buf))) {
+            signature_valid = app_verify_signature(json_content);
+        }
+        
+        // 检查安装权限
+        app_install_status_t install_status = app_check_install_permission(
+            app->app_id, 
+            signature_valid ? signature_buf : NULL
+        );
+        
+        if (install_status != APP_INSTALL_OK) {
+            // 应用被阻止：记录日志，但仍在列表中标记为阻止状态
+            // 这样用户可以在应用管理中看到被阻止的应用
+            ESP_LOGW(TAG, "  [%d] %s -> BLOCKED (%s)", 
+                     count, app->name, app_install_status_desc(install_status));
+            app->install_status = install_status;
+            blocked_count++;
+        } else {
+            app->install_status = APP_INSTALL_OK;
+            ESP_LOGI(TAG, "  [%d] %s -> %s (verified)", count, app->name, main_path);
+        }
+        
         // 入口文件路径
         app->py_entry = strdup(main_path);
         
         if (json_content) free(json_content);
         
-        ESP_LOGI(TAG, "  [%d] %s -> %s", count, app->name, app->py_entry);
         count++;
     }
     
     closedir(dir);
-    ESP_LOGI(TAG, "Found %d MicroPython apps", count);
+    ESP_LOGI(TAG, "Found %d MicroPython apps (%d blocked)", count, blocked_count);
     return count;
 }
 

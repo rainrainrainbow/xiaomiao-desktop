@@ -482,6 +482,7 @@ static bool about_on_key(int key)
 /* ========== 应用管理二级页面 ========== */
 static lv_obj_t *s_applist_obj = NULL;
 static int s_applist_sel = 0;
+static int s_applist_total = 0; // 内置应用 + MicroPython应用总数
 
 static void applist_init(void *data)
 {
@@ -498,7 +499,15 @@ static void applist_init(void *data)
     ui_titlebar_create(scr, 14, "应用管理");
 
     int builtin_count;
-    const app_def_t *apps = app_manager_get_builtin(&builtin_count);
+    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+    
+    int py_count = 0;
+    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+    
+    s_applist_total = builtin_count + py_count;
+    if (s_applist_total <= 0) {
+        s_applist_total = 1; // 至少显示一行"无应用"
+    }
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
@@ -506,26 +515,30 @@ static void applist_init(void *data)
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-    int item_h = (LCD_V_RES - 26 - DOCK_H) / builtin_count;
+    int item_h = (LCD_V_RES - 26 - DOCK_H) / s_applist_total;
     if (item_h < 12) item_h = 12;
     if (item_h > 18) item_h = 18;
-    for (int i = 0; i < builtin_count; i++) {
+    
+    int row_idx = 0;
+    
+    // 显示内置应用
+    for (int i = 0; i < builtin_count; i++, row_idx++) {
         lv_obj_t *row = lv_obj_create(list);
         lv_obj_remove_style_all(row);
-        lv_obj_set_pos(row, 0, i * item_h);
+        lv_obj_set_pos(row, 0, row_idx * item_h);
         lv_obj_set_size(row, LCD_H_RES, item_h);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         // 图标
         lv_obj_t *icon = lv_label_create(row);
-        lv_label_set_text(icon, apps[i].icon_text);
-        lv_obj_set_style_text_color(icon, lv_color_hex(apps[i].icon_color), 0);
+        lv_label_set_text(icon, builtin_apps[i].icon_text);
+        lv_obj_set_style_text_color(icon, lv_color_hex(builtin_apps[i].icon_color), 0);
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 4, 0);
 
         // 应用名
         lv_obj_t *lbl = lv_label_create(row);
-        lv_label_set_text(lbl, apps[i].name);
+        lv_label_set_text(lbl, builtin_apps[i].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
         lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
@@ -537,6 +550,49 @@ static void applist_init(void *data)
         lv_obj_set_style_text_color(type_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_align(type_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
     }
+    
+    // 显示MicroPython应用（含被阻止的）
+    for (int i = 0; i < py_count; i++, row_idx++) {
+        lv_obj_t *row = lv_obj_create(list);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_pos(row, 0, row_idx * item_h);
+        lv_obj_set_size(row, LCD_H_RES, item_h);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        // 图标
+        lv_obj_t *icon = lv_label_create(row);
+        lv_label_set_text(icon, py_apps[i].icon_text);
+        lv_obj_set_style_text_color(icon, lv_color_hex(py_apps[i].icon_color), 0);
+        lv_obj_align(icon, LV_ALIGN_LEFT_MID, 4, 0);
+
+        // 应用名
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_label_set_text(lbl, py_apps[i].name);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
+        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
+
+        // 安装状态标签
+        lv_obj_t *status_lbl = lv_label_create(row);
+        if (py_apps[i].install_status == APP_INSTALL_OK) {
+            lv_label_set_text(status_lbl, "Python");
+            lv_obj_set_style_text_color(status_lbl, lv_color_hex(0x22C55E), 0); // 绿色
+        } else {
+            lv_label_set_text(status_lbl, app_install_status_desc(py_apps[i].install_status));
+            lv_obj_set_style_text_color(status_lbl, lv_color_hex(0xEF4444), 0); // 红色
+        }
+        lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
+    }
+    
+    // 如果没有应用，显示提示
+    if (builtin_count == 0 && py_count == 0) {
+        lv_obj_t *lbl = lv_label_create(list);
+        lv_label_set_text(lbl, "暂无应用");
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+    }
 
     s_applist_obj = list;
     ui_dock_create(scr, 1, 0);
@@ -547,6 +603,7 @@ static void applist_destroy(void)
     ESP_LOGI(TAG, "App list destroy");
     s_applist_obj = NULL;
     s_applist_sel = 0;
+    s_applist_total = 0;
 }
 
 static bool applist_on_key(int key)
@@ -557,8 +614,12 @@ static bool applist_on_key(int key)
     }
 
     int builtin_count;
-    const app_def_t *apps = app_manager_get_builtin(&builtin_count);
-    if (builtin_count <= 0) return true;
+    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+    int py_count = 0;
+    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+    
+    s_applist_total = builtin_count + py_count;
+    if (s_applist_total <= 0) return true;
 
     lv_obj_t *list = s_applist_obj;
     if (!list) return false;
@@ -572,8 +633,8 @@ static bool applist_on_key(int key)
         if (old_lbl) lv_obj_set_style_text_color(old_lbl, lv_color_hex(ui_theme_colors()->text), 0);
     }
 
-    if (key == KEY_UP) s_applist_sel = (s_applist_sel - 1 + builtin_count) % builtin_count;
-    if (key == KEY_DOWN) s_applist_sel = (s_applist_sel + 1) % builtin_count;
+    if (key == KEY_UP) s_applist_sel = (s_applist_sel - 1 + s_applist_total) % s_applist_total;
+    if (key == KEY_DOWN) s_applist_sel = (s_applist_sel + 1) % s_applist_total;
 
     // 新选中
     lv_obj_t *new_row = lv_obj_get_child(list, s_applist_sel);
@@ -585,10 +646,23 @@ static bool applist_on_key(int key)
     }
 
     if (key == KEY_A) {
+        // 确定选中的是内置应用还是MicroPython应用
         if (s_applist_sel < builtin_count) {
-            app_manager_launch(&apps[s_applist_sel]);
-            return true;
+            // 内置应用
+            app_manager_launch(&builtin_apps[s_applist_sel]);
+        } else {
+            // MicroPython应用
+            int py_idx = s_applist_sel - builtin_count;
+            if (py_idx < py_count) {
+                if (py_apps[py_idx].install_status == APP_INSTALL_OK) {
+                    app_manager_launch(&py_apps[py_idx]);
+                } else {
+                    // 被阻止的应用：显示提示（不启动）
+                    ESP_LOGW(TAG, "Cannot launch blocked app: %s", py_apps[py_idx].name);
+                }
+            }
         }
+        return true;
     }
     return true;
 }

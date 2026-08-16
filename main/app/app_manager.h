@@ -17,18 +17,29 @@ typedef enum {
     APP_TYPE_MAX
 } app_type_t;
 
+/* ========== 应用安装状态 ========== */
+typedef enum {
+    APP_INSTALL_OK = 0,       // 正常安装
+    APP_INSTALL_BLOCKED,      // 被阻止（未签名/签名无效）
+    APP_INSTALL_UNTRUSTED,    // 不受信任来源
+} app_install_status_t;
+
 /* ========== 应用定义 ========== */
 typedef struct {
     const char *name;         // 应用名称
     const char *icon_text;    // 图标文字（1-2字符）
     uint32_t icon_color;      // 图标颜色
     app_type_t type;          // 应用类型
+    app_install_status_t install_status; // 安装状态
     
     // 内置应用：启动回调
     void (*launch_cb)(void);
     
     // MicroPython应用：入口文件路径
     const char *py_entry;
+    
+    // MicroPython应用：唯一标识（用于签名验证）
+    const char *app_id;
 } app_def_t;
 
 /* ========== 应用管理器接口 ========== */
@@ -128,5 +139,22 @@ void app_manager_clear_current(void);
  * 桌面"应用"图标点击时，直接进入设置中的应用管理二级页面
  */
 void app_launch_app_manager(void);
+
+/* ========== 应用安装阻止机制 ========== */
+
+/**
+ * 检查应用是否允许安装
+ * @param app_id 应用唯一标识
+ * @param signature 签名（可为NULL）
+ * @return APP_INSTALL_OK 允许安装，其他值表示被阻止
+ */
+app_install_status_t app_check_install_permission(const char *app_id, const char *signature);
+
+/**
+ * 获取应用被阻止的原因描述
+ * @param status 安装状态
+ * @return 描述字符串
+ */
+const char* app_install_status_desc(app_install_status_t status);
 
 #endif /* APP_MANAGER_H */
