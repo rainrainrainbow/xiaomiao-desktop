@@ -68,6 +68,13 @@ const lv_font_t* lv_font_cn_14(void);
  */
 const lv_font_t* lv_font_cn_16(void);
 
+/**
+ * @brief 检查 FreeType 字体是否已就绪
+ * 
+ * @return true 字体已加载，false 未加载
+ */
+bool lv_freetype_font_is_ready(void);
+
 #ifdef __cplusplus
 }
 #endif

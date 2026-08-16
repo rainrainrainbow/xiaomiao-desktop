@@ -222,7 +222,7 @@ void app_launch_app_manager(void)
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示
     "主题",       // 1 - 显示
-    "声音",       // 2 - 声音
+    "音量",       // 2 - 声音（改为音量百分比）
     "WiFi",       // 3 - 网络
     "布局",       // 4 - 桌面
     "应用管理",   // 5 - 二级页面
@@ -242,14 +242,14 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "声音", "WiFi", "布局", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
+        "亮度", "主题", "音量", "WiFi", "布局", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
     };
     char buf[64];
     switch (idx) {
     case 0: snprintf(buf, sizeof(buf), "%s: %d%%", items[0], st->brightness); break;
     case 1: snprintf(buf, sizeof(buf), "%s: %s", items[1],
                      st->theme == THEME_DARK ? "深色" : "浅色"); break;
-    case 2: snprintf(buf, sizeof(buf), "%s: %s", items[2], st->sound_on ? "开" : "关"); break;
+    case 2: snprintf(buf, sizeof(buf), "%s: %d%%", items[2], st->volume); break;
     case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
     case 4: snprintf(buf, sizeof(buf), "%s: %s",
                      items[4], st->layout == 0 ? "3列" : "2列"); break;
@@ -346,7 +346,7 @@ static bool settings_on_key(int key)
     if (key == KEY_B) {
         // 保存并退出（仅当栈深>1时，避免弹出桌面导致崩溃）
         if (ui_stack_depth() > 1) {
-            sys_nvs_save_settings(st->brightness, st->sound_on,
+            sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             ui_stack_pop();
         }
@@ -378,8 +378,10 @@ static bool settings_on_key(int key)
             st->theme = (st->theme == THEME_DARK) ? THEME_LIGHT : THEME_DARK;
             ui_theme_set(st->theme);
             break;
-        case 2: // 声音
-            st->sound_on = !st->sound_on;
+        case 2: // 音量
+            st->volume += delta * 10;
+            if (st->volume < 0) st->volume = 0;
+            if (st->volume > 100) st->volume = 100;
             break;
         case 3: // WiFi
             st->wifi_on = !st->wifi_on;
@@ -395,6 +397,7 @@ static bool settings_on_key(int key)
             return true;
         case 7: // 恢复默认设置
             st->brightness = 50;
+            st->volume = 50;
             st->theme = THEME_DARK;
             st->sound_on = true;
             st->wifi_on = false;
@@ -408,13 +411,13 @@ static bool settings_on_key(int key)
             }
             return true;
         case 8: // Save & Exit
-            sys_nvs_save_settings(st->brightness, st->sound_on,
+            sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             ui_stack_pop();
             return true;
         case 9: // 返回Loader（重启进入下载模式）
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
-            sys_nvs_save_settings(st->brightness, st->sound_on,
+            sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout);
             esp_restart();
             return true;
@@ -449,8 +452,8 @@ static void about_init(void *data)
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
     // 系统信息行
-    const char *lines[8];
-    char buf[8][48];
+    const char *lines[10];
+    char buf[10][48];
     snprintf(buf[0], sizeof(buf[0]), "系统: 小喵桌面");
     snprintf(buf[1], sizeof(buf[1]), "版本: %s", XIAOMIAO_VERSION);
     snprintf(buf[2], sizeof(buf[2]), "构建: %s", XIAOMIAO_BUILD);
@@ -459,22 +462,30 @@ static void about_init(void *data)
     // MicroPython 运行时状态
     snprintf(buf[5], sizeof(buf[5]), "Python: %s",
              poincare_runtime_is_ready() ? "就绪" : "未初始化");
+    // FreeType 字体状态
+    snprintf(buf[6], sizeof(buf[6]), "字体: %s",
+             lv_freetype_font_is_ready() ? "FreeType" : "内置");
     // 电池信息
     float vbat = drv_battery_get_voltage();
     if (vbat >= BAT_MIN_VALID_V) {
         int pct = drv_battery_get_percent(vbat);
-        snprintf(buf[6], sizeof(buf[6]), "电池: %d%% (%.2fV)", pct, vbat);
+        snprintf(buf[7], sizeof(buf[7]), "电池: %d%% (%.2fV)", pct, vbat);
     } else {
-        snprintf(buf[6], sizeof(buf[6]), "电池: 未检测到");
+        snprintf(buf[7], sizeof(buf[7]), "电池: 未检测到");
     }
-    snprintf(buf[7], sizeof(buf[7]), "内存: %d KB 空闲",
+    snprintf(buf[8], sizeof(buf[8]), "内存: %d KB 空闲",
              heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024);
+    // 固件大小（从链接器获取）
+    extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end, _bss_start, _bss_end;
+    uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
+                        + (uint32_t)&_data_end - (uint32_t)&_data_start;
+    snprintf(buf[9], sizeof(buf[9]), "固件: %d KB", flash_size / 1024);
     lines[0] = buf[0]; lines[1] = buf[1]; lines[2] = buf[2];
     lines[3] = buf[3]; lines[4] = buf[4]; lines[5] = buf[5];
-    lines[6] = buf[6]; lines[7] = buf[7];
+    lines[6] = buf[6]; lines[7] = buf[7]; lines[8] = buf[8]; lines[9] = buf[9];
 
-    int item_h = (LCD_V_RES - 26 - DOCK_H) / 8;
-    for (int i = 0; i < 8; i++) {
+    int item_h = (LCD_V_RES - 26 - DOCK_H) / 10;
+    for (int i = 0; i < 10; i++) {
         lv_obj_t *row = lv_obj_create(list);
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * item_h);

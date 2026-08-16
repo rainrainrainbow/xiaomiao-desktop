@@ -72,6 +72,7 @@ static ui_state_t s_ui_state = {
     .bat_label = NULL,
     .theme = THEME_DARK,
     .brightness = 75,
+    .volume = 50,
     .sound_on = true,
     .wifi_on = true,
     .layout = 0,

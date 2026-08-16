@@ -312,6 +312,7 @@ typedef struct {
     lv_obj_t *bat_label;        // 电池标签
     theme_type_t theme;         // 当前主题
     int brightness;             // 亮度 (10-100)
+    int volume;                 // 音量 (0-100)
     bool sound_on;              // 声音开关
     bool wifi_on;               // WiFi开关
     int layout;                 // 布局模式 (0=4应用, 1=2应用)
