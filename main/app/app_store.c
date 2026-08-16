@@ -19,7 +19,7 @@ static const char *TAG = "APP_STORE";
 
 /* ========== 常量 ========== */
 #define STORE_MAX_APPS      20   // 最大显示应用数
-#define STORE_PATH_LEN      256  // 路径缓冲区大小
+#define STORE_PATH_LEN      512  // 路径缓冲区大小
 #define STORE_SCAN_DIR      "/sdcard"  // 扫描目录（可修改为特定目录）
 
 /* ========== 应用条目 ========== */
@@ -147,7 +147,7 @@ static void install_selected_app(void)
         snprintf(src, sizeof(src), "%s/app.json", app->path);
         snprintf(dst, sizeof(dst), "%s/app.json", dest_dir);
         // 使用文件复制（简化版：通过系统命令）
-        char cmd[STORE_PATH_LEN * 2 + 32];
+        char cmd[STORE_PATH_LEN * 2 + 64];
         snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
         system(cmd);
     }
@@ -156,7 +156,7 @@ static void install_selected_app(void)
     if (app->has_main_py) {
         snprintf(src, sizeof(src), "%s/main.py", app->path);
         snprintf(dst, sizeof(dst), "%s/main.py", dest_dir);
-        char cmd[STORE_PATH_LEN * 2 + 32];
+        char cmd[STORE_PATH_LEN * 2 + 64];
         snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
         system(cmd);
     }
