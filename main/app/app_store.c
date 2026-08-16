@@ -102,11 +102,11 @@ static void scan_sdcard_apps(void)
         app->path[sizeof(app->path) - 1] = '\0';
         
         // 检查 app.json 和 main.py
-        char json_path[STORE_PATH_LEN];
+        char json_path[STORE_PATH_LEN + 16];
         snprintf(json_path, sizeof(json_path), "%s/app.json", full_path);
         app->has_app_json = file_exists(json_path);
         
-        char py_path[STORE_PATH_LEN];
+        char py_path[STORE_PATH_LEN + 16];
         snprintf(py_path, sizeof(py_path), "%s/main.py", full_path);
         app->has_main_py = file_exists(py_path);
         
