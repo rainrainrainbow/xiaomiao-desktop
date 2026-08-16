@@ -16,6 +16,7 @@
 #include "poincare/runtime.h"
 #include "esp_system.h"
 #include "fonts/lv_freetype_font.h"
+#include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "APP_SETTINGS";
