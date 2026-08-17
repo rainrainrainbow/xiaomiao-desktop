@@ -163,6 +163,30 @@ jobs:
           PATCH_EOF
           echo "Done patching modmachine.h"
 
+
+      - name: Patch mbedtls config to disable ECP_RESTARTABLE
+        run: |
+          # Disable MBEDTLS_ECP_RESTARTABLE in mbedtls esp_config.h to fix
+          # undefined reference to mbedtls_ecdsa_sign/mbedtls_ecdsa_verify
+          # and reduce IRAM usage
+          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
+          if [ -f "$ESP_CONFIG" ]; then
+            echo "Patching $ESP_CONFIG to disable MBEDTLS_ECP_RESTARTABLE..."
+            grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
+            # Comment out MBEDTLS_ECP_RESTARTABLE if defined
+            if grep -q "^#define MBEDTLS_ECP_RESTARTABLE" "$ESP_CONFIG"; then
+              echo "Disabling MBEDTLS_ECP_RESTARTABLE..."
+              sed -i 's|^#define MBEDTLS_ECP_RESTARTABLE|// #define MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
+              echo "Disabled MBEDTLS_ECP_RESTARTABLE"
+            else
+              echo "MBEDTLS_ECP_RESTARTABLE not found in esp_config.h"
+            fi
+            echo "Done patching mbedtls esp_config.h"
+          else
+            echo "WARNING: $ESP_CONFIG not found"
+            find /opt/esp/idf/components/mbedtls -name "esp_config.h" 2>/dev/null
+          fi
+
       - name: Build firmware (ESP-IDF v5.3)
         run: |
           # Source ESP-IDF environment
