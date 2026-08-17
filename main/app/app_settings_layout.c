@@ -4,6 +4,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
+#include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>

@@ -7,6 +7,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
+#include "fonts/lv_freetype_font.h"
 #include "driver/drv_backlight.h"
 #include "esp_log.h"
 #include <stdio.h>

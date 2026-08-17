@@ -17,7 +17,7 @@ static const char *TAG = "APP_FONT";
 /* ========== 字体选项 ========== */
 #define FONT_OPTION_COUNT 4
 static const int s_font_sizes[FONT_OPTION_COUNT] = {14, 16, 20, 24};
-static const char *s_font_labels[FONT_OPTION_COUNT] = {"小 (14px)", "中 (16px)", "大 (20px)", "特大 (24px)"};
+static const char *s_font_label_names[FONT_OPTION_COUNT] = {"小 (14px)", "中 (16px)", "大 (20px)", "特大 (24px)"};
 
 /* ========== UI状态 ========== */
 static lv_obj_t *s_font_list = NULL;
@@ -39,9 +39,9 @@ static void font_refresh_label(int idx)
         /* 字体选项行 */
         int size = s_font_sizes[idx];
         if (size == st->font_size) {
-            snprintf(buf, sizeof(buf), "✓ %s", s_font_labels[idx]);
+            snprintf(buf, sizeof(buf), "✓ %s", s_font_label_names[idx]);
         } else {
-            snprintf(buf, sizeof(buf), "  %s", s_font_labels[idx]);
+            snprintf(buf, sizeof(buf), "  %s", s_font_label_names[idx]);
         }
     } else {
         /* 预览行 */
