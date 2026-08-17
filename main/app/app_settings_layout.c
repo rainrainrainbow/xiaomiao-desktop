@@ -17,11 +17,27 @@ static const char *s_layout_desc[LAYOUT_OPTION_COUNT] = {"每行3个图标（紧
 
 static lv_obj_t *s_layout_list = NULL;
 static lv_obj_t *s_layout_labels[LAYOUT_OPTION_COUNT * 2 + 1] = {0};
+static lv_obj_t *s_layout_checkboxes[LAYOUT_OPTION_COUNT] = {0}; /* 复选框组件 */
 static int s_layout_sel = 0;
 static int s_layout_scroll = 0;
 static int s_layout_vis_rows = 6;
 static int s_layout_row_h = 14;
 static int s_layout_total = LAYOUT_OPTION_COUNT * 2 + 1;
+
+/* 刷新复选框状态 */
+static void layout_refresh_checkboxes(void)
+{
+    ui_state_t *st = ui_state_get();
+    for (int i = 0; i < LAYOUT_OPTION_COUNT; i++) {
+        if (s_layout_checkboxes[i]) {
+            if (i == (int)st->layout) {
+                lv_obj_add_state(s_layout_checkboxes[i], LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_layout_checkboxes[i], LV_STATE_CHECKED);
+            }
+        }
+    }
+}
 
 static void layout_refresh_label(int idx)
 {
@@ -29,7 +45,7 @@ static void layout_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < LAYOUT_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s %s", (idx == st->layout) ? "✓" : " ", s_layout_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", s_layout_names[idx]);
     } else if (idx < LAYOUT_OPTION_COUNT * 2) {
         snprintf(buf, sizeof(buf), "  %s", s_layout_desc[idx - LAYOUT_OPTION_COUNT]);
     } else {
@@ -45,6 +61,7 @@ static void layout_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_layout_list);
     memset(s_layout_labels, 0, sizeof(s_layout_labels));
+    memset(s_layout_checkboxes, 0, sizeof(s_layout_checkboxes));
     s_layout_total = LAYOUT_OPTION_COUNT * 2 + 1;
     if (s_layout_sel < s_layout_scroll) s_layout_scroll = s_layout_sel;
     if (s_layout_sel >= s_layout_scroll + s_layout_vis_rows) s_layout_scroll = s_layout_sel - s_layout_vis_rows + 1;
@@ -63,12 +80,26 @@ static void layout_rebuild_visible(void)
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-        lv_obj_t *lbl = lv_label_create(row);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
-        s_layout_labels[idx] = lbl;
-        layout_refresh_label(idx);
+        if (idx < LAYOUT_OPTION_COUNT) {
+            /* 使用LVGL复选框组件 */
+            lv_obj_t *cb = lv_checkbox_create(row);
+            lv_checkbox_set_text(cb, s_layout_names[idx]);
+            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+            if (idx == (int)st->layout) {
+                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            }
+            s_layout_checkboxes[idx] = cb;
+            s_layout_labels[idx] = lv_label_create(row); /* 占位 */
+        } else {
+            lv_obj_t *lbl = lv_label_create(row);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+            s_layout_labels[idx] = lbl;
+            layout_refresh_label(idx);
+        }
     }
 }
 
@@ -104,6 +135,7 @@ static void layout_settings_destroy(void)
     ESP_LOGI(TAG, "Layout settings destroy");
     s_layout_list = NULL;
     memset(s_layout_labels, 0, sizeof(s_layout_labels));
+    memset(s_layout_checkboxes, 0, sizeof(s_layout_checkboxes));
 }
 
 static bool layout_settings_on_key(int key)
@@ -114,7 +146,7 @@ static bool layout_settings_on_key(int key)
     if (key == KEY_DOWN) { s_layout_sel = (s_layout_sel + 1) % s_layout_total; layout_rebuild_visible(); return true; }
     if (key == KEY_A) {
         if (s_layout_sel < LAYOUT_OPTION_COUNT) {
-            if (s_layout_sel != st->layout) { st->layout = s_layout_sel; layout_rebuild_visible(); }
+            if (s_layout_sel != st->layout) { st->layout = s_layout_sel; layout_refresh_checkboxes(); layout_rebuild_visible(); }
         }
         return true;
     }

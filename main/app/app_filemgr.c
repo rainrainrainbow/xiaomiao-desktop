@@ -187,41 +187,58 @@ static void filemgr_refresh_list(void)
     int avail_h = LCD_V_RES - ui_content_y() - DOCK_H;
     int vis_rows = (avail_h - s_filemgr_row_h - 2) / s_filemgr_row_h;
     if (vis_rows < 1) vis_rows = 1;
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
+    /* 路径行 */
+    lv_obj_t *path_row = lv_obj_create(s_filemgr_obj);
+    lv_obj_remove_style_all(path_row);
+    lv_obj_set_pos(path_row, 0, 0);
+    lv_obj_set_size(path_row, LCD_H_RES, s_filemgr_row_h);
+    lv_obj_clear_flag(path_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(path_row, LV_OPA_TRANSP, 0);
     char header[FILEMGR_PATH_LEN + 8];
     snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
-    lv_obj_t *path_lbl = lv_label_create(s_filemgr_obj);
+    lv_obj_t *path_lbl = lv_label_create(path_row);
     lv_label_set_text(path_lbl, header);
     lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(st->font_size), 0);
-    lv_obj_set_style_text_align(path_lbl, LV_TEXT_ALIGN_LEFT, 0);
-    lv_obj_set_pos(path_lbl, 4, 2);
+    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
+    lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
         lv_label_set_text(lbl, "(空目录)");
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
         return;
     }
+
     int start = s_filemgr_scroll;
     int end = start + vis_rows;
     if (end > s_filemgr_count) end = s_filemgr_count;
     for (int i = start; i < end; i++) {
-        char buf[FILEMGR_PATH_LEN + 4];
-        const char *prefix = s_filemgr_is_dir[i] ? "[D] " : "[F] ";
-        snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
-        lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
-        lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
-        int row_y = s_filemgr_row_h + 2 + (i - start) * s_filemgr_row_h;
-        lv_obj_set_pos(lbl, 4, row_y);
+        int row_idx = i - start + 1; /* 第0行是路径 */
+        lv_obj_t *row = lv_obj_create(s_filemgr_obj);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_pos(row, 0, row_idx * s_filemgr_row_h);
+        lv_obj_set_size(row, LCD_H_RES, s_filemgr_row_h);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         if (i == s_filemgr_sel) {
-            lv_obj_set_style_bg_color(lbl, lv_color_hex(0x5C4220), 0);
-            lv_obj_set_style_bg_opa(lbl, LV_OPA_COVER, 0);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(0xF6D34A), 0);
+            lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         } else {
-            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
+        char buf[FILEMGR_PATH_LEN + 4];
+        const char *prefix = s_filemgr_is_dir[i] ? "📁 " : "📄 ";
+        snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 }
 
@@ -271,8 +288,6 @@ static void filemgr_init(void *data)
     lv_obj_set_pos(list, 0, ui_content_y());
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, 1, 0);
     s_filemgr_obj = list;
     s_txt_obj = list;  /* 文本查看器复用同一内容区 */
     ui_dock_create(scr, 1, 0);

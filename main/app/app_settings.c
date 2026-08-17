@@ -36,7 +36,7 @@ static const char *s_settings_items[] = {
     "WiFi",       // 3 - 网络 → 二级页面
     "布局",       // 4 - 桌面 → 二级页面
     "字体",       // 5 - 显示 → 二级页面
-    "声音",       // 6 - 声音开关
+    "声音",       // 6 - 声音开关（含lv_switch）
     "屏幕超时",   // 7 - 显示 → 二级页面
     "日期时间",   // 8 - 系统 → 二级页面
     "应用管理",   // 9 - 二级页面
@@ -51,6 +51,7 @@ static const char *s_settings_items[] = {
 
 static lv_obj_t *s_settings_list = NULL;
 static lv_obj_t *s_settings_labels[14] = {0};
+static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
 
@@ -79,7 +80,7 @@ static void settings_refresh_label(int idx)
         snprintf(buf, sizeof(buf), "%s: %s", items[5], size_str);
         break;
     }
-    case 6: snprintf(buf, sizeof(buf), "%s: %s", items[6], st->sound_on ? "开" : "关"); break;
+    case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;
     case 7: {
         const char *sleep_str = "永不";
         if (st->sleep_timeout == 30) sleep_str = "30秒";
@@ -109,6 +110,7 @@ static void settings_rebuild_visible(void)
     /* 清除所有子对象 */
     lv_obj_clean(s_settings_list);
     memset(s_settings_labels, 0, sizeof(s_settings_labels));
+    s_settings_switch = NULL;
     /* 只创建可见范围内的行 */
     for (int i = 0; i < vis_rows && (s_settings_scroll + i) < SETTINGS_ITEM_COUNT; i++) {
         int idx = s_settings_scroll + i;
@@ -130,6 +132,34 @@ static void settings_rebuild_visible(void)
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[idx] = lbl;
         settings_refresh_label(idx);
+
+        /* 第6行（声音开关）：添加LVGL开关组件 */
+        if (idx == 6) {
+            lv_obj_t *sw = lv_switch_create(row);
+            lv_obj_remove_style_all(sw);
+            /* 开关背景 */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(sw, 8, 0);
+            /* 开关指示器（开启时填充色） */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->text), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_radius(sw, 8, LV_PART_INDICATOR);
+            /* 开关旋钮 */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->bg), LV_PART_KNOB);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
+            lv_obj_set_style_radius(sw, 6, LV_PART_KNOB);
+            lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
+            lv_obj_set_size(sw, 36, s_settings_row_h - 4);
+            lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -6, 0);
+            /* 设置开关状态 */
+            if (st->sound_on) {
+                lv_obj_add_state(sw, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(sw, LV_STATE_CHECKED);
+            }
+            s_settings_switch = sw;
+        }
     }
 }
 
@@ -195,6 +225,7 @@ static void settings_destroy(void)
     ESP_LOGI(TAG, "Settings app destroy");
     for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) s_settings_labels[i] = NULL;
     s_settings_list = NULL;
+    s_settings_switch = NULL;
 }
 
 static bool settings_on_key(int key)
@@ -265,9 +296,16 @@ static bool settings_on_key(int key)
             }
             break;
         case 6:
-            /* 声音开关 */
+            /* 声音开关（含lv_switch） */
             if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
                 st->sound_on = !st->sound_on;
+                if (s_settings_switch) {
+                    if (st->sound_on) {
+                        lv_obj_add_state(s_settings_switch, LV_STATE_CHECKED);
+                    } else {
+                        lv_obj_clear_state(s_settings_switch, LV_STATE_CHECKED);
+                    }
+                }
             }
             break;
         case 7:

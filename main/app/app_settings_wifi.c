@@ -47,6 +47,7 @@ static int s_connected_idx = -1;  /* 当前连接的网络索引 */
 /* ========== UI状态 ========== */
 static lv_obj_t *s_wifi_list = NULL;
 static lv_obj_t *s_wifi_labels[MAX_NETWORKS + 2] = {0};  /* +2: 开关行 + 状态行 */
+static lv_obj_t *s_wifi_switch = NULL;                    /* WiFi开关组件 */
 static lv_obj_t *s_wifi_bars[MAX_NETWORKS] = {0};        /* 网络信号强度进度条 */
 static int s_wifi_sel = 0;
 static int s_wifi_scroll = 0;
@@ -176,8 +177,8 @@ static void wifi_refresh_label(int idx)
     char buf[64];
 
     if (idx == 0) {
-        /* 第0行：WiFi开关 */
-        snprintf(buf, sizeof(buf), "WiFi: %s", st->wifi_on ? "开" : "关");
+        /* 第0行：WiFi开关 — 文本只显示"WiFi"，开关由lv_switch组件管理 */
+        snprintf(buf, sizeof(buf), "WiFi");
     } else if (idx == 1) {
         /* 第1行：状态信息 */
         if (!st->wifi_on) {
@@ -254,6 +255,34 @@ static void wifi_rebuild_visible(void)
         s_wifi_labels[idx] = lbl;
         wifi_refresh_label(idx);
 
+        /* 第0行：添加LVGL开关组件 */
+        if (idx == 0) {
+            lv_obj_t *sw = lv_switch_create(row);
+            lv_obj_remove_style_all(sw);
+            /* 开关背景 */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(sw, 8, 0);
+            /* 开关指示器（开启时填充色） */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->text), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_radius(sw, 8, LV_PART_INDICATOR);
+            /* 开关旋钮 */
+            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->bg), LV_PART_KNOB);
+            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
+            lv_obj_set_style_radius(sw, 6, LV_PART_KNOB);
+            lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
+            lv_obj_set_size(sw, 36, s_wifi_row_h - 4);
+            lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -6, 0);
+            /* 设置开关状态 */
+            if (st->wifi_on) {
+                lv_obj_add_state(sw, LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(sw, LV_STATE_CHECKED);
+            }
+            s_wifi_switch = sw;
+        }
+
         /* 网络列表行：添加信号强度进度条 */
         if (idx >= 2) {
             int net_idx = idx - 2;
@@ -323,6 +352,7 @@ static void wifi_settings_destroy(void)
 {
     ESP_LOGI(TAG, "WiFi settings destroy");
     s_wifi_list = NULL;
+    s_wifi_switch = NULL;
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
     memset(s_wifi_bars, 0, sizeof(s_wifi_bars));
 }

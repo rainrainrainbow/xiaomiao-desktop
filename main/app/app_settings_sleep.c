@@ -17,11 +17,27 @@ static const char *s_sleep_names[SLEEP_OPTION_COUNT] = {"永不", "30秒", "60�
 
 static lv_obj_t *s_sleep_list = NULL;
 static lv_obj_t *s_sleep_labels[SLEEP_OPTION_COUNT + 1] = {0};
+static lv_obj_t *s_sleep_checkboxes[SLEEP_OPTION_COUNT] = {0}; /* 复选框组件 */
 static int s_sleep_sel = 0;
 static int s_sleep_scroll = 0;
 static int s_sleep_vis_rows = 6;
 static int s_sleep_row_h = 14;
 static int s_sleep_total = SLEEP_OPTION_COUNT + 1;
+
+/* 刷新复选框状态 */
+static void sleep_refresh_checkboxes(void)
+{
+    ui_state_t *st = ui_state_get();
+    for (int i = 0; i < SLEEP_OPTION_COUNT; i++) {
+        if (s_sleep_checkboxes[i]) {
+            if (s_sleep_values[i] == st->sleep_timeout) {
+                lv_obj_add_state(s_sleep_checkboxes[i], LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_sleep_checkboxes[i], LV_STATE_CHECKED);
+            }
+        }
+    }
+}
 
 static void sleep_refresh_label(int idx)
 {
@@ -29,7 +45,7 @@ static void sleep_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < SLEEP_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s %s", (s_sleep_values[idx] == st->sleep_timeout) ? "✓" : " ", s_sleep_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", s_sleep_names[idx]);
     } else {
         const char *cur = "永不";
         for (int i = 0; i < SLEEP_OPTION_COUNT; i++) {
@@ -47,6 +63,7 @@ static void sleep_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_sleep_list);
     memset(s_sleep_labels, 0, sizeof(s_sleep_labels));
+    memset(s_sleep_checkboxes, 0, sizeof(s_sleep_checkboxes));
     s_sleep_total = SLEEP_OPTION_COUNT + 1;
     if (s_sleep_sel < s_sleep_scroll) s_sleep_scroll = s_sleep_sel;
     if (s_sleep_sel >= s_sleep_scroll + s_sleep_vis_rows) s_sleep_scroll = s_sleep_sel - s_sleep_vis_rows + 1;
@@ -65,12 +82,26 @@ static void sleep_rebuild_visible(void)
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-        lv_obj_t *lbl = lv_label_create(row);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
-        s_sleep_labels[idx] = lbl;
-        sleep_refresh_label(idx);
+        if (idx < SLEEP_OPTION_COUNT) {
+            /* 使用LVGL复选框组件 */
+            lv_obj_t *cb = lv_checkbox_create(row);
+            lv_checkbox_set_text(cb, s_sleep_names[idx]);
+            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+            if (s_sleep_values[idx] == st->sleep_timeout) {
+                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            }
+            s_sleep_checkboxes[idx] = cb;
+            s_sleep_labels[idx] = lv_label_create(row); /* 占位 */
+        } else {
+            lv_obj_t *lbl = lv_label_create(row);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+            s_sleep_labels[idx] = lbl;
+            sleep_refresh_label(idx);
+        }
     }
 }
 
@@ -109,6 +140,7 @@ static void sleep_settings_destroy(void)
     ESP_LOGI(TAG, "Sleep timeout settings destroy");
     s_sleep_list = NULL;
     memset(s_sleep_labels, 0, sizeof(s_sleep_labels));
+    memset(s_sleep_checkboxes, 0, sizeof(s_sleep_checkboxes));
 }
 
 static bool sleep_settings_on_key(int key)
@@ -120,7 +152,7 @@ static bool sleep_settings_on_key(int key)
     if (key == KEY_A) {
         if (s_sleep_sel < SLEEP_OPTION_COUNT) {
             int new_val = s_sleep_values[s_sleep_sel];
-            if (new_val != st->sleep_timeout) { st->sleep_timeout = new_val; sleep_rebuild_visible(); }
+            if (new_val != st->sleep_timeout) { st->sleep_timeout = new_val; sleep_refresh_checkboxes(); sleep_rebuild_visible(); }
         }
         return true;
     }

@@ -1,6 +1,6 @@
 /**
  * @file app_settings_theme.c
- * @brief 主题设置二级页面 - 深色/浅色主题选择
+ * @brief 主题设置二级页面 - LVGL lv_checkbox 复选框选择
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
@@ -16,6 +16,7 @@ static const char *s_theme_names[THEME_OPTION_COUNT] = {"深色主题", "浅色�
 
 static lv_obj_t *s_theme_list = NULL;
 static lv_obj_t *s_theme_labels[THEME_OPTION_COUNT + 1] = {0};
+static lv_obj_t *s_theme_checkboxes[THEME_OPTION_COUNT] = {0}; /* 复选框组件 */
 static int s_theme_sel = 0;
 static int s_theme_scroll = 0;
 static int s_theme_vis_rows = 6;
@@ -28,11 +29,26 @@ static void theme_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < THEME_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s %s", (idx == (int)st->theme) ? "✓" : " ", s_theme_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", s_theme_names[idx]);
     } else {
         snprintf(buf, sizeof(buf), "当前: %s", s_theme_names[st->theme]);
     }
     lv_label_set_text(s_theme_labels[idx], buf);
+}
+
+/* 刷新复选框状态 */
+static void theme_refresh_checkboxes(void)
+{
+    ui_state_t *st = ui_state_get();
+    for (int i = 0; i < THEME_OPTION_COUNT; i++) {
+        if (s_theme_checkboxes[i]) {
+            if (i == (int)st->theme) {
+                lv_obj_add_state(s_theme_checkboxes[i], LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_theme_checkboxes[i], LV_STATE_CHECKED);
+            }
+        }
+    }
 }
 
 static void theme_rebuild_visible(void)
@@ -42,6 +58,7 @@ static void theme_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_theme_list);
     memset(s_theme_labels, 0, sizeof(s_theme_labels));
+    memset(s_theme_checkboxes, 0, sizeof(s_theme_checkboxes));
     s_theme_total = THEME_OPTION_COUNT + 1;
     if (s_theme_sel < s_theme_scroll) s_theme_scroll = s_theme_sel;
     if (s_theme_sel >= s_theme_scroll + s_theme_vis_rows) s_theme_scroll = s_theme_sel - s_theme_vis_rows + 1;
@@ -60,12 +77,27 @@ static void theme_rebuild_visible(void)
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-        lv_obj_t *lbl = lv_label_create(row);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
-        s_theme_labels[idx] = lbl;
-        theme_refresh_label(idx);
+        if (idx < THEME_OPTION_COUNT) {
+            /* 使用 LVGL 复选框组件 */
+            lv_obj_t *cb = lv_checkbox_create(row);
+            lv_checkbox_set_text(cb, s_theme_names[idx]);
+            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+            /* 设置选中状态 */
+            if (idx == (int)st->theme) {
+                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            }
+            s_theme_checkboxes[idx] = cb;
+            s_theme_labels[idx] = lv_label_create(row); /* 占位，不使用 */
+        } else {
+            lv_obj_t *lbl = lv_label_create(row);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+            s_theme_labels[idx] = lbl;
+            theme_refresh_label(idx);
+        }
     }
 }
 
@@ -102,6 +134,7 @@ static void theme_settings_destroy(void)
     ESP_LOGI(TAG, "Theme settings destroy");
     s_theme_list = NULL;
     memset(s_theme_labels, 0, sizeof(s_theme_labels));
+    memset(s_theme_checkboxes, 0, sizeof(s_theme_checkboxes));
 }
 
 static bool theme_settings_on_key(int key)
@@ -113,7 +146,7 @@ static bool theme_settings_on_key(int key)
     if (key == KEY_A) {
         if (s_theme_sel < THEME_OPTION_COUNT) {
             theme_type_t new_theme = (theme_type_t)s_theme_sel;
-            if (new_theme != st->theme) { st->theme = new_theme; ui_theme_set(new_theme); theme_rebuild_visible(); }
+            if (new_theme != st->theme) { st->theme = new_theme; ui_theme_set(new_theme); theme_refresh_checkboxes(); theme_refresh_label(THEME_OPTION_COUNT); }
         }
         return true;
     }

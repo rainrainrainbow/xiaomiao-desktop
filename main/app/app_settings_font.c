@@ -22,12 +22,28 @@ static const char *s_font_label_names[FONT_OPTION_COUNT] = {"小 (14px)", "中 (
 /* ========== UI状态 ========== */
 static lv_obj_t *s_font_list = NULL;
 static lv_obj_t *s_font_labels[FONT_OPTION_COUNT + 1] = {0};  /* +1: 预览行 */
+static lv_obj_t *s_font_checkboxes[FONT_OPTION_COUNT] = {0};  /* 复选框组件 */
 static int s_font_sel = 0;
 static int s_font_scroll = 0;
 static int s_font_vis_rows = 6;
 static int s_font_row_h = 14;
 static int s_font_total = FONT_OPTION_COUNT + 1;  /* 选项 + 预览 */
 static lv_obj_t *s_preview_label = NULL;
+
+/* 刷新复选框状态 */
+static void font_refresh_checkboxes(void)
+{
+    ui_state_t *st = ui_state_get();
+    for (int i = 0; i < FONT_OPTION_COUNT; i++) {
+        if (s_font_checkboxes[i]) {
+            if (s_font_sizes[i] == st->font_size) {
+                lv_obj_add_state(s_font_checkboxes[i], LV_STATE_CHECKED);
+            } else {
+                lv_obj_clear_state(s_font_checkboxes[i], LV_STATE_CHECKED);
+            }
+        }
+    }
+}
 
 static void font_refresh_label(int idx)
 {
@@ -36,13 +52,8 @@ static void font_refresh_label(int idx)
     char buf[48];
 
     if (idx < FONT_OPTION_COUNT) {
-        /* 字体选项行 */
-        int size = s_font_sizes[idx];
-        if (size == st->font_size) {
-            snprintf(buf, sizeof(buf), "✓ %s", s_font_label_names[idx]);
-        } else {
-            snprintf(buf, sizeof(buf), "  %s", s_font_label_names[idx]);
-        }
+        /* 字体选项行 — 文本由复选框组件管理，标签仅用于预览行等 */
+        snprintf(buf, sizeof(buf), "%s", s_font_label_names[idx]);
     } else {
         /* 预览行 */
         snprintf(buf, sizeof(buf), "预览: 小喵桌面 %dpx", st->font_size);
@@ -57,6 +68,7 @@ static void font_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_font_list);
     memset(s_font_labels, 0, sizeof(s_font_labels));
+    memset(s_font_checkboxes, 0, sizeof(s_font_checkboxes));
 
     s_font_total = FONT_OPTION_COUNT + 1;
 
@@ -85,20 +97,27 @@ static void font_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
 
-        lv_obj_t *lbl = lv_label_create(row);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-
         if (idx < FONT_OPTION_COUNT) {
-            /* 字体选项使用当前字体大小显示 */
-            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            /* 使用LVGL复选框组件 */
+            lv_obj_t *cb = lv_checkbox_create(row);
+            lv_checkbox_set_text(cb, s_font_label_names[idx]);
+            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+            if (s_font_sizes[idx] == st->font_size) {
+                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            }
+            s_font_checkboxes[idx] = cb;
+            s_font_labels[idx] = lv_label_create(row); /* 占位 */
         } else {
-            /* 预览行使用选中的字体大小显示 */
+            /* 预览行 */
+            lv_obj_t *lbl = lv_label_create(row);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+            s_font_labels[idx] = lbl;
+            font_refresh_label(idx);
         }
-
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
-        s_font_labels[idx] = lbl;
-        font_refresh_label(idx);
     }
 }
 
@@ -148,6 +167,7 @@ static void font_settings_destroy(void)
     ESP_LOGI(TAG, "Font settings destroy");
     s_font_list = NULL;
     memset(s_font_labels, 0, sizeof(s_font_labels));
+    memset(s_font_checkboxes, 0, sizeof(s_font_checkboxes));
 }
 
 static bool font_settings_on_key(int key)
@@ -177,6 +197,7 @@ static bool font_settings_on_key(int key)
             if (new_size != st->font_size) {
                 st->font_size = new_size;
                 ESP_LOGI(TAG, "Font size changed to: %dpx", new_size);
+                font_refresh_checkboxes();
                 font_rebuild_visible();
             }
         }
