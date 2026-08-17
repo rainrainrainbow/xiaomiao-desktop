@@ -4,6 +4,7 @@
  */
 
 #include "sys_nvs.h"
+#include "ui/ui_framework.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -47,7 +48,6 @@ void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
     nvs_set_i32(s_nvs_handle, NVS_KEY_LAYOUT, layout);
     nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, font_size);
     /* 从ui_state_t读取sleep_timeout并保存 */
-    extern ui_state_t* ui_state_get(void);
     nvs_set_i32(s_nvs_handle, NVS_KEY_SLEEP, ui_state_get()->sleep_timeout);
     nvs_commit(s_nvs_handle);
     
@@ -85,7 +85,6 @@ bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *th
         *font_size = val;
     }
     /* 加载sleep_timeout */
-    extern ui_state_t* ui_state_get(void);
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_SLEEP, &val) == ESP_OK) {
         ui_state_get()->sleep_timeout = val;
     }

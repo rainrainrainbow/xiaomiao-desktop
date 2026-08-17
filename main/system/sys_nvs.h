@@ -17,6 +17,7 @@
 #define NVS_KEY_WIFI        "wifi"
 #define NVS_KEY_LAYOUT      "layout"
 #define NVS_KEY_FONT_SIZE   "font_size"
+#define NVS_KEY_SLEEP       "sleep"
 #define NVS_KEY_FIRST_RUN   "first_run"  // 首次运行标志
 
 /* ========== NVS存储接口 ========== */
