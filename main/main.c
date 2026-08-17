@@ -656,9 +656,8 @@ static void *s_ui_task_stack = NULL;
 
 static void ui_init_task(void *arg)
 {
-    ESP_LOGI(TAG, "UI init task started (stack=%p, size=%d)", 
-             s_ui_task_stack, 
-             heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0 ? UI_TASK_STACK_SIZE : UI_TASK_STACK_DRAM);
+    ESP_LOGI(TAG, "UI init task started (stack=%p)", 
+             (void*)arg);
     
     /*
      * 提前初始化 MicroPython 运行时（在 PSRAM 64KB 栈中执行）。
@@ -779,35 +778,20 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（手动分配 PSRAM 栈，64KB）
-    // 使用 xTaskCreateStatic + heap_caps_malloc 确保栈从 PSRAM 分配
-    // 先尝试在 PSRAM 分配 64KB，失败则回退到 DRAM 32KB
-    size_t stack_size = UI_TASK_STACK_SIZE;
-    uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    s_ui_task_stack = heap_caps_malloc(stack_size, caps);
-    if (s_ui_task_stack == NULL) {
-        ESP_LOGW(TAG, "PSRAM stack allocation failed (%d bytes), trying DRAM...", stack_size);
-        stack_size = UI_TASK_STACK_DRAM;
-        s_ui_task_stack = malloc(stack_size);
-        if (s_ui_task_stack == NULL) {
-            ESP_LOGE(TAG, "Failed to allocate UI task stack even from DRAM");
-        } else {
-            ESP_LOGI(TAG, "UI task stack allocated from DRAM (%d bytes)", stack_size);
-        }
+    // 创建 UI 初始化任务（使用 xTaskCreate，FreeRTOS 自动从 PSRAM 分配栈）
+    // CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST=y 时：
+    // 1. FreeRTOS 自动优先从 PSRAM 分配栈（64KB）
+    // 2. 如果 PSRAM 分配失败，自动回退到内部 DRAM
+    // 3. 任务完成后保持空闲循环，避免栈被释放
+    TaskHandle_t ui_task_handle = NULL;
+    BaseType_t ret = xTaskCreate(
+        ui_init_task, "ui_init", UI_TASK_STACK_SIZE / sizeof(StackType_t),
+        NULL, 5, &ui_task_handle);
+    if (ret == pdPASS) {
+        ESP_LOGI(TAG, "ui_init_task created via xTaskCreate (stack_size=%d)", 
+                 UI_TASK_STACK_SIZE);
     } else {
-        ESP_LOGI(TAG, "UI task stack allocated from PSRAM (%d bytes)", stack_size);
-    }
-    
-    if (s_ui_task_stack) {
-        TaskHandle_t ui_task_handle = xTaskCreateStatic(
-            ui_init_task, "ui_init", stack_size / sizeof(StackType_t),
-            NULL, 5, (StackType_t *)s_ui_task_stack, &s_ui_task_tcb);
-        if (ui_task_handle) {
-            ESP_LOGI(TAG, "ui_init_task created (stack=%p, size=%d)", 
-                     s_ui_task_stack, stack_size);
-        } else {
-            ESP_LOGE(TAG, "xTaskCreateStatic failed for ui_init_task");
-        }
+        ESP_LOGE(TAG, "xTaskCreate failed for ui_init_task (ret=%d)", ret);
     }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
