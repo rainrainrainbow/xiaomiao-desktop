@@ -53,9 +53,6 @@ typedef enum {
 static const char *s_mode_icons[PLAY_MODE_MAX] = {
     "▶", "🔁", "🔂", "🔀"
 };
-static const char *s_mode_names[PLAY_MODE_MAX] = {
-    "单曲", "单曲循环", "列表循环", "随机"
-};
 
 /* ========== 内置旋律（6首） ========== */
 
@@ -156,7 +153,6 @@ static bool s_music_is_dir[MUSIC_MAX_ENTRIES];
 static int s_music_count = 0;
 static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
 static int s_music_row_h = 15;
-static int s_music_vis_rows = 6;
 
 /* ========== 蜂鸣器播放任务 ========== */
 static void music_play_task(void *arg)
@@ -174,40 +170,44 @@ static void music_play_task(void *arg)
     s_total_notes = total;
 
     int note_idx = 0;
+    const note_t *current_notes = notes;
 
     while (1) {
         if (s_playing_melody != melody_idx) break;
 
-        const note_t *current_notes = s_melody_data[melody_idx];
-
         if (note_idx >= total) {
-            switch (s_play_mode) {
-                case PLAY_MODE_SINGLE:
-                    drv_buzzer_stop();
-                    s_playing_melody = -1;
-                    s_playing_note = 0;
-                    s_total_notes = 0;
-                    s_current_freq = 0;
-                    vTaskDelete(NULL);
-                    return;
-                case PLAY_MODE_SINGLE_LOOP:
-                    note_idx = 0;
-                    s_playing_note = 0;
-                    continue;
-                case PLAY_MODE_LIST_LOOP:
+            /* 播放结束，根据播放模式决定下一步 */
+            if (s_play_mode == PLAY_MODE_SINGLE) {
+                drv_buzzer_stop();
+                s_playing_melody = -1;
+                s_playing_note = 0;
+                s_total_notes = 0;
+                s_current_freq = 0;
+                vTaskDelete(NULL);
+                return;
+            } else if (s_play_mode == PLAY_MODE_SINGLE_LOOP) {
+                note_idx = 0;
+                s_playing_note = 0;
+                continue;
+            } else {
+                /* 列表循环或随机播放 */
+                if (s_play_mode == PLAY_MODE_LIST_LOOP) {
                     melody_idx = (melody_idx + 1) % MELODY_COUNT;
-                    goto switch_melody;
-                case PLAY_MODE_RANDOM: {
+                } else {
                     int next = rand() % MELODY_COUNT;
                     if (next == melody_idx && MELODY_COUNT > 1)
                         next = (next + 1) % MELODY_COUNT;
                     melody_idx = next;
-                    goto switch_melody;
                 }
-                default:
-                    break;
+                s_playing_melody = melody_idx;
+                note_idx = 0;
+                s_playing_note = 0;
+                current_notes = s_melody_data[melody_idx];
+                total = 0;
+                while (current_notes[total].freq != 0 || current_notes[total].duration != 0) total++;
+                s_total_notes = total;
+                continue;
             }
-            continue;
         }
 
         if (s_playing_paused) {
@@ -227,58 +227,7 @@ static void music_play_task(void *arg)
         note_idx++;
     }
 
-    drv_buzzer_stop();
-    s_playing_melody = -1;
-    s_playing_note = 0;
-    s_total_notes = 0;
-    s_current_freq = 0;
-    vTaskDelete(NULL);
-    return;
-
-switch_melody:
-    s_playing_melody = melody_idx;
-    note_idx = 0;
-    s_playing_note = 0;
-    current_notes = s_melody_data[melody_idx];
-    total = 0;
-    while (current_notes[total].freq != 0 || current_notes[total].duration != 0) total++;
-    s_total_notes = total;
-    /* 继续循环播放 */
-    while (1) {
-        if (s_playing_melody != melody_idx) break;
-        if (note_idx >= total) {
-            /* 列表循环/随机模式下继续切换 */
-            switch (s_play_mode) {
-                case PLAY_MODE_LIST_LOOP:
-                    melody_idx = (melody_idx + 1) % MELODY_COUNT;
-                    goto switch_melody;
-                case PLAY_MODE_RANDOM: {
-                    int next = rand() % MELODY_COUNT;
-                    if (next == melody_idx && MELODY_COUNT > 1)
-                        next = (next + 1) % MELODY_COUNT;
-                    melody_idx = next;
-                    goto switch_melody;
-                }
-                default:
-                    break;
-            }
-            continue;
-        }
-        if (s_playing_paused) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-        if (current_notes[note_idx].freq > 0) {
-            drv_buzzer_tone(current_notes[note_idx].freq, 0);
-            s_current_freq = current_notes[note_idx].freq;
-        } else {
-            drv_buzzer_stop();
-            s_current_freq = 0;
-        }
-        s_playing_note = note_idx;
-        vTaskDelay(pdMS_TO_TICKS(current_notes[note_idx].duration));
-        note_idx++;
-    }
+    /* 被取代，清理 */
     drv_buzzer_stop();
     s_playing_melody = -1;
     s_playing_note = 0;
@@ -504,7 +453,6 @@ static void music_init(void *data)
     ESP_LOGI(TAG, "Music app init");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
-    ui_state_t *st = ui_state_get();
     lv_obj_clean(scr);
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
