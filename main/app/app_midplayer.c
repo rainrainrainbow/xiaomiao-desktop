@@ -321,6 +321,25 @@ static void midplayer_refresh(void)
         lv_bar_set_range(bar, 0, 100);
         lv_bar_set_value(bar, pct, LV_ANIM_OFF);
         s_mid_bar = bar;
+
+        /* 第4行：音符可视化指示器（小进度条，根据当前音符频率跳动） */
+        if (s_mid_play_pos > 0 && s_mid_play_pos <= s_mid_note_count && s_mid_state == MID_STATE_PLAYING) {
+            int note = s_mid_notes[s_mid_play_pos - 1].note;
+            int vis_val = 10 + (note * 80) / 127; /* 音符编号0-127映射到10-90 */
+            if (vis_val > 100) vis_val = 100;
+            lv_obj_t *vis_bar = lv_bar_create(s_mid_obj);
+            lv_obj_remove_style_all(vis_bar);
+            lv_obj_set_style_bg_color(vis_bar, lv_color_hex(colors->border), 0);
+            lv_obj_set_style_bg_opa(vis_bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(vis_bar, 2, 0);
+            lv_obj_set_style_bg_color(vis_bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(vis_bar, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_radius(vis_bar, 2, LV_PART_INDICATOR);
+            lv_obj_set_size(vis_bar, LCD_H_RES - 8, 6);
+            lv_obj_set_pos(vis_bar, 4, row_h * 4 + 14);
+            lv_bar_set_range(vis_bar, 0, 100);
+            lv_bar_set_value(vis_bar, vis_val, LV_ANIM_OFF);
+        }
     }
 
     /* 底部：操作提示 */
@@ -358,7 +377,7 @@ static void midplayer_play_task(void *arg)
             /* 音符间小间隔 */
             vTaskDelay(pdMS_TO_TICKS(5));
             s_mid_play_pos++;
-            if (s_mid_play_pos % 16 == 0) {
+            if (s_mid_play_pos % 4 == 0) {
                 midplayer_refresh();
             }
         } else {

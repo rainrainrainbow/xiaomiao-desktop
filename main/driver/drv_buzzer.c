@@ -10,6 +10,16 @@
 
 static const char *TAG = "DRV_BUZZER";
 
+/* 当前音量（0-100），影响PWM占空比 */
+static uint8_t s_volume = 50;
+
+/* 获取50%占空比对应的duty值，用于音量调节 */
+static uint32_t get_volume_duty(void)
+{
+    uint32_t max_duty = (1 << BUZZER_DUTY_RES) - 1;
+    return (max_duty / 2) * s_volume / 100;
+}
+
 /* 音符编号到频率的换算：freq = 440 * 2^((note-69)/12) */
 uint32_t drv_buzzer_note_to_freq(int note)
 {
@@ -66,9 +76,9 @@ void drv_buzzer_tone(uint32_t freq_hz, uint32_t duration_ms)
     }
     /* 设置频率 */
     ledc_set_freq(LEDC_LOW_SPEED_MODE, BUZZER_TIMER, freq_hz);
-    /* 50% 占空比 */
-    uint32_t max_duty = (1 << BUZZER_DUTY_RES) - 1;
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, max_duty / 2);
+    /* 使用音量调节后的占空比 */
+    uint32_t duty = get_volume_duty();
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL, duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, BUZZER_CHANNEL);
 
     if (duration_ms > 0) {
@@ -88,4 +98,16 @@ void drv_buzzer_play_note(int note, uint32_t duration_ms)
 {
     uint32_t freq = drv_buzzer_note_to_freq(note);
     drv_buzzer_tone(freq, duration_ms);
+}
+
+void drv_buzzer_set_volume(uint8_t volume)
+{
+    if (volume > 100) volume = 100;
+    s_volume = volume;
+    ESP_LOGI(TAG, "Volume set to %d%%", volume);
+}
+
+uint8_t drv_buzzer_get_volume(void)
+{
+    return s_volume;
 }

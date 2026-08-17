@@ -55,6 +55,18 @@ uint32_t drv_buzzer_note_to_freq(int note);
  */
 void drv_buzzer_play_note(int note, uint32_t duration_ms);
 
+/**
+ * @brief 设置音量（通过PWM占空比调节）
+ * @param volume 音量 0-100
+ */
+void drv_buzzer_set_volume(uint8_t volume);
+
+/**
+ * @brief 获取当前音量
+ * @return 当前音量 0-100
+ */
+uint8_t drv_buzzer_get_volume(void);
+
 #ifdef __cplusplus
 }
 #endif
