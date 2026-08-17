@@ -16,6 +16,7 @@
 #include "poincare/runtime.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_partition.h"
 #include "fonts/lv_freetype_font.h"
 #include <stdio.h>
 #include <string.h>
@@ -317,13 +318,55 @@ static bool settings_on_key(int key)
 }
 
 /* ========== 关于系统页面（可滚动） ========== */
-#define ABOUT_TOTAL     14
+/* 固定信息项数量（不含分区列表） */
+#define ABOUT_ITEMS_FIXED   13
 /* 行高根据字体大小动态计算，在 about_init 中设置 */
 static int s_about_row_h = 14;
 static int s_about_vis_rows = 6;
 
 static lv_obj_t *s_about_obj = NULL;
 static int s_about_scroll = 0;
+static int s_about_total = ABOUT_ITEMS_FIXED;  /* 动态调整，包含分区数 */
+
+/* 获取分区总数 */
+static int about_get_partition_count(void)
+{
+    int count = 0;
+    esp_partition_iterator_t iter = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, NULL);
+    while (iter) {
+        count++;
+        esp_partition_iterator_t next = esp_partition_next(iter);
+        if (!next) {
+            esp_partition_iterator_release(iter);
+            break;
+        }
+        iter = next;
+    }
+    return count;
+}
+
+/* 获取第 index 个分区的指针 */
+static const esp_partition_t *about_get_partition_at(int index)
+{
+    int count = 0;
+    esp_partition_iterator_t iter = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, NULL);
+    const esp_partition_t *result = NULL;
+    while (iter) {
+        if (count == index) {
+            result = esp_partition_get(iter);
+            esp_partition_iterator_release(iter);
+            return result;
+        }
+        count++;
+        esp_partition_iterator_t next = esp_partition_next(iter);
+        if (!next) {
+            esp_partition_iterator_release(iter);
+            break;
+        }
+        iter = next;
+    }
+    return NULL;
+}
 
 static void about_rebuild_visible(void)
 {
@@ -333,7 +376,7 @@ static void about_rebuild_visible(void)
     lv_obj_clean(s_about_obj);
     int vis = s_about_vis_rows;
     if (vis < 1) vis = 1;
-    for (int i = 0; i < vis && (s_about_scroll + i) < ABOUT_TOTAL; i++) {
+    for (int i = 0; i < vis && (s_about_scroll + i) < s_about_total; i++) {
         int idx = s_about_scroll + i;
         lv_obj_t *row = lv_obj_create(s_about_obj);
         lv_obj_remove_style_all(row);
@@ -347,47 +390,94 @@ static void about_rebuild_visible(void)
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         char buf[48];
-        switch (idx) {
-        case 0: snprintf(buf, sizeof(buf), "系统: 小喵桌面"); break;
-        case 1: snprintf(buf, sizeof(buf), "版本: %s", XIAOMIAO_VERSION); break;
-        case 2: snprintf(buf, sizeof(buf), "构建: %s", XIAOMIAO_BUILD); break;
-        case 3: snprintf(buf, sizeof(buf), "芯片: ESP32-WROVER-B"); break;
-        case 4: snprintf(buf, sizeof(buf), "屏幕: ST7735 160x128"); break;
-        case 5: snprintf(buf, sizeof(buf), "Python: %s",
-                         poincare_runtime_is_ready() ? "就绪" : "未初始化"); break;
-        case 6: snprintf(buf, sizeof(buf), "字体: %s",
-                         lv_freetype_font_is_ready() ? "FreeType" : "内置"); break;
-        case 7: {
-            float vbat = drv_battery_get_voltage();
-            if (vbat >= BAT_MIN_VALID_V) {
-                int pct = drv_battery_get_percent(vbat);
-                snprintf(buf, sizeof(buf), "电池: %d%% (%.2fV)", pct, vbat);
-            } else {
-                snprintf(buf, sizeof(buf), "电池: 未检测到");
+
+        if (idx < ABOUT_ITEMS_FIXED) {
+            /* 固定信息项 */
+            switch (idx) {
+            case 0: snprintf(buf, sizeof(buf), "系统: 小喵桌面"); break;
+            case 1: snprintf(buf, sizeof(buf), "版本: %s", XIAOMIAO_VERSION); break;
+            case 2: snprintf(buf, sizeof(buf), "构建: %s", XIAOMIAO_BUILD); break;
+            case 3: snprintf(buf, sizeof(buf), "芯片: ESP32-WROVER-B"); break;
+            case 4: snprintf(buf, sizeof(buf), "屏幕: ST7735 160x128"); break;
+            case 5: snprintf(buf, sizeof(buf), "Python: %s",
+                             poincare_runtime_is_ready() ? "就绪" : "未初始化"); break;
+            case 6: snprintf(buf, sizeof(buf), "字体: %s",
+                             lv_freetype_font_is_ready() ? "FreeType" : "内置"); break;
+            case 7: {
+                float vbat = drv_battery_get_voltage();
+                if (vbat >= BAT_MIN_VALID_V) {
+                    int pct = drv_battery_get_percent(vbat);
+                    snprintf(buf, sizeof(buf), "电池: %d%% (%.2fV)", pct, vbat);
+                } else {
+                    snprintf(buf, sizeof(buf), "电池: 未检测到");
+                }
+                break;
             }
-            break;
-        }
-        case 8: snprintf(buf, sizeof(buf), "内存: %d KB 空闲",
-                         heap_caps_get_free_size(MALLOC_CAP_8BIT) / 1024); break;
-        case 9: {
-            extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end, _bss_start, _bss_end;
-            uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
-                                + (uint32_t)&_data_end - (uint32_t)&_data_start;
-            snprintf(buf, sizeof(buf), "固件: %lu KB", (unsigned long)(flash_size / 1024));
-            break;
-        }
-        case 10: snprintf(buf, sizeof(buf), "CPU: 240MHz"); break;
-        case 11: snprintf(buf, sizeof(buf), "PSRAM: 8MB"); break;
-        case 12: snprintf(buf, sizeof(buf), "Flash: 4MB"); break;
-        case 13: {
-            uint64_t us = esp_timer_get_time();
-            uint32_t sec = (uint32_t)(us / 1000000);
-            uint32_t h = sec / 3600;
-            uint32_t m = (sec % 3600) / 60;
-            snprintf(buf, sizeof(buf), "运行: %luh%lum", (unsigned long)h, (unsigned long)m);
-            break;
-        }
-        default: buf[0] = '\0'; break;
+            case 8: {
+                /* DRAM: 已用/总容量 */
+                size_t total_dram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+                size_t free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+                size_t used_dram = total_dram - free_dram;
+                snprintf(buf, sizeof(buf), "DRAM:%luK/%luK",
+                         (unsigned long)(used_dram / 1024),
+                         (unsigned long)(total_dram / 1024));
+                break;
+            }
+            case 9: {
+                /* PSRAM: 已用/总容量 */
+                size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+                if (total_psram > 0) {
+                    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+                    size_t used_psram = total_psram - free_psram;
+                    snprintf(buf, sizeof(buf), "PSRAM:%luK/%luK",
+                             (unsigned long)(used_psram / 1024),
+                             (unsigned long)(total_psram / 1024));
+                } else {
+                    snprintf(buf, sizeof(buf), "PSRAM: 未检测到");
+                }
+                break;
+            }
+            case 10: {
+                /* DMA空闲 + 堆最小空闲 */
+                size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+                size_t min_free = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+                snprintf(buf, sizeof(buf), "DMA:%luK 堆谷:%luK",
+                         (unsigned long)(free_dma / 1024),
+                         (unsigned long)(min_free / 1024));
+                break;
+            }
+            case 11: {
+                /* 运行时间 */
+                uint64_t us = esp_timer_get_time();
+                uint32_t sec = (uint32_t)(us / 1000000);
+                uint32_t h = sec / 3600;
+                uint32_t m = (sec % 3600) / 60;
+                snprintf(buf, sizeof(buf), "运行: %luh%lum", (unsigned long)h, (unsigned long)m);
+                break;
+            }
+            case 12: {
+                /* 固件大小 */
+                extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end;
+                uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
+                                    + (uint32_t)&_data_end - (uint32_t)&_data_start;
+                snprintf(buf, sizeof(buf), "固件:%luK Flash:4MB",
+                         (unsigned long)(flash_size / 1024));
+                break;
+            }
+            default: buf[0] = '\0'; break;
+            }
+        } else {
+            /* 分区信息行 */
+            int part_idx = idx - ABOUT_ITEMS_FIXED;
+            const esp_partition_t *part = about_get_partition_at(part_idx);
+            if (part) {
+                char type_c = (part->type == ESP_PARTITION_TYPE_APP) ? 'A' : 'D';
+                snprintf(buf, sizeof(buf), " %c %s:%luK",
+                         type_c, part->label,
+                         (unsigned long)(part->size / 1024));
+            } else {
+                buf[0] = '\0';
+            }
         }
         lv_label_set_text(lbl, buf);
     }
@@ -404,7 +494,7 @@ static void about_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
     ui_statusbar_set_title("关于系统");
-    
+
     /* 根据字体大小动态计算行高和可见行数 */
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
@@ -413,10 +503,13 @@ static void about_init(void *data)
     /* 可见行数根据实际内容区高度（ui_content_y）计算 */
     s_about_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_about_row_h;
     if (s_about_vis_rows < 1) s_about_vis_rows = 1;
-    
+
+    /* 动态计算总行数：固定项 + 分区数 */
+    s_about_total = ABOUT_ITEMS_FIXED + about_get_partition_count();
+
     /* 列表起始位置：状态栏下方 */
     lv_coord_t list_y = ui_content_y();
-    
+
     s_about_obj = lv_obj_create(scr);
     lv_obj_remove_style_all(s_about_obj);
     lv_obj_set_pos(s_about_obj, 0, list_y);
@@ -448,7 +541,7 @@ static bool about_on_key(int key)
         return true;
     }
     if (key == KEY_DOWN) {
-        if (s_about_scroll + s_about_vis_rows < ABOUT_TOTAL) {
+        if (s_about_scroll + s_about_vis_rows < s_about_total) {
             s_about_scroll++;
             about_rebuild_visible();
         }
