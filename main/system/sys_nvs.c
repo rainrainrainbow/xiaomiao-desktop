@@ -46,6 +46,9 @@ void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
     nvs_set_i32(s_nvs_handle, NVS_KEY_WIFI, wifi_on ? 1 : 0);
     nvs_set_i32(s_nvs_handle, NVS_KEY_LAYOUT, layout);
     nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, font_size);
+    /* 从ui_state_t读取sleep_timeout并保存 */
+    extern ui_state_t* ui_state_get(void);
+    nvs_set_i32(s_nvs_handle, NVS_KEY_SLEEP, ui_state_get()->sleep_timeout);
     nvs_commit(s_nvs_handle);
     
     ESP_LOGI(TAG, "Settings saved: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d, font_size=%d",
@@ -80,6 +83,11 @@ bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *th
     }
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, &val) == ESP_OK) {
         *font_size = val;
+    }
+    /* 加载sleep_timeout */
+    extern ui_state_t* ui_state_get(void);
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_SLEEP, &val) == ESP_OK) {
+        ui_state_get()->sleep_timeout = val;
     }
     
     if (loaded) {

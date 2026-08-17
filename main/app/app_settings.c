@@ -27,20 +27,22 @@ static const char *TAG = "APP_SETTINGS";
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
 
-/* 设置项：12项，分组显示 */
+/* 设置项：15项，分组显示 */
 static const char *s_settings_items[] = {
-    "亮度",       // 0 - 显示
-    "主题",       // 1 - 显示
-    "音量",       // 2 - 声音
+    "亮度",       // 0 - 显示 → 二级页面
+    "主题",       // 1 - 显示 → 二级页面
+    "音量",       // 2 - 声音 → 二级页面
     "WiFi",       // 3 - 网络 → 二级页面
-    "布局",       // 4 - 桌面
+    "布局",       // 4 - 桌面 → 二级页面
     "字体",       // 5 - 显示 → 二级页面
     "声音",       // 6 - 声音开关
-    "应用管理",   // 7 - 二级页面
-    "关于系统",   // 8 - 二级页面
-    "恢复默认",   // 9 - 操作
-    "保存并退出", // 10 - 操作
-    "返回Loader", // 11 - 操作（重启进入下载模式）
+    "屏幕超时",   // 7 - 显示 → 二级页面
+    "日期时间",   // 8 - 系统 → 二级页面
+    "应用管理",   // 9 - 二级页面
+    "关于系统",   // 10 - 二级页面
+    "恢复默认",   // 11 - 操作
+    "保存并退出", // 12 - 操作
+    "返回Loader", // 13 - 操作（重启进入下载模式）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
@@ -50,7 +52,7 @@ static const char *s_settings_items[] = {
 /* 可见行数使用动态变量 s_settings_vis_rows，在 settings_init 中根据字体大小计算 */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[11] = {0};
+static lv_obj_t *s_settings_labels[14] = {0};
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
 
@@ -59,7 +61,8 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "音量", "WiFi", "布局", "字体", "声音", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
+        "亮度", "主题", "音量", "WiFi", "布局", "字体", "声音",
+        "屏幕超时", "日期时间", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
     };
     char buf[64];
     switch (idx) {
@@ -79,9 +82,19 @@ static void settings_refresh_label(int idx)
         break;
     }
     case 6: snprintf(buf, sizeof(buf), "%s: %s", items[6], st->sound_on ? "开" : "关"); break;
-    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break;
+    case 7: {
+        const char *sleep_str = "永不";
+        if (st->sleep_timeout == 30) sleep_str = "30秒";
+        else if (st->sleep_timeout == 60) sleep_str = "60秒";
+        else if (st->sleep_timeout == 120) sleep_str = "2分";
+        else if (st->sleep_timeout == 300) sleep_str = "5分";
+        snprintf(buf, sizeof(buf), "%s: %s", items[7], sleep_str);
+        break;
+    }
     case 8: snprintf(buf, sizeof(buf), "%s", items[8]); break;
     case 9: snprintf(buf, sizeof(buf), "%s", items[9]); break;
+    case 10: snprintf(buf, sizeof(buf), "%s", items[10]); break;
+    case 11: snprintf(buf, sizeof(buf), "%s", items[11]); break;
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
     }
     lv_label_set_text(s_settings_labels[idx], buf);
@@ -210,35 +223,44 @@ static bool settings_on_key(int key)
         return true;
     }
     if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
-        int delta = (key == KEY_LEFT) ? -1 : 1;
         switch (s_settings_sel) {
         case 0:
-            st->brightness += delta * 10;
-            if (st->brightness < 10) st->brightness = 10;
-            if (st->brightness > 100) st->brightness = 100;
-            drv_backlight_set_brightness(st->brightness);
+            /* 亮度 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_brightness_settings_callbacks, NULL);
+                return true;
+            }
             break;
         case 1:
-            st->theme = (st->theme == THEME_DARK) ? THEME_LIGHT : THEME_DARK;
-            ui_theme_set(st->theme);
+            /* 主题 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_theme_settings_callbacks, NULL);
+                return true;
+            }
             break;
         case 2:
-            st->volume += delta * 10;
-            if (st->volume < 0) st->volume = 0;
-            if (st->volume > 100) st->volume = 100;
+            /* 音量 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_volume_settings_callbacks, NULL);
+                return true;
+            }
             break;
         case 3:
-            /* WiFi → 推入二级页面 */
+            /* WiFi → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_wifi_settings_callbacks, NULL);
                 return true;
             }
             break;
         case 4:
-            st->layout = (st->layout == 0) ? 1 : 0;
+            /* 布局 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_layout_settings_callbacks, NULL);
+                return true;
+            }
             break;
         case 5:
-            /* 字体 → 推入二级页面 */
+            /* 字体 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_font_settings_callbacks, NULL);
                 return true;
@@ -251,25 +273,40 @@ static bool settings_on_key(int key)
             }
             break;
         case 7:
+            /* 屏幕超时 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_sleep_settings_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 8:
+            /* 日期时间 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_datetime_settings_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 9:
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
             return true;
-        case 8:
+        case 10:
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
-        case 9:
+        case 11:
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
+            st->sleep_timeout = 60;
             drv_backlight_set_brightness(st->brightness);
             ui_theme_set(st->theme);
             ESP_LOGI(TAG, "Settings reset to defaults");
             settings_rebuild_visible();
             return true;
-        case 10:
+        case 12:
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
             ui_stack_pop();
             return true;
-        case 11:
+        case 13:
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);

@@ -74,4 +74,34 @@ extern const page_callbacks_t g_wifi_settings_callbacks;
  */
 extern const page_callbacks_t g_font_settings_callbacks;
 
+/**
+ * 亮度设置二级页面回调
+ */
+extern const page_callbacks_t g_brightness_settings_callbacks;
+
+/**
+ * 音量设置二级页面回调
+ */
+extern const page_callbacks_t g_volume_settings_callbacks;
+
+/**
+ * 主题设置二级页面回调
+ */
+extern const page_callbacks_t g_theme_settings_callbacks;
+
+/**
+ * 布局设置二级页面回调
+ */
+extern const page_callbacks_t g_layout_settings_callbacks;
+
+/**
+ * 屏幕超时设置二级页面回调
+ */
+extern const page_callbacks_t g_sleep_settings_callbacks;
+
+/**
+ * 日期时间设置二级页面回调
+ */
+extern const page_callbacks_t g_datetime_settings_callbacks;
+
 #endif /* APP_BUILTIN_H */

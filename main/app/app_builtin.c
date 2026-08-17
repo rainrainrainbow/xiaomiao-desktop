@@ -111,6 +111,12 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "MID播放") == 0) return &g_midplayer_callbacks;
     if (strcmp(app_name, "WiFi设置") == 0) return &g_wifi_settings_callbacks;
     if (strcmp(app_name, "字体设置") == 0) return &g_font_settings_callbacks;
+    if (strcmp(app_name, "亮度设置") == 0) return &g_brightness_settings_callbacks;
+    if (strcmp(app_name, "音量设置") == 0) return &g_volume_settings_callbacks;
+    if (strcmp(app_name, "主题设置") == 0) return &g_theme_settings_callbacks;
+    if (strcmp(app_name, "布局设置") == 0) return &g_layout_settings_callbacks;
+    if (strcmp(app_name, "屏幕超时") == 0) return &g_sleep_settings_callbacks;
+    if (strcmp(app_name, "日期时间") == 0) return &g_datetime_settings_callbacks;
     return NULL;
 }
 
