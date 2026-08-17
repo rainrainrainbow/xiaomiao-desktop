@@ -327,8 +327,9 @@ typedef struct {
     int volume;                 // 音量 (0-100)
     bool sound_on;              // 声音开关
     bool wifi_on;               // WiFi开关
-    int layout;                 // 布局模式 (0=4应用, 1=2应用)
+    int layout;                 // 布局模式 (0=3列, 1=2列)
     int font_size;              // 字体大小 (14/16/20/24)
+    int sleep_timeout;          // 屏幕超时秒数 (0=永不, 30/60/120/300)
 } ui_state_t;
 
 /**

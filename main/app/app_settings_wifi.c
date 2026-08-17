@@ -8,6 +8,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
+#include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"

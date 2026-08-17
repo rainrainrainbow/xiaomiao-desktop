@@ -77,6 +77,7 @@ static ui_state_t s_ui_state = {
     .wifi_on = true,
     .layout = 0,
     .font_size = 14,
+    .sleep_timeout = 60,
 };
 
 /* ========== v1 兼容辅助函数 ========== */
@@ -530,16 +531,12 @@ lv_coord_t ui_titlebar_y(void)
     return ui_statusbar_h();
 }
 
-/* 获取内容区起始Y坐标（状态栏 + 标题栏高度，根据字体大小自适应） */
+/* 获取内容区起始Y坐标（状态栏高度，根据字体大小自适应）
+ * v65 起应用不再显示标题栏，应用名只在状态栏左上角显示，
+ * 因此内容区直接从状态栏下方开始。 */
 lv_coord_t ui_content_y(void)
 {
-    ui_state_t *state = ui_state_get();
-    int font_px = state->font_size;
-    if (font_px < 14) font_px = 14;
-    if (font_px > 24) font_px = 24;
-    lv_coord_t title_h = font_px + 2;
-    if (title_h < 14) title_h = 14;
-    return ui_statusbar_h() + title_h;
+    return ui_statusbar_h();
 }
 
 void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected)
