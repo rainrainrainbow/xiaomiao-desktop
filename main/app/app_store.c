@@ -208,6 +208,14 @@ static void store_rebuild_visible(void)
     
     lv_obj_clean(s_store_obj);
     
+    const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *st = ui_state_get();
+    int font_px = st->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    s_row_h = font_px + 2;
+    if (s_row_h < 16) s_row_h = 16;
+    
     int vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_row_h;
     if (vis_rows < 1) vis_rows = 1;
     
@@ -226,25 +234,28 @@ static void store_rebuild_visible(void)
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_row_h);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         
         // 选中高亮
         if (idx == s_sel) {
-            lv_obj_set_style_bg_color(row, lv_color_hex(0x5C4220), 0);
+            lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
         
         // 应用名
         lv_obj_t *name_lbl = lv_label_create(row);
-        lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-        lv_obj_set_style_text_color(name_lbl, lv_color_hex(idx == s_sel ? 0xF6D34A : 0xFFFFFF), 0);
-        lv_obj_set_pos(name_lbl, 2, 0);
+        lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 2, 0);
         lv_label_set_text(name_lbl, app->name);
         
         // 状态标签（已安装/未安装）
         lv_obj_t *status_lbl = lv_label_create(row);
-        lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
+        lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(status_lbl, 
-            lv_color_hex(app->installed ? 0x22C55E : 0x9CA3AF), 0);
+            lv_color_hex(app->installed ? 0x22C55E : colors->text_dim), 0);
         lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
         lv_label_set_text(status_lbl, app->installed ? "已安装" : "未安装");
     }
@@ -252,9 +263,9 @@ static void store_rebuild_visible(void)
     // 如果没有应用，显示提示
     if (s_app_count == 0) {
         lv_obj_t *empty_lbl = lv_label_create(s_store_obj);
-        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(0x9CA3AF), 0);
-        lv_obj_set_pos(empty_lbl, 2, 4);
+        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
         lv_label_set_text(empty_lbl, "未找到应用\n请将 .app 目录\n放入SD卡根目录");
     }
 }
@@ -263,6 +274,7 @@ static void store_rebuild_visible(void)
 static void update_info_label(void)
 {
     if (!s_info_label) return;
+    const theme_colors_t *colors = ui_theme_colors();
     
     if (s_app_count > 0 && s_sel >= 0 && s_sel < s_app_count) {
         store_app_t *app = &s_apps[s_sel];
@@ -291,7 +303,7 @@ static void store_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     
     ui_statusbar_create(scr);
-    ui_titlebar_create(scr, ui_titlebar_y(), "应用商店");
+    ui_statusbar_set_title("应用商店");
     
     // 计算行高
     s_row_h = ui_state_get()->font_size + 2;
@@ -307,7 +319,7 @@ static void store_init(void *data)
     // 底部信息栏
     s_info_label = lv_label_create(scr);
     lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
-    lv_obj_set_style_text_color(s_info_label, lv_color_hex(0x9CA3AF), 0);
+    lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
     
     // 底部导航栏

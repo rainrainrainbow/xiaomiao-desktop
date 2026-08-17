@@ -86,12 +86,18 @@ static void txt_viewer_refresh(void)
     int end = start + vis_rows;
     if (end > s_txt_line_count) end = s_txt_line_count;
     for (int i = start; i < end; i++) {
-        lv_obj_t *lbl = lv_label_create(s_txt_obj);
+        int row_idx = i - start;
+        lv_obj_t *row = lv_obj_create(s_txt_obj);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_pos(row, 0, row_h + 2 + row_idx * row_h);
+        lv_obj_set_size(row, LCD_H_RES, row_h);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, s_txt_lines[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
-        int row_y = row_h + 2 + (i - start) * row_h;
-        lv_obj_set_pos(lbl, 4, row_y);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 }
 

@@ -69,7 +69,7 @@ static void settings_refresh_label(int idx)
     case 1: snprintf(buf, sizeof(buf), "%s: %s", items[1],
                      st->theme == THEME_DARK ? "深色" : "浅色"); break;
     case 2: snprintf(buf, sizeof(buf), "%s: %d%%", items[2], st->volume); break;
-    case 3: snprintf(buf, sizeof(buf), "%s: %s", items[3], st->wifi_on ? "开" : "关"); break;
+    case 3: snprintf(buf, sizeof(buf), "%s", items[3]); break;
     case 4: snprintf(buf, sizeof(buf), "%s: %s",
                      items[4], st->layout == 0 ? "3列" : "2列"); break;
     case 5: {

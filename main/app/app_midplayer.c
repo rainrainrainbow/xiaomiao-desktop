@@ -240,74 +240,102 @@ static void midplayer_refresh(void)
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
+    int row_h = font_px + 2;
 
     char buf[96];
 
-    /* 文件名 */
+    /* 第0行：文件名 */
+    lv_obj_t *row0 = lv_obj_create(s_mid_obj);
+    lv_obj_remove_style_all(row0);
+    lv_obj_set_pos(row0, 0, 0);
+    lv_obj_set_size(row0, LCD_H_RES, row_h);
+    lv_obj_clear_flag(row0, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row0, LV_OPA_TRANSP, 0);
     snprintf(buf, sizeof(buf), "> %s", s_mid_file_name);
-    lv_obj_t *name_lbl = lv_label_create(s_mid_obj);
+    lv_obj_t *name_lbl = lv_label_create(row0);
     lv_label_set_text(name_lbl, buf);
     lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
     lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_pos(name_lbl, 4, 2);
+    lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
-    /* 音符数 */
+    /* 第1行：音符数 */
+    lv_obj_t *row1 = lv_obj_create(s_mid_obj);
+    lv_obj_remove_style_all(row1);
+    lv_obj_set_pos(row1, 0, row_h);
+    lv_obj_set_size(row1, LCD_H_RES, row_h);
+    lv_obj_clear_flag(row1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row1, LV_OPA_TRANSP, 0);
     snprintf(buf, sizeof(buf), "音符: %d", s_mid_note_count);
-    lv_obj_t *info_lbl = lv_label_create(s_mid_obj);
+    lv_obj_t *info_lbl = lv_label_create(row1);
     lv_label_set_text(info_lbl, buf);
     lv_obj_set_style_text_color(info_lbl, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(info_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_pos(info_lbl, 4, font_px + 4);
+    lv_obj_align(info_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
-    /* 播放状态 */
+    /* 第2行：播放状态 */
+    lv_obj_t *row2 = lv_obj_create(s_mid_obj);
+    lv_obj_remove_style_all(row2);
+    lv_obj_set_pos(row2, 0, row_h * 2);
+    lv_obj_set_size(row2, LCD_H_RES, row_h);
+    lv_obj_clear_flag(row2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row2, LV_OPA_TRANSP, 0);
     const char *state_str = "空闲";
     if (s_mid_state == MID_STATE_PLAYING) state_str = "播放中";
     else if (s_mid_state == MID_STATE_PAUSED) state_str = "已暂停";
     else if (s_mid_state == MID_STATE_DONE) state_str = "播放完成";
-
     snprintf(buf, sizeof(buf), "状态: %s", state_str);
-    lv_obj_t *state_lbl = lv_label_create(s_mid_obj);
+    lv_obj_t *state_lbl = lv_label_create(row2);
     lv_label_set_text(state_lbl, buf);
     lv_obj_set_style_text_color(state_lbl, lv_color_hex(colors->text), 0);
     lv_obj_set_style_text_font(state_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_pos(state_lbl, 4, font_px * 2 + 6);
+    lv_obj_align(state_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
-    /* 进度条 + 进度文本 */
+    /* 第3行：进度文本 + 进度条 */
     if (s_mid_note_count > 0) {
         int pct = (s_mid_play_pos * 100) / s_mid_note_count;
         if (pct > 100) pct = 100;
         snprintf(buf, sizeof(buf), "进度: %d%% (%d/%d)", pct, s_mid_play_pos, s_mid_note_count);
-        lv_obj_t *prog_lbl = lv_label_create(s_mid_obj);
+        lv_obj_t *row3 = lv_obj_create(s_mid_obj);
+        lv_obj_remove_style_all(row3);
+        lv_obj_set_pos(row3, 0, row_h * 3);
+        lv_obj_set_size(row3, LCD_H_RES, row_h);
+        lv_obj_clear_flag(row3, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(row3, LV_OPA_TRANSP, 0);
+        lv_obj_t *prog_lbl = lv_label_create(row3);
         lv_label_set_text(prog_lbl, buf);
         lv_obj_set_style_text_color(prog_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(prog_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_pos(prog_lbl, 4, font_px * 3 + 8);
+        lv_obj_align(prog_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
         /* LVGL 进度条组件 */
         lv_obj_t *bar = lv_bar_create(s_mid_obj);
         lv_obj_remove_style_all(bar);
-        /* 背景 */
         lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(bar, 3, 0);
-        /* 指示器 */
         lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
         lv_obj_set_size(bar, LCD_H_RES - 8, 10);
-        lv_obj_set_pos(bar, 4, font_px * 4 + 10);
+        lv_obj_set_pos(bar, 4, row_h * 4 + 2);
         lv_bar_set_range(bar, 0, 100);
         lv_bar_set_value(bar, pct, LV_ANIM_OFF);
         s_mid_bar = bar;
     }
 
-    /* 操作提示 */
+    /* 底部：操作提示 */
+    lv_obj_t *hint_row = lv_obj_create(s_mid_obj);
+    lv_obj_remove_style_all(hint_row);
+    lv_obj_set_pos(hint_row, 0, LCD_V_RES - DOCK_H - row_h);
+    lv_obj_set_size(hint_row, LCD_H_RES, row_h);
+    lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(hint_row, LV_OPA_TRANSP, 0);
     snprintf(buf, sizeof(buf), "A:播放/暂停  B:返回");
-    lv_obj_t *hint_lbl = lv_label_create(s_mid_obj);
+    lv_obj_t *hint_lbl = lv_label_create(hint_row);
     lv_label_set_text(hint_lbl, buf);
     lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_pos(hint_lbl, 4, LCD_V_RES - DOCK_H - font_px - 4);
+    lv_obj_align(hint_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 }
 
 /* ========== 播放任务 ========== */
