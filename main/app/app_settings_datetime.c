@@ -1,27 +1,87 @@
 /**
  * @file app_settings_datetime.c
- * @brief 日期时间设置二级页面 - 显示当前时间，预留NTP同步接口
+ * @brief 日期时间设置二级页面 - 显示当前时间，支持NTP同步
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_datetime_settings_callbacks。
- * 显示当前日期时间，提供NTP同步功能（预留）。
+ * 显示当前日期时间，提供NTP同步功能（通过SNTP协议从网络获取时间）。
+ * 需要WiFi已连接才能进行NTP同步。
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_netif_sntp.h"
+#include "esp_sntp.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 
 static const char *TAG = "APP_DATETIME";
 
+/* ========== NTP同步状态 ========== */
+typedef enum {
+    NTP_IDLE = 0,       // 空闲
+    NTP_SYNCING,        // 同步中
+    NTP_SUCCESS,        // 同步成功
+    NTP_FAILED,         // 同步失败
+} ntp_state_t;
+
+static ntp_state_t s_ntp_state = NTP_IDLE;
+static bool s_ntp_initialized = false;
+static char s_ntp_status[32] = "A键NTP同步";
+
+/* ========== NTP同步回调 ========== */
+static void ntp_sync_callback(struct timeval *tv)
+{
+    ESP_LOGI(TAG, "NTP time synchronized successfully");
+    s_ntp_state = NTP_SUCCESS;
+    strcpy(s_ntp_status, "同步成功!");
+}
+
+/* ========== NTP同步函数 ========== */
+static void ntp_sync_start(void)
+{
+    if (s_ntp_state == NTP_SYNCING) {
+        ESP_LOGW(TAG, "NTP sync already in progress");
+        return;
+    }
+
+    s_ntp_state = NTP_SYNCING;
+    strcpy(s_ntp_status, "同步中...");
+
+    // 设置时区为北京时间 (UTC+8)
+    setenv("TZ", "CST-8", 1);
+    tzset();
+
+    if (!s_ntp_initialized) {
+        ESP_LOGI(TAG, "Initializing SNTP");
+        // 配置SNTP：使用国内NTP服务器池
+        esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("cn.pool.ntp.org");
+        config.sync_cb = ntp_sync_callback;
+        config.renew_servers_after_new_IP = true;
+        
+        esp_netif_sntp_init(&config);
+        
+        // 添加备用服务器
+        esp_sntp_setservername(1, "ntp.aliyun.com");
+        esp_sntp_setservername(2, "time.nist.gov");
+        
+        s_ntp_initialized = true;
+    } else {
+        // 重新触发同步
+        esp_netif_sntp_start();
+    }
+
+    ESP_LOGI(TAG, "SNTP started, waiting for time sync...");
+}
+
 /* ========== UI状态 ========== */
 static lv_obj_t *s_dt_list = NULL;
-static lv_obj_t *s_dt_labels[4] = {0};
+static lv_obj_t *s_dt_labels[5] = {0};
 static int s_dt_sel = 0;
 static int s_dt_vis_rows = 6;
 static int s_dt_row_h = 14;
-static int s_dt_total = 4;
+static int s_dt_total = 5;
 
 static void dt_refresh_label(int idx)
 {
@@ -30,23 +90,41 @@ static void dt_refresh_label(int idx)
     char buf[48];
 
     time_t now;
-    struct tm *tm_info;
+    struct tm tm_info;
     time(&now);
-    tm_info = localtime(&now);
+    localtime_r(&now, &tm_info);
 
     switch (idx) {
     case 0:
         snprintf(buf, sizeof(buf), "日期: %04d-%02d-%02d",
-                 tm_info->tm_year + 1900, tm_info->tm_mon + 1, tm_info->tm_mday);
+                 tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
         break;
     case 1:
         snprintf(buf, sizeof(buf), "时间: %02d:%02d:%02d",
-                 tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
+                 tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
         break;
     case 2:
-        snprintf(buf, sizeof(buf), "NTP同步: 未实现");
+        // 显示NTP同步状态
+        if (s_ntp_state == NTP_SYNCING) {
+            snprintf(buf, sizeof(buf), "NTP: 同步中...");
+        } else if (s_ntp_state == NTP_SUCCESS) {
+            snprintf(buf, sizeof(buf), "NTP: 已同步 ✓");
+        } else if (s_ntp_state == NTP_FAILED) {
+            snprintf(buf, sizeof(buf), "NTP: 同步失败");
+        } else {
+            snprintf(buf, sizeof(buf), "NTP: 按A键同步");
+        }
         break;
     case 3:
+        // 显示NTP状态详情
+        if (s_ntp_state == NTP_SUCCESS) {
+            snprintf(buf, sizeof(buf), "当前: %02d:%02d:%02d",
+                     tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
+        } else {
+            snprintf(buf, sizeof(buf), "%s", s_ntp_status);
+        }
+        break;
+    case 4:
         snprintf(buf, sizeof(buf), "B键返回");
         break;
     default:
@@ -107,6 +185,7 @@ static void dt_settings_init(void *data)
     lv_obj_set_size(s_dt_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(s_dt_list, LV_OBJ_FLAG_SCROLLABLE);
     s_dt_sel = 0;
+    
     dt_rebuild_visible();
     ui_dock_create(scr, 1, 0);
 }
@@ -121,16 +200,25 @@ static void dt_settings_destroy(void)
 static bool dt_settings_on_key(int key)
 {
     if (key == KEY_B) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
+    
     if (key == KEY_UP || key == KEY_DOWN) {
         /* 刷新显示时间 */
         dt_rebuild_visible();
         return true;
     }
+    
     if (key == KEY_A) {
-        /* 刷新时间 */
+        /* 按A键触发NTP同步 */
+        ESP_LOGI(TAG, "NTP sync triggered by user");
+        
+        // 重置状态并开始同步
+        s_ntp_state = NTP_IDLE;
+        ntp_sync_start();
+        
         dt_rebuild_visible();
         return true;
     }
+    
     return false;
 }
 
