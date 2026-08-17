@@ -15,6 +15,7 @@
 #include "driver/drv_battery.h"
 #include "poincare/runtime.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
 #include <stdio.h>
 #include <string.h>
@@ -316,7 +317,7 @@ static bool settings_on_key(int key)
 }
 
 /* ========== 关于系统页面（可滚动） ========== */
-#define ABOUT_TOTAL     10
+#define ABOUT_TOTAL     14
 /* 行高根据字体大小动态计算，在 about_init 中设置 */
 static int s_about_row_h = 14;
 static int s_about_vis_rows = 6;
@@ -373,6 +374,17 @@ static void about_rebuild_visible(void)
             uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
                                 + (uint32_t)&_data_end - (uint32_t)&_data_start;
             snprintf(buf, sizeof(buf), "固件: %lu KB", (unsigned long)(flash_size / 1024));
+            break;
+        }
+        case 10: snprintf(buf, sizeof(buf), "CPU: 240MHz"); break;
+        case 11: snprintf(buf, sizeof(buf), "PSRAM: 8MB"); break;
+        case 12: snprintf(buf, sizeof(buf), "Flash: 4MB"); break;
+        case 13: {
+            uint64_t us = esp_timer_get_time();
+            uint32_t sec = (uint32_t)(us / 1000000);
+            uint32_t h = sec / 3600;
+            uint32_t m = (sec % 3600) / 60;
+            snprintf(buf, sizeof(buf), "运行: %luh%lum", (unsigned long)h, (unsigned long)m);
             break;
         }
         default: buf[0] = '\0'; break;

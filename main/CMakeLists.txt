@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS 
         "main.c"
+        "lang/lang.c"
         "ui/ui_framework.c"
         "ui/event_bus.c"
         "app/app_manager.c"
@@ -42,7 +43,7 @@ idf_component_register(
         "../escher/layout.c"
         "../escher/theme.c"
         "../poincare/runtime.c"
-    INCLUDE_DIRS "." "ui" "app" "driver" "system" "fonts"
+    INCLUDE_DIRS "." "lang" "ui" "app" "driver" "system" "fonts"
         ".."
         "../ion"
         "../kandinsky"
@@ -54,5 +55,5 @@ idf_component_register(
         "../components/micropython/micropython/shared"
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc freetype
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc freetype wear_levelling
 )

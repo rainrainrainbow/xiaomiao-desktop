@@ -30,6 +30,8 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_netif.h"
+#include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -61,6 +63,11 @@
 
 // FreeType 字体支持（从SD卡加载TrueType/OpenType字体，实现完整中文显示）
 #include "fonts/lv_freetype_font.h"
+
+// retro-core 分区挂载（FAT存储空间，用于字库/图标/音乐）
+#include "esp_partition.h"
+#include "esp_vfs_fat.h"
+#include "wear_levelling.h"
 
 static const char *TAG = "MAIN";
 
@@ -196,7 +203,7 @@ static esp_lcd_panel_io_handle_t lcd_init(void)
         .miso_io_num = PIN_LCD_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_H_RES * LCD_V_RES * 2
+        .max_transfer_sz = 16 * 1024  // 16KB 最大传输，与显示缓存一致，减少DMA压力
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO));
     
@@ -794,6 +801,34 @@ static void ui_init_task(void *arg)
         ESP_LOGI(TAG, "MicroPython runtime pre-initialized successfully");
     }
     
+    // 挂载 retro-core FAT 分区（用于存放系统字库、图标、内置音乐等）
+    // 分区表：retro-core, data, fat, 0x2C0000, 0x140000 (1.25MB)
+    ESP_LOGI(TAG, "Mounting retro-core partition at /flash...");
+    const esp_partition_t *retro_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "retro-core");
+    if (retro_part) {
+        ESP_LOGI(TAG, "retro-core partition found: offset=0x%08X, size=%lu KB",
+                 (unsigned int)retro_part->address,
+                 (unsigned long)(retro_part->size / 1024));
+        
+        // 配置 FAT 挂载
+        static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
+        esp_vfs_fat_mount_config_t mount_cfg = {
+            .format_if_mount_failed = true,
+            .max_files = 8,
+            .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
+        };
+        esp_err_t ret = esp_vfs_fat_spiflash_mount_rw_wl("/flash", "retro-core",
+                                                          &mount_cfg, &s_wl_handle);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "retro-core partition mounted at /flash");
+        } else {
+            ESP_LOGW(TAG, "Failed to mount retro-core: %s", esp_err_to_name(ret));
+        }
+    } else {
+        ESP_LOGW(TAG, "retro-core partition not found!");
+    }
+    
     // 推入桌面页面
     ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
     
@@ -835,6 +870,10 @@ void app_main(void)
     
     // 初始化系统服务
     sys_nvs_init();
+    
+    // 初始化网络接口（WiFi用，只需一次）
+    esp_netif_init();
+    esp_event_loop_create_default();
     
     // 重要：先初始化按键，再初始化电池（因为GPIO34共享）
     drv_button_init();
