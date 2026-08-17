@@ -648,11 +648,7 @@ static bool recents_page_on_key(int key)
  * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
  */
 #define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，优先从 PSRAM 分配
-#define UI_TASK_STACK_DRAM   (32 * 1024)   // 32KB 回退栈，从 DRAM 分配
-
-/* 静态 TCB 和栈（用于 xTaskCreateStatic） */
-static StaticTask_t s_ui_task_tcb;
-static void *s_ui_task_stack = NULL;
+/* (UI_TASK_STACK_DRAM, s_ui_task_tcb, s_ui_task_stack removed - no longer needed) */
 
 static void ui_init_task(void *arg)
 {
