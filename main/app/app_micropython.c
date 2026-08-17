@@ -110,9 +110,18 @@ static void python_app_activate(void)
     /* 获取当前应用名（从 app_manager 或标题） */
     const char *app_name = app_manager_get_current_name();
     if (!app_name) app_name = "Python";
-    ui_titlebar_create(scr, ui_titlebar_y(), app_name);
+    ui_statusbar_set_title(app_name);
 
-    // LV_FONT_DECLARE removed, using lv_font_cn_get()
+    int font_px = ui_state_get()->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
+    /* 创建内容容器 */
+    lv_obj_t *content = lv_obj_create(scr);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_pos(content, 0, ui_content_y());
+    lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     /* 查找当前应用的入口文件 */
     int py_count = 0;
@@ -125,57 +134,80 @@ static void python_app_activate(void)
             break;
         }
     }
-    
+
+    /* 结果状态 */
+    int ret = -1;
+    const char *result_msg = NULL;
+    const char *result_icon = LV_SYMBOL_OK;
+    uint32_t result_color = colors->text;
+
     /* 如果没找到，检查是否是内置的"Python"测试应用 */
     if (!entry_file && strcmp(app_name, "Python") == 0) {
         /* 执行测试脚本 */
-        int ret = app_micropython_exec("print('Hello from XiaoMiao MicroPython!')\n", "<boot>");
-
-        /* 显示测试结果 */
-        lv_obj_t *lbl = lv_label_create(scr);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
-
+        ret = app_micropython_exec("print('Hello from XiaoMiao MicroPython!')\n", "<boot>");
         if (ret == 0) {
-            lv_label_set_text(lbl, "MicroPython 运行正常!\nHello from XiaoMiao!");
+            result_msg = "MicroPython 运行正常!\nHello from XiaoMiao!";
             ESP_LOGI(TAG, "MicroPython test PASSED");
         } else {
-            lv_label_set_text(lbl, "MicroPython 测试失败\n请查看串口日志");
+            result_msg = "MicroPython 测试失败\n请查看串口日志";
+            result_icon = LV_SYMBOL_WARNING;
+            result_color = 0xFF4444;
             ESP_LOGE(TAG, "MicroPython test FAILED");
         }
-        
-        ui_dock_create(scr, 1, 0);
-        return;
-    }
-    
-    if (!entry_file) {
-        lv_obj_t *lbl = lv_label_create(scr);
-        lv_label_set_text(lbl, "未找到入口文件");
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
-        ui_dock_create(scr, 1, 0);
-        return;
-    }
-
-    /* 执行入口文件 */
-    ESP_LOGI(TAG, "Executing MicroPython app: %s", entry_file);
-    int ret = app_micropython_exec_file(entry_file);
-
-    /* 显示执行结果 */
-    lv_obj_t *lbl = lv_label_create(scr);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-    lv_obj_align(lbl, LV_ALIGN_CENTER, 0, -8);
-
-    if (ret == 0) {
-        lv_label_set_text(lbl, "应用运行完毕");
-        ESP_LOGI(TAG, "MicroPython app %s executed successfully", entry_file);
+    } else if (!entry_file) {
+        result_msg = "未找到入口文件";
+        result_icon = LV_SYMBOL_WARNING;
+        result_color = 0xFFAA00;
     } else {
-        lv_label_set_text(lbl, "应用执行失败\n请查看串口日志");
-        ESP_LOGE(TAG, "MicroPython app %s execution FAILED", entry_file);
+        /* 执行入口文件 */
+        ESP_LOGI(TAG, "Executing MicroPython app: %s", entry_file);
+        ret = app_micropython_exec_file(entry_file);
+        if (ret == 0) {
+            result_msg = "应用运行完毕";
+            ESP_LOGI(TAG, "MicroPython app %s executed successfully", entry_file);
+        } else {
+            result_msg = "应用执行失败\n请查看串口日志";
+            result_icon = LV_SYMBOL_WARNING;
+            result_color = 0xFF4444;
+            ESP_LOGE(TAG, "MicroPython app %s execution FAILED", entry_file);
+        }
     }
+
+    /* 应用图标（居中上方，使用LVGL内置Montserrat字体显示符号） */
+    lv_obj_t *icon_lbl = lv_label_create(content);
+    lv_label_set_text(icon_lbl, LV_SYMBOL_SETTINGS);
+    lv_obj_set_style_text_color(icon_lbl, lv_color_hex(colors->text_dim), 0);
+    lv_obj_set_style_text_font(icon_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(icon_lbl, LV_ALIGN_TOP_MID, 0, 12);
+
+    /* 应用名 */
+    lv_obj_t *name_lbl = lv_label_create(content);
+    lv_label_set_text(name_lbl, app_name);
+    lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
+    lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
+    lv_obj_align(name_lbl, LV_ALIGN_TOP_MID, 0, font_px + 20);
+
+    /* 结果状态图标（使用LVGL内置Montserrat字体显示符号） */
+    lv_obj_t *result_icon_lbl = lv_label_create(content);
+    lv_label_set_text(result_icon_lbl, result_icon);
+    lv_obj_set_style_text_color(result_icon_lbl, lv_color_hex(result_color), 0);
+    lv_obj_set_style_text_font(result_icon_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_align(result_icon_lbl, LV_ALIGN_CENTER, 0, -font_px);
+
+    /* 结果消息 */
+    lv_obj_t *result_lbl = lv_label_create(content);
+    lv_label_set_text(result_lbl, result_msg ? result_msg : "");
+    lv_obj_set_style_text_color(result_lbl, lv_color_hex(result_color), 0);
+    lv_obj_set_style_text_font(result_lbl, lv_font_cn_get(font_px), 0);
+    lv_obj_set_style_text_align(result_lbl, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(result_lbl, LV_ALIGN_CENTER, 0, font_px + 4);
+
+    /* 操作提示 */
+    lv_obj_t *hint_lbl = lv_label_create(content);
+    lv_label_set_text(hint_lbl, "B:返回");
+    lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
+    lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(font_px), 0);
+    lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     ui_dock_create(scr, 1, 0);
 }

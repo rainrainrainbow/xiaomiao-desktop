@@ -4,6 +4,7 @@
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_brightness_settings_callbacks。
  * 提供10%-100%的亮度调节，左右键步进10%，A键确认返回。
+ * 使用 LVGL lv_bar 进度条组件显示当前亮度。
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
@@ -18,6 +19,7 @@ static const char *TAG = "APP_BRIGHTNESS";
 /* ========== UI状态 ========== */
 static lv_obj_t *s_br_list = NULL;
 static lv_obj_t *s_br_labels[3] = {0};
+static lv_obj_t *s_br_bar = NULL;   /* 亮度进度条 */
 static int s_br_sel = 0;
 static int s_br_vis_rows = 6;
 static int s_br_row_h = 14;
@@ -29,18 +31,19 @@ static void br_refresh_label(int idx)
     char buf[48];
     switch (idx) {
     case 0: snprintf(buf, sizeof(buf), "亮度: %d%%", st->brightness); break;
-    case 1: {
-        int bars = st->brightness / 10;
-        char bar[16]; memset(bar, 0, sizeof(bar));
-        for (int i = 0; i < bars && i < 10; i++) bar[i] = '=';
-        if (bars < 10) bar[bars] = '>';
-        snprintf(buf, sizeof(buf), "[%s]", bar);
-        break;
-    }
+    case 1: snprintf(buf, sizeof(buf), "当前亮度"); break;
     case 2: snprintf(buf, sizeof(buf), "← → 调节  A确认"); break;
     default: buf[0] = '\0'; break;
     }
     lv_label_set_text(s_br_labels[idx], buf);
+}
+
+/* 刷新亮度进度条 */
+static void br_refresh_bar(void)
+{
+    if (!s_br_bar) return;
+    ui_state_t *st = ui_state_get();
+    lv_bar_set_value(s_br_bar, st->brightness, LV_ANIM_OFF);
 }
 
 static void br_rebuild_visible(void)
@@ -50,6 +53,7 @@ static void br_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_br_list);
     memset(s_br_labels, 0, sizeof(s_br_labels));
+    s_br_bar = NULL;
     for (int i = 0; i < s_br_vis_rows && i < 3; i++) {
         lv_obj_t *row = lv_obj_create(s_br_list);
         lv_obj_remove_style_all(row);
@@ -68,6 +72,26 @@ static void br_rebuild_visible(void)
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_br_labels[i] = lbl;
         br_refresh_label(i);
+
+        /* 第二行：添加 LVGL 进度条组件 */
+        if (i == 1) {
+            lv_obj_t *bar = lv_bar_create(row);
+            lv_obj_remove_style_all(bar);
+            /* 进度条背景 */
+            lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(bar, 3, 0);
+            /* 进度条指示器（填充部分） */
+            lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
+            /* 位置：标签右侧 */
+            lv_obj_set_size(bar, LCD_H_RES - 90, s_br_row_h - 6);
+            lv_obj_align(bar, LV_ALIGN_RIGHT_MID, -6, 0);
+            lv_bar_set_range(bar, 0, 100);
+            lv_bar_set_value(bar, st->brightness, LV_ANIM_OFF);
+            s_br_bar = bar;
+        }
     }
 }
 
@@ -103,6 +127,7 @@ static void br_settings_destroy(void)
     ESP_LOGI(TAG, "Brightness settings destroy");
     s_br_list = NULL;
     memset(s_br_labels, 0, sizeof(s_br_labels));
+    s_br_bar = NULL;
 }
 
 static bool br_settings_on_key(int key)
@@ -111,11 +136,11 @@ static bool br_settings_on_key(int key)
     if (key == KEY_B) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
     if (key == KEY_LEFT) {
         st->brightness -= 10; if (st->brightness < 10) st->brightness = 10;
-        drv_backlight_set_brightness(st->brightness); br_rebuild_visible(); return true;
+        drv_backlight_set_brightness(st->brightness); br_refresh_bar(); br_refresh_label(0); return true;
     }
     if (key == KEY_RIGHT) {
         st->brightness += 10; if (st->brightness > 100) st->brightness = 100;
-        drv_backlight_set_brightness(st->brightness); br_rebuild_visible(); return true;
+        drv_backlight_set_brightness(st->brightness); br_refresh_bar(); br_refresh_label(0); return true;
     }
     if (key == KEY_A) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
     return false;

@@ -39,6 +39,7 @@ typedef enum {
 } mid_state_t;
 
 static lv_obj_t *s_mid_obj = NULL;
+static lv_obj_t *s_mid_bar = NULL;   /* 播放进度条 */
 static mid_note_t s_mid_notes[MID_MAX_NOTES];
 static int s_mid_note_count = 0;
 static int s_mid_play_pos = 0;
@@ -234,6 +235,7 @@ static void midplayer_refresh(void)
     const theme_colors_t *colors = ui_theme_colors();
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_mid_obj);
+    s_mid_bar = NULL;
 
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
@@ -270,7 +272,7 @@ static void midplayer_refresh(void)
     lv_obj_set_style_text_font(state_lbl, lv_font_cn_get(font_px), 0);
     lv_obj_set_pos(state_lbl, 4, font_px * 2 + 6);
 
-    /* 进度 */
+    /* 进度条 + 进度文本 */
     if (s_mid_note_count > 0) {
         int pct = (s_mid_play_pos * 100) / s_mid_note_count;
         if (pct > 100) pct = 100;
@@ -280,6 +282,23 @@ static void midplayer_refresh(void)
         lv_obj_set_style_text_color(prog_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(prog_lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_pos(prog_lbl, 4, font_px * 3 + 8);
+
+        /* LVGL 进度条组件 */
+        lv_obj_t *bar = lv_bar_create(s_mid_obj);
+        lv_obj_remove_style_all(bar);
+        /* 背景 */
+        lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(bar, 3, 0);
+        /* 指示器 */
+        lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
+        lv_obj_set_size(bar, LCD_H_RES - 8, 10);
+        lv_obj_set_pos(bar, 4, font_px * 4 + 10);
+        lv_bar_set_range(bar, 0, 100);
+        lv_bar_set_value(bar, pct, LV_ANIM_OFF);
+        s_mid_bar = bar;
     }
 
     /* 操作提示 */
@@ -391,6 +410,7 @@ static void midplayer_destroy(void)
     ESP_LOGI(TAG, "MID player destroy");
     drv_buzzer_stop();
     s_mid_obj = NULL;
+    s_mid_bar = NULL;
     s_mid_state = MID_STATE_IDLE;
     s_mid_play_pos = 0;
     s_mid_note_count = 0;

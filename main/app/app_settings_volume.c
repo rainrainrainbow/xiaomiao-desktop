@@ -4,6 +4,7 @@
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_volume_settings_callbacks。
  * 提供0%-100%的音量调节，左右键步进10%，A键确认返回。
+ * 使用 LVGL lv_bar 进度条组件显示当前音量。
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
@@ -14,8 +15,10 @@
 
 static const char *TAG = "APP_VOLUME";
 
+/* ========== UI状态 ========== */
 static lv_obj_t *s_vol_list = NULL;
 static lv_obj_t *s_vol_labels[3] = {0};
+static lv_obj_t *s_vol_bar = NULL;   /* 音量进度条 */
 static int s_vol_sel = 0;
 static int s_vol_vis_rows = 6;
 static int s_vol_row_h = 14;
@@ -27,18 +30,19 @@ static void vol_refresh_label(int idx)
     char buf[48];
     switch (idx) {
     case 0: snprintf(buf, sizeof(buf), "音量: %d%%", st->volume); break;
-    case 1: {
-        int bars = st->volume / 10;
-        char bar[16]; memset(bar, 0, sizeof(bar));
-        for (int i = 0; i < bars && i < 10; i++) bar[i] = '=';
-        if (bars < 10) bar[bars] = '>';
-        snprintf(buf, sizeof(buf), "[%s]", bar);
-        break;
-    }
+    case 1: snprintf(buf, sizeof(buf), "当前音量"); break;
     case 2: snprintf(buf, sizeof(buf), "← → 调节  A确认"); break;
     default: buf[0] = '\0'; break;
     }
     lv_label_set_text(s_vol_labels[idx], buf);
+}
+
+/* 刷新音量进度条 */
+static void vol_refresh_bar(void)
+{
+    if (!s_vol_bar) return;
+    ui_state_t *st = ui_state_get();
+    lv_bar_set_value(s_vol_bar, st->volume, LV_ANIM_OFF);
 }
 
 static void vol_rebuild_visible(void)
@@ -48,6 +52,7 @@ static void vol_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_vol_list);
     memset(s_vol_labels, 0, sizeof(s_vol_labels));
+    s_vol_bar = NULL;
     for (int i = 0; i < s_vol_vis_rows && i < 3; i++) {
         lv_obj_t *row = lv_obj_create(s_vol_list);
         lv_obj_remove_style_all(row);
@@ -66,6 +71,26 @@ static void vol_rebuild_visible(void)
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_vol_labels[i] = lbl;
         vol_refresh_label(i);
+
+        /* 第二行：添加 LVGL 进度条组件 */
+        if (i == 1) {
+            lv_obj_t *bar = lv_bar_create(row);
+            lv_obj_remove_style_all(bar);
+            /* 进度条背景 */
+            lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(bar, 3, 0);
+            /* 进度条指示器（填充部分） */
+            lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
+            /* 位置：标签右侧 */
+            lv_obj_set_size(bar, LCD_H_RES - 90, s_vol_row_h - 6);
+            lv_obj_align(bar, LV_ALIGN_RIGHT_MID, -6, 0);
+            lv_bar_set_range(bar, 0, 100);
+            lv_bar_set_value(bar, st->volume, LV_ANIM_OFF);
+            s_vol_bar = bar;
+        }
     }
 }
 
@@ -101,6 +126,7 @@ static void vol_settings_destroy(void)
     ESP_LOGI(TAG, "Volume settings destroy");
     s_vol_list = NULL;
     memset(s_vol_labels, 0, sizeof(s_vol_labels));
+    s_vol_bar = NULL;
 }
 
 static bool vol_settings_on_key(int key)
@@ -109,11 +135,11 @@ static bool vol_settings_on_key(int key)
     if (key == KEY_B) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
     if (key == KEY_LEFT) {
         st->volume -= 10; if (st->volume < 0) st->volume = 0;
-        vol_rebuild_visible(); return true;
+        vol_refresh_bar(); vol_refresh_label(0); return true;
     }
     if (key == KEY_RIGHT) {
         st->volume += 10; if (st->volume > 100) st->volume = 100;
-        vol_rebuild_visible(); return true;
+        vol_refresh_bar(); vol_refresh_label(0); return true;
     }
     if (key == KEY_A) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
     return false;
