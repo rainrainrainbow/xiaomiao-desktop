@@ -647,7 +647,7 @@ static bool recents_page_on_key(int key)
  * 在真机上可能因 PSRAM 碎片化或配置问题回退到 DRAM，导致 64KB 栈在 DRAM 中不稳定。
  * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
  */
-#define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，优先从 PSRAM 分配
+#define UI_TASK_STACK_SIZE   (32 * 1024)   // 32KB 栈，优先从 PSRAM 分配（64KB在真机上分配失败）
 /* (UI_TASK_STACK_DRAM, s_ui_task_tcb, s_ui_task_stack removed - no longer needed) */
 
 static void ui_init_task(void *arg)
