@@ -75,6 +75,19 @@ static void ntp_sync_start(void)
     ESP_LOGI(TAG, "SNTP started, waiting for time sync...");
 }
 
+/* ========== 定时器自动刷新 ========== */
+static lv_timer_t *s_dt_timer = NULL;
+
+static void dt_timer_cb(lv_timer_t *t)
+{
+    /* 每秒刷新时间显示 */
+    if (s_dt_list) {
+        dt_refresh_label(0);  /* 日期 */
+        dt_refresh_label(1);  /* 时间 */
+        dt_refresh_label(3);  /* NTP状态详情 */
+    }
+}
+
 /* ========== UI状态 ========== */
 static lv_obj_t *s_dt_list = NULL;
 static lv_obj_t *s_dt_labels[5] = {0};
@@ -188,11 +201,20 @@ static void dt_settings_init(void *data)
     
     dt_rebuild_visible();
     ui_dock_create(scr, 1, 0);
+    
+    /* 创建定时器，每秒刷新时间显示 */
+    if (s_dt_timer) lv_timer_del(s_dt_timer);
+    s_dt_timer = lv_timer_create(dt_timer_cb, 1000, NULL);
+    lv_timer_set_repeat_count(s_dt_timer, -1);  /* 无限重复 */
 }
 
 static void dt_settings_destroy(void)
 {
     ESP_LOGI(TAG, "Datetime settings destroy");
+    if (s_dt_timer) {
+        lv_timer_del(s_dt_timer);
+        s_dt_timer = NULL;
+    }
     s_dt_list = NULL;
     memset(s_dt_labels, 0, sizeof(s_dt_labels));
 }

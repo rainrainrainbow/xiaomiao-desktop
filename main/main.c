@@ -792,6 +792,10 @@ void app_main(void)
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
     
+    // 屏幕超时状态
+    static bool s_screen_sleeping = false;
+    static uint32_t s_last_activity = 0;
+    
     // 主循环 - 从事件队列获取按键
     while (true) {
         lv_timer_handler();
@@ -803,6 +807,19 @@ void app_main(void)
             bool is_long = btn_evt.is_long_press;
             ESP_LOGI(TAG, "KEY EVENT: idx=%d long=%d (UP=0,DOWN=1,LEFT=2,RIGHT=3,A=4,B=5)", 
                      btn_event, is_long);
+            
+            // 如果屏幕处于休眠状态，按键唤醒屏幕
+            if (s_screen_sleeping) {
+                s_screen_sleeping = false;
+                drv_backlight_set_brightness(state->brightness);
+                lcd_display_on();
+                s_last_activity = lv_tick_get();
+                ESP_LOGI(TAG, "Screen woken up by key press");
+                continue;
+            }
+            
+            // 记录按键活动时间（重置超时计时器）
+            s_last_activity = lv_tick_get();
             
             // 全局处理：长按B → 进入最近任务页面
             if (is_long && btn_event == BTN_IDX_B) {
@@ -831,6 +848,17 @@ void app_main(void)
                 if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
                     ui_stack_pop();
                 }
+            }
+        }
+        
+        // 屏幕超时检测（每100ms检查一次）
+        if (!s_screen_sleeping && state->sleep_timeout > 0) {
+            uint32_t elapsed = lv_tick_elaps(s_last_activity);
+            if (elapsed > (uint32_t)state->sleep_timeout * 1000) {
+                s_screen_sleeping = true;
+                drv_backlight_set_brightness(0);  // 关闭背光
+                ESP_LOGI(TAG, "Screen sleep: timeout=%ds elapsed=%dms", 
+                         state->sleep_timeout, elapsed);
             }
         }
         
