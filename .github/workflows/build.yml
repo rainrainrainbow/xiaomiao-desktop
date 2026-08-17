@@ -198,7 +198,8 @@ jobs:
 
           # Override MicroPython macros via compiler flags (highest priority)
           # These force-disable modules that cause linker errors
-          export EXTRA_CFLAGS="-DMICROPY_PY_MACHINE_ADC=0 \
+          export EXTRA_CFLAGS="-Wno-maybe-uninitialized \
+            -DMICROPY_PY_MACHINE_ADC=0 \
             -DMICROPY_PY_MACHINE_ADC_BLOCK=0 \
             -DMICROPY_PY_MACHINE_ADC_READ=0 \
             -DMICROPY_PY_MACHINE_ADC_READ_UV=0 \
