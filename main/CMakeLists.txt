@@ -55,3 +55,9 @@ idf_component_register(
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
     REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc freetype
 )
+
+# 定义 MBEDTLS_ECDSA_C 以解决 mbedtls_ecdsa_sign 未定义问题
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    MBEDTLS_ECDSA_C=1
+    MBEDTLS_ECP_C=1
+)

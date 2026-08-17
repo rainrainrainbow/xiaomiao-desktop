@@ -185,7 +185,9 @@ jobs:
             -DMICROPY_PERSISTENT_CODE_LOAD=0 \
             -DMICROPY_HW_ENABLE_SDCARD=0 \
             -DMICROPY_PY_MACHINE_SOFTSPI=0 \
-            -DMICROPY_PY_MACHINE_SOFTI2C=0"
+            -DMICROPY_PY_MACHINE_SOFTI2C=0 \
+            -DMBEDTLS_ECDSA_C=1 \
+            -DMBEDTLS_ECP_C=1"
 
           # Resolve and build
           idf.py reconfigure
