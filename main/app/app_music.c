@@ -12,12 +12,16 @@
 #include "driver/drv_buzzer.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdint.h>
+#include <stdbool.h>
 
 static const char *TAG = "APP_MUSIC";
 
@@ -105,10 +109,9 @@ static void music_play_task(void *arg)
             continue;
         }
         if (notes[note_idx].freq > 0) {
-            drv_buzzer_set_freq(notes[note_idx].freq);
-            drv_buzzer_set_duty(50);  /* 50%占空比 */
+            drv_buzzer_tone(notes[note_idx].freq, 0);  /* 持续播放 */
         } else {
-            drv_buzzer_set_duty(0);   /* 休止符，静音 */
+            drv_buzzer_stop();   /* 休止符，静音 */
         }
         s_playing_note = note_idx;
         vTaskDelay(pdMS_TO_TICKS(notes[note_idx].duration));
@@ -116,7 +119,7 @@ static void music_play_task(void *arg)
     }
 
     /* 播放结束 */
-    drv_buzzer_set_duty(0);
+    drv_buzzer_stop();
     s_playing_melody = -1;
     s_playing_note = 0;
     vTaskDelete(NULL);
@@ -141,7 +144,7 @@ static void music_stop_playback(void)
 {
     if (s_playing_melody >= 0) {
         s_playing_melody = -1;
-        drv_buzzer_set_duty(0);
+        drv_buzzer_stop();
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
@@ -325,7 +328,7 @@ static bool music_on_key(int key)
         if (s_playing_melody >= 0) {
             s_playing_paused = !s_playing_paused;
             if (s_playing_paused) {
-                drv_buzzer_set_duty(0);
+                drv_buzzer_stop();
             }
             music_refresh_list();
         }

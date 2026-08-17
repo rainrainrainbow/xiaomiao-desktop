@@ -75,8 +75,18 @@ static void ntp_sync_start(void)
     ESP_LOGI(TAG, "SNTP started, waiting for time sync...");
 }
 
+/* ========== UI状态 ========== */
+static lv_obj_t *s_dt_list = NULL;
+static lv_obj_t *s_dt_labels[5] = {0};
+static int s_dt_sel = 0;
+static int s_dt_vis_rows = 6;
+static int s_dt_row_h = 14;
+static int s_dt_total = 5;
+
 /* ========== 定时器自动刷新 ========== */
 static lv_timer_t *s_dt_timer = NULL;
+
+static void dt_refresh_label(int idx);  /* 前向声明 */
 
 static void dt_timer_cb(lv_timer_t *t)
 {
@@ -87,14 +97,6 @@ static void dt_timer_cb(lv_timer_t *t)
         dt_refresh_label(3);  /* NTP状态详情 */
     }
 }
-
-/* ========== UI状态 ========== */
-static lv_obj_t *s_dt_list = NULL;
-static lv_obj_t *s_dt_labels[5] = {0};
-static int s_dt_sel = 0;
-static int s_dt_vis_rows = 6;
-static int s_dt_row_h = 14;
-static int s_dt_total = 5;
 
 static void dt_refresh_label(int idx)
 {
