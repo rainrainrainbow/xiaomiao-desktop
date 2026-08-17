@@ -203,7 +203,7 @@ static esp_lcd_panel_io_handle_t lcd_init(void)
         .miso_io_num = PIN_LCD_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 16 * 1024  // 16KB 最大传输，与显示缓存一致，减少DMA压力
+        .max_transfer_sz = 8 * 1024  // 8KB 最大传输，与显示缓存一致，减少DMA压力
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO));
     
@@ -255,12 +255,12 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 {
     lv_display_t *d = lv_display_create(LCD_H_RES, LCD_V_RES);
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
-    /* 屏幕缓存使用16KB（部分刷新模式），减少DMA内存占用 */
-    size_t sz = 16 * 1024;
+    /* 屏幕缓存使用8KB单缓冲（部分刷新模式），释放DMA内存给WiFi驱动 */
+    /* 之前2×16KB=32KB DMA内存占用过高，导致WiFi驱动初始化时DMA分配失败 */
+    size_t sz = 8 * 1024;
     void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
-    void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
     lv_display_set_color_format(d, cf);
-    lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(d, b1, NULL, sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_user_data(d, io);
     lv_display_set_flush_cb(d, flush_cb);
     return d;
@@ -806,6 +806,12 @@ static void ui_init_task(void *arg)
     ESP_LOGI(TAG, "Mounting retro-core partition at /flash...");
     const esp_partition_t *retro_part = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "retro-core");
+    // 如果精确子类型匹配失败，回退到按标签名模糊查找
+    if (!retro_part) {
+        ESP_LOGW(TAG, "retro-core not found with SUBTYPE_DATA_FAT, trying SUBTYPE_ANY...");
+        retro_part = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "retro-core");
+    }
     if (retro_part) {
         ESP_LOGI(TAG, "retro-core partition found: offset=0x%08X, size=%lu KB",
                  (unsigned int)retro_part->address,

@@ -62,8 +62,20 @@ static void wifi_driver_init(void)
     /* 注意：esp_netif_init() 和 esp_event_loop_create_default() 已在 app_main 中初始化一次 */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_wifi_init(&cfg);
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi init failed: %s (DMA memory may be insufficient)", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi set mode failed: %s", esp_err_to_name(ret));
+        return;
+    }
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
+        return;
+    }
 
     s_wifi_initialized = true;
     ESP_LOGI(TAG, "WiFi driver initialized");
