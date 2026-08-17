@@ -857,8 +857,8 @@ void app_main(void)
             if (elapsed > (uint32_t)state->sleep_timeout * 1000) {
                 s_screen_sleeping = true;
                 drv_backlight_set_brightness(0);  // 关闭背光
-                ESP_LOGI(TAG, "Screen sleep: timeout=%ds elapsed=%dms", 
-                         state->sleep_timeout, elapsed);
+                ESP_LOGI(TAG, "Screen sleep: timeout=%ds elapsed=%lums", 
+                         state->sleep_timeout, (unsigned long)elapsed);
             }
         }
         
