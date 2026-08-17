@@ -5,6 +5,7 @@
 
 #include "app_manager.h"
 #include "app_micropython.h"
+#include "bg_manager.h"
 #include "ui_framework.h"
 #include "esp_log.h"
 #include <string.h>
@@ -38,6 +39,7 @@ void app_manager_init(void)
     memset(s_python_apps, 0, sizeof(s_python_apps));
     memset(s_recents, 0, sizeof(s_recents));
     ESP_LOGI(TAG, "App manager initialized");
+    bg_manager_init();
 }
 
 /* ========== 注册内置应用 ========== */
@@ -93,6 +95,9 @@ void app_manager_launch(const app_def_t *app)
 
     // 更新状态栏左上角为当前应用名
     ui_statusbar_set_title(app->name);
+
+    // 记录到后台管理器（标记为前台运行）
+    bg_manager_on_launch(app->name);
 
     // 记录到最近任务
     app_manager_add_recents(app);

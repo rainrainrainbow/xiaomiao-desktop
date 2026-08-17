@@ -22,6 +22,7 @@ idf_component_register(
         "app/app_filemgr.c"
         "app/app_midplayer.c"
         "app/app_micropython.c"
+        "app/bg_manager.c"
         "driver/drv_button.c"
         "driver/drv_backlight.c"
         "driver/drv_battery.c"
@@ -55,5 +56,3 @@ idf_component_register(
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
     REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc freetype
 )
-
-# 定义 MBEDTLS_ECDSA_C 以解决 mbedtls_ecdsa_sign 未定义问题

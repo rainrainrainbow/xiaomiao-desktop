@@ -42,6 +42,7 @@
 
 // 应用管理
 #include "app/app_manager.h"
+#include "app/bg_manager.h"
 
 // 驱动层
 #include "driver/drv_button.h"
@@ -548,48 +549,110 @@ static void recents_page_init(void *data)
     ui_statusbar_create(scr);
     ui_statusbar_set_title("最近任务");
 
+    int bg_count = bg_manager_get_count();
     int rec_count = 0;
     app_manager_get_recents(&rec_count);
-    if (rec_count > 0) {
-        lv_obj_t *list = lv_obj_create(scr);
-        lv_obj_remove_style_all(list);
-        lv_obj_set_pos(list, 0, ui_content_y());
-        lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
-        lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-        int max_show = (rec_count < 6) ? rec_count : 6;
-        // 行高根据字体大小自适应
-        ui_state_t *st = ui_state_get();
-        int item_h = st->font_size + 2;
-        if (item_h < 14) item_h = 14;
-        for (int i = 0; i < max_show; i++) {
-            lv_obj_t *row = lv_obj_create(list);
-            lv_obj_remove_style_all(row);
-            lv_obj_set_pos(row, 0, i * item_h);
-            lv_obj_set_size(row, LCD_H_RES, item_h);
-            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    // 优先显示后台运行中的应用，再显示历史记录
+    int total_show = (bg_count > rec_count) ? bg_count : rec_count;
+    if (total_show < 1) total_show = 1;
 
-            const app_def_t *app = app_manager_get_recents_at(i);
-            if (!app) break;
-            lv_obj_t *lbl = lv_label_create(row);
-            char buf[40];
-            snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app->name);
-            lv_label_set_text(lbl, buf);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-            // 应用名为中文，使用统一中文字体
-            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
-            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 0, ui_content_y());
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_state_t *st = ui_state_get();
+    int item_h = st->font_size + 2;
+    if (item_h < 14) item_h = 14;
+    // 计算可见行数
+    int vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / item_h;
+    if (vis_rows < 1) vis_rows = 1;
+
+    int row = 0;
+
+    // 先显示后台运行中的应用
+    for (int i = 0; i < bg_count && row < vis_rows; i++) {
+        const char *app_name = bg_manager_get_name(i);
+        if (!app_name) continue;
+        bg_state_t state = bg_manager_get_state(i);
+
+        lv_obj_t *row_obj = lv_obj_create(list);
+        lv_obj_remove_style_all(row_obj);
+        lv_obj_set_pos(row_obj, 0, row * item_h);
+        lv_obj_set_size(row_obj, LCD_H_RES, item_h);
+        if (row == s_recents_sel) {
+            lv_obj_set_style_bg_color(row_obj, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_TRANSP, 0);
         }
-        s_recents_obj = list;
-    } else {
-        lv_obj_t *lbl = lv_label_create(scr);
-        lv_label_set_text(lbl, "暂无最近任务");
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
-        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row_obj);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s", app_name);
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+
+        // 状态标签
+        lv_obj_t *status_lbl = lv_label_create(row_obj);
+        if (state == BG_STATE_FOREGROUND) {
+            lv_label_set_text(status_lbl, "当前");
+        } else {
+            lv_label_set_text(status_lbl, "后台");
+        }
+        lv_obj_set_style_text_color(status_lbl, lv_color_hex(
+            state == BG_STATE_FOREGROUND ? 0x22C55E : colors->text_dim), 0);
+        lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
+
+        row++;
     }
 
+    // 再显示历史记录（还未显示的）
+    for (int i = 0; i < rec_count && row < vis_rows; i++) {
+        const app_def_t *app = app_manager_get_recents_at(i);
+        if (!app) break;
+
+        // 跳过已在后台列表中显示的
+        if (bg_manager_is_running(app->name)) continue;
+
+        lv_obj_t *row_obj = lv_obj_create(list);
+        lv_obj_remove_style_all(row_obj);
+        lv_obj_set_pos(row_obj, 0, row * item_h);
+        lv_obj_set_size(row_obj, LCD_H_RES, item_h);
+        if (row == s_recents_sel) {
+            lv_obj_set_style_bg_color(row_obj, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_TRANSP, 0);
+        }
+        lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row_obj);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app->name);
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        row++;
+    }
+
+    if (row == 0) {
+        // 没有内容
+        lv_obj_t *empty_lbl = lv_label_create(scr);
+        lv_label_set_text(empty_lbl, "暂无最近任务");
+        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
+        lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
+    }
+
+    s_recents_obj = list;
     s_recents_sel = 0;
     ui_dock_create(scr, 1, 0);
 }
@@ -607,24 +670,90 @@ static bool recents_page_on_key(int key)
         return true;
     }
     if (key == KEY_A) {
+        // 获取当前选中项对应的应用
+        int bg_count = bg_manager_get_count();
         int rec_count = 0;
         app_manager_get_recents(&rec_count);
-        if (rec_count > 0 && s_recents_sel < rec_count) {
-            const app_def_t *app = app_manager_get_recents_at(s_recents_sel);
-            if (app) {
-                app_manager_launch(app);
-                return true;
+
+        // 计算总项目数
+        int total_items = 0;
+        // 后台运行的应用
+        for (int i = 0; i < bg_count; i++) {
+            const char *name = bg_manager_get_name(i);
+            if (name) total_items++;
+        }
+        // 历史记录中未在后台运行的
+        for (int i = 0; i < rec_count; i++) {
+            const app_def_t *app = app_manager_get_recents_at(i);
+            if (app && !bg_manager_is_running(app->name)) total_items++;
+        }
+
+        if (total_items > 0 && s_recents_sel < total_items) {
+            // 查找选中项在后台列表中的索引
+            int idx = s_recents_sel;
+            // 先查后台运行的应用
+            for (int i = 0; i < bg_count; i++) {
+                const char *name = bg_manager_get_name(i);
+                if (!name) continue;
+                if (idx == 0) {
+                    // 重新启动该应用
+                    // 找到对应的 app_def_t
+                    int builtin_count;
+                    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+                    int py_count = 0;
+                    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+
+                    for (int j = 0; j < builtin_count; j++) {
+                        if (strcmp(builtin_apps[j].name, name) == 0) {
+                            app_manager_launch(&builtin_apps[j]);
+                            return true;
+                        }
+                    }
+                    for (int j = 0; j < py_count; j++) {
+                        if (strcmp(py_apps[j].name, name) == 0) {
+                            app_manager_launch(&py_apps[j]);
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                idx--;
+            }
+            // 再查历史记录
+            for (int i = 0; i < rec_count; i++) {
+                const app_def_t *app = app_manager_get_recents_at(i);
+                if (!app) break;
+                if (bg_manager_is_running(app->name)) continue;
+                if (idx == 0) {
+                    app_manager_launch(app);
+                    return true;
+                }
+                idx--;
             }
         }
         return true;
     }
     if (key == KEY_UP || key == KEY_DOWN) {
+        // 计算总项目数
+        int bg_count = bg_manager_get_count();
+        int total_items = 0;
+        for (int i = 0; i < bg_count; i++) {
+            if (bg_manager_get_name(i)) total_items++;
+        }
         int rec_count = 0;
         app_manager_get_recents(&rec_count);
-        if (rec_count <= 0) return true;
-        // 简单高亮切换
-        if (key == KEY_DOWN) s_recents_sel = (s_recents_sel + 1) % rec_count;
-        else s_recents_sel = (s_recents_sel - 1 + rec_count) % rec_count;
+        for (int i = 0; i < rec_count; i++) {
+            const app_def_t *app = app_manager_get_recents_at(i);
+            if (!app) break;
+            if (!bg_manager_is_running(app->name)) total_items++;
+        }
+
+        if (total_items <= 0) return true;
+        if (key == KEY_DOWN) s_recents_sel = (s_recents_sel + 1) % total_items;
+        else s_recents_sel = (s_recents_sel - 1 + total_items) % total_items;
+
+        // 重建页面以更新高亮
+        recents_page_init(NULL);
         return true;
     }
     return true;
@@ -823,12 +952,15 @@ void app_main(void)
             
             // 全局处理：长按B → 进入最近任务页面
             if (is_long && btn_event == BTN_IDX_B) {
+                // 挂起当前前台应用到后台
+                bg_manager_suspend_current();
                 ui_stack_push(PAGE_RECENTS, &s_recents_callbacks, NULL);
                 continue;
             }
             
-            // 全局处理：长按A → 返回桌面主页（使用 v59 新 API）
+            // 全局处理：长按A → 返回桌面主页（挂起当前应用到后台）
             if (is_long && btn_event == BTN_IDX_A) {
+                bg_manager_suspend_current();
                 ui_stack_back_home();
                 continue;
             }
@@ -838,14 +970,16 @@ void app_main(void)
             if (cbs && cbs->on_key) {
                 bool handled = cbs->on_key(btn_event);
                 if (!handled) {
-                    // 全局兜底：B键=返回上一级（仅当栈深>1时，避免弹出桌面导致崩溃）
+                    // 全局兜底：B键=返回上一级（挂起当前应用到后台）
                     if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
+                        bg_manager_suspend_current();
                         ui_stack_pop();
                     }
                 }
             } else {
-                // 无回调时的兜底：B键=返回（仅当栈深>1时）
+                // 无回调时的兜底：B键=返回（挂起当前应用到后台）
                 if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
+                    bg_manager_suspend_current();
                     ui_stack_pop();
                 }
             }

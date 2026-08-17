@@ -178,14 +178,7 @@ static void python_app_activate(void)
     lv_label_set_text(icon_lbl, LV_SYMBOL_SETTINGS);
     lv_obj_set_style_text_color(icon_lbl, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(icon_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(icon_lbl, LV_ALIGN_TOP_MID, 0, 12);
-
-    /* 应用名 */
-    lv_obj_t *name_lbl = lv_label_create(content);
-    lv_label_set_text(name_lbl, app_name);
-    lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_align(name_lbl, LV_ALIGN_TOP_MID, 0, font_px + 20);
+    lv_obj_align(icon_lbl, LV_ALIGN_TOP_MID, 0, 8);
 
     /* 结果状态图标（使用LVGL内置Montserrat字体显示符号） */
     lv_obj_t *result_icon_lbl = lv_label_create(content);

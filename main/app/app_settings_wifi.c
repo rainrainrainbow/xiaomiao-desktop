@@ -47,6 +47,7 @@ static int s_connected_idx = -1;  /* 当前连接的网络索引 */
 /* ========== UI状态 ========== */
 static lv_obj_t *s_wifi_list = NULL;
 static lv_obj_t *s_wifi_labels[MAX_NETWORKS + 2] = {0};  /* +2: 开关行 + 状态行 */
+static lv_obj_t *s_wifi_bars[MAX_NETWORKS] = {0};        /* 网络信号强度进度条 */
 static int s_wifi_sel = 0;
 static int s_wifi_scroll = 0;
 static int s_wifi_vis_rows = 6;
@@ -192,14 +193,14 @@ static void wifi_refresh_label(int idx)
         if (net_idx < s_network_count) {
             const char *lock = "";
             if (s_networks[net_idx].auth_mode > 0) lock = "🔒";
-            int bars = (s_networks[net_idx].rssi + 100) / 17;
-            if (bars < 0) bars = 0;
-            if (bars > 4) bars = 4;
-            char signal[8];
-            memset(signal, 0, sizeof(signal));
-            for (int i = 0; i < bars; i++) signal[i] = '|';
-            signal[bars] = '\0';
-            snprintf(buf, sizeof(buf), "%s%s %s", lock, s_networks[net_idx].ssid, signal);
+            snprintf(buf, sizeof(buf), "%s%s", lock, s_networks[net_idx].ssid);
+            /* 更新信号强度进度条 */
+            if (net_idx < MAX_NETWORKS && s_wifi_bars[net_idx]) {
+                int bars = (s_networks[net_idx].rssi + 100) / 17;
+                if (bars < 0) bars = 0;
+                if (bars > 4) bars = 4;
+                lv_bar_set_value(s_wifi_bars[net_idx], bars * 25, LV_ANIM_OFF);
+            }
         } else {
             buf[0] = '\0';
         }
@@ -214,6 +215,7 @@ static void wifi_rebuild_visible(void)
     ui_state_t *st = ui_state_get();
     lv_obj_clean(s_wifi_list);
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
+    memset(s_wifi_bars, 0, sizeof(s_wifi_bars));
 
     s_wifi_total = 2 + s_network_count;  /* 开关行 + 状态行 + 网络列表 */
     if (s_wifi_total < 2) s_wifi_total = 2;
@@ -247,6 +249,29 @@ static void wifi_rebuild_visible(void)
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_wifi_labels[idx] = lbl;
         wifi_refresh_label(idx);
+
+        /* 网络列表行：添加信号强度进度条 */
+        if (idx >= 2) {
+            int net_idx = idx - 2;
+            if (net_idx < s_network_count && net_idx < MAX_NETWORKS) {
+                lv_obj_t *bar = lv_bar_create(row);
+                lv_obj_remove_style_all(bar);
+                /* 进度条背景 */
+                lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
+                lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(bar, 2, 0);
+                /* 进度条指示器（填充部分） */
+                lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+                lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+                lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
+                /* 位置：行右侧 */
+                lv_obj_set_size(bar, 40, s_wifi_row_h - 6);
+                lv_obj_align(bar, LV_ALIGN_RIGHT_MID, -6, 0);
+                lv_bar_set_range(bar, 0, 100);
+                lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+                s_wifi_bars[net_idx] = bar;
+            }
+        }
     }
 }
 
@@ -295,6 +320,7 @@ static void wifi_settings_destroy(void)
     ESP_LOGI(TAG, "WiFi settings destroy");
     s_wifi_list = NULL;
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
+    memset(s_wifi_bars, 0, sizeof(s_wifi_bars));
 }
 
 static bool wifi_settings_on_key(int key)

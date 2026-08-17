@@ -22,7 +22,6 @@
 static const char *TAG = "APP_SETTINGS";
 
 /* ========== 设置应用（可滚动列表） ========== */
-#define SETTINGS_HDR_H  12
 /* 行高根据字体大小动态计算，在 settings_init 中设置 */
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
@@ -46,10 +45,7 @@ static const char *s_settings_items[] = {
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
-/* 可见区域 */
-#define SETTINGS_LIST_Y     (14 + SETTINGS_HDR_H)  /* 标题栏下方 */
-#define SETTINGS_LIST_H     (LCD_V_RES - SETTINGS_LIST_Y - DOCK_H)
-/* 可见行数使用动态变量 s_settings_vis_rows，在 settings_init 中根据字体大小计算 */
+/* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
 static lv_obj_t *s_settings_labels[14] = {0};
@@ -171,7 +167,7 @@ static void settings_init(void *data)
     s_settings_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_settings_row_h;
     if (s_settings_vis_rows < 1) s_settings_vis_rows = 1;
     
-    /* 列表起始位置：状态栏 + 标题栏高度（根据字体自适应） */
+    /* 列表起始位置：状态栏下方 */
     lv_coord_t list_y = ui_content_y();
     
     s_settings_list = lv_obj_create(scr);
@@ -320,8 +316,6 @@ static bool settings_on_key(int key)
 }
 
 /* ========== 关于系统页面（可滚动） ========== */
-#define ABOUT_LIST_Y    26
-#define ABOUT_LIST_H    (LCD_V_RES - ABOUT_LIST_Y - DOCK_H)
 #define ABOUT_TOTAL     10
 /* 行高根据字体大小动态计算，在 about_init 中设置 */
 static int s_about_row_h = 14;
@@ -408,7 +402,7 @@ static void about_init(void *data)
     s_about_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_about_row_h;
     if (s_about_vis_rows < 1) s_about_vis_rows = 1;
     
-    /* 列表起始位置：状态栏 + 标题栏高度（根据字体自适应） */
+    /* 列表起始位置：状态栏下方 */
     lv_coord_t list_y = ui_content_y();
     
     s_about_obj = lv_obj_create(scr);
