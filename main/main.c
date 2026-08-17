@@ -247,12 +247,12 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 {
     lv_display_t *d = lv_display_create(LCD_H_RES, LCD_V_RES);
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
-    uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
-    size_t sz = stride * LCD_V_RES;
+    /* 屏幕缓存使用16KB（部分刷新模式），减少DMA内存占用 */
+    size_t sz = 16 * 1024;
     void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
     void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
     lv_display_set_color_format(d, cf);
-    lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_FULL);
+    lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_user_data(d, io);
     lv_display_set_flush_cb(d, flush_cb);
     return d;
