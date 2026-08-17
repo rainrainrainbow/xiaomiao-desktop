@@ -344,14 +344,6 @@ static void editor_refresh_pane_r(void)
         lv_obj_set_width(lbl, 76);
     }
 }
-            lv_obj_set_style_text_color(lbl, lv_color_hex(s_cat_colors[cat]), 0);
-        }
-        lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_width(lbl, 76);
-    }
-}
 
 static void editor_init(void *data)
 {
