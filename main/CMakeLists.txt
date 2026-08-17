@@ -6,6 +6,8 @@ idf_component_register(
         "app/app_manager.c"
         "app/app_builtin.c"
         "app/app_settings.c"
+        "app/app_settings_wifi.c"
+        "app/app_settings_font.c"
         "app/app_list.c"
         "app/app_editor.c"
         "app/app_store.c"

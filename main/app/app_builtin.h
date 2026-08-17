@@ -64,4 +64,14 @@ extern const page_callbacks_t g_filemgr_callbacks;
  */
 extern const page_callbacks_t g_midplayer_callbacks;
 
+/**
+ * WiFi设置二级页面回调
+ */
+extern const page_callbacks_t g_wifi_settings_callbacks;
+
+/**
+ * 字体设置二级页面回调
+ */
+extern const page_callbacks_t g_font_settings_callbacks;
+
 #endif /* APP_BUILTIN_H */
