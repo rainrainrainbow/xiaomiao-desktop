@@ -313,7 +313,7 @@ static mp_obj_t xm_get_key(void)
     xm_btn_mark_active();  /* 标记 Python 按键消费者活跃 */
     /* 协作式停止：B键返回时置位，此处抛出 KeyboardInterrupt 终止脚本 */
     if (xm_stop_check()) {
-        mp_raise(&mp_kbd_exception);
+        mp_raise_type(&mp_type_KeyboardInterrupt);
     }
     if (xm_btn_read(&evt)) {
         return mp_obj_new_int(evt.key);
