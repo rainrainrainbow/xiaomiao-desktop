@@ -15,7 +15,7 @@
 #include "app_builtin.h"
 #include "app_manager.h"
 #include "ui_framework.h"
-#include "driver/drv_buzzer.h"
+#include "driver/drv_audio_output.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
 #include "freertos/FreeRTOS.h"
@@ -189,7 +189,7 @@ static void music_play_task(void *arg)
         if (note_idx >= total) {
             /* 播放结束，根据播放模式决定下一步 */
             if (s_play_mode == PLAY_MODE_SINGLE) {
-                drv_buzzer_stop();
+                audio_output_stop();
                 s_playing_melody = -1;
                 s_playing_note = 0;
                 s_total_notes = 0;
@@ -227,10 +227,10 @@ static void music_play_task(void *arg)
         }
 
         if (current_notes[note_idx].freq > 0) {
-            drv_buzzer_tone(current_notes[note_idx].freq, 0);
+            audio_output_tone(current_notes[note_idx].freq, 0);
             s_current_freq = current_notes[note_idx].freq;
         } else {
-            drv_buzzer_stop();
+            audio_output_stop();
             s_current_freq = 0;
         }
         s_playing_note = note_idx;
@@ -239,7 +239,7 @@ static void music_play_task(void *arg)
     }
 
     /* 被取代，清理 */
-    drv_buzzer_stop();
+    audio_output_stop();
     s_playing_melody = -1;
     s_playing_note = 0;
     s_total_notes = 0;
@@ -265,7 +265,7 @@ static void music_stop_playback(void)
 {
     if (s_playing_melody >= 0) {
         s_playing_melody = -1;
-        drv_buzzer_stop();
+        audio_output_stop();
         s_playing_note = 0;
         s_total_notes = 0;
         s_current_freq = 0;
@@ -598,7 +598,7 @@ static void music_init(void *data)
     ui_statusbar_create(scr);
     ui_statusbar_set_title("音乐");
 
-    s_volume = drv_buzzer_get_volume();
+    s_volume = audio_output_get_volume();
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
@@ -660,7 +660,7 @@ static bool music_on_key(int key)
             /* 已经选中正在播放的旋律：暂停/继续交替 */
             if (s_playing_melody >= 0) {
                 s_playing_paused = !s_playing_paused;
-                if (s_playing_paused) drv_buzzer_stop();
+                if (s_playing_paused) audio_output_stop();
                 music_refresh_list();
             }
         } else {
@@ -674,7 +674,7 @@ static bool music_on_key(int key)
         /* 左键：调节音量（减小） */
         s_volume -= 10;
         if (s_volume < 0) s_volume = 0;
-        drv_buzzer_set_volume(s_volume);
+        audio_output_set_volume(s_volume);
         music_refresh_list();
         return true;
     }
@@ -691,7 +691,7 @@ static bool music_on_key(int key)
         } else {
             s_volume += 10;
             if (s_volume > 100) s_volume = 100;
-            drv_buzzer_set_volume(s_volume);
+            audio_output_set_volume(s_volume);
             music_refresh_list();
         }
         return true;
