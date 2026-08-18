@@ -64,8 +64,8 @@ static void bt_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *
         esp_bt_gap_ssp_passkey_reply(param->key_req.bda, true, 0);
         break;
     
-    case ESP_BT_GAP_READ_RSSI_EVT:
-        ESP_LOGI(TAG, "RSSI: %d", param->read_rssi.rssi);
+    case ESP_BT_GAP_READ_RSSI_DELTA_EVT:
+        ESP_LOGI(TAG, "RSSI delta: %d", param->read_rssi_delta.rssi_delta);
         break;
     
     default:
