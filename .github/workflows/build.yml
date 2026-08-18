@@ -280,9 +280,18 @@ jobs:
           rows = []
           for lib in libs:
               try:
-                  out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[-1]
-                  parts = out.split()
-                  text, data, bss = int(parts[0]), int(parts[1]), int(parts[2])
+                  out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip()
+                  # size 对 archive 输出多行（每成员一行 + "TOTAL" 总计行），取总计行
+                  total_line = ""
+                  for line in reversed(out.splitlines()):
+                      parts = line.split()
+                      # 总计行形如:  <text> <data> <bss> <dec> <hex> <filename>（filename 可含 TOTAL/总）
+                      if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                          total_line = parts
+                          break
+                  if not total_line:
+                      continue
+                  text, data, bss = int(total_line[0]), int(total_line[1]), int(total_line[2])
                   if text + data + bss > 0:
                       rows.append((os.path.basename(lib), text, data, bss))
               except Exception as e:
@@ -291,27 +300,50 @@ jobs:
           for name, text, data, bss in rows:
               print(f"{name:<50} {text:>10} {data:>10} {bss:>10} {text+data+bss:>10}")
           # 只解析带 b/B 的符号（.bss），用 python 解析十六进制尺寸，避免 awk strtonum 缺失
+          # nm --size-sort --print-size 输出: <value> <size> <type> <name>（archive 有 xxx.o: 标题行）
           def bss_symbols(lib):
               syms = []
               try:
                   out = subprocess.run([nm_bin, "--size-sort", "--print-size", "--reverse-sort", lib],
-                                       capture_output=True, text=True, timeout=15).stdout
+                                       capture_output=True, text=True, timeout=30).stdout
                   for line in out.splitlines():
                       parts = line.split()
-                      if len(parts) >= 3 and parts[1] in ("b", "B"):
-                          try: size = int(parts[0], 16)
+                      if len(parts) >= 4 and parts[2] in ("b", "B"):
+                          try: size = int(parts[1], 16)
                           except: continue
-                          syms.append((size, parts[2]))
+                          syms.append((size, parts[3]))
               except Exception:
                   pass
               return syms
           print("")
-          print("---- 2) Top 40 .bss symbols in bt component ----")
-          def dump_top(syms, n=40):
+          print("---- 1b) 每库 BSS 总和（含 archive 所有成员，按 BSS 降序）----")
+          lib_bss_total = []
+          for lib in libs:
+              syms = bss_symbols(lib)
+              total = sum(s for s, _ in syms)
+              if total > 0:
+                  lib_bss_total.append((total, len(syms), os.path.basename(lib)))
+          lib_bss_total.sort(reverse=True)
+          for total, cnt, name in lib_bss_total[:40]:
+              print(f"{total:>10} BSS bytes ({cnt:>4} syms)  {name}")
+          print("")
+          print("---- 1c) 预编译控制器库 libbtdm_app.a BSS ----")
+          btdm_libs = sorted(glob.glob("/opt/esp/idf/components/bt/controller/lib_esp32/esp32/*.a"))
+          for lib in btdm_libs:
+              p = os.path.basename(lib)
+              out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip()
+              for line in reversed(out.splitlines()):
+                  parts = line.split()
+                  if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                      print(f"  {p}: text={parts[0]} data={parts[1]} bss={parts[2]}")
+                      break
+          print("---- 2) Top 80 .bss symbols in bt component ----")
+          def dump_top(syms, n=80):
               syms.sort(reverse=True)
               for size, name in syms[:n]:
                   print(f"{size:>10}  {name}")
           bt_syms = bss_symbols("build/esp-idf/bt/libbt.a") if os.path.exists("build/esp-idf/bt/libbt.a") else []
+          print(f"  (libbt.a total BSS: {sum(s for s,_ in bt_syms)} bytes, {len(bt_syms)} syms)")
           dump_top(bt_syms)
           print("")
           print("---- 3) Top 60 .bss symbols across ALL components ----")
