@@ -34,6 +34,7 @@
 #include "modmachine.h"
 #include "modesp32.h"
 #include "mpthreadport.h"
+#include "poincare/mp_xiaomiao.h"  /* xiaomiao 扩展模块：framebuffer 初始化 */
 
 /* modmachine.h 中声明的函数（modmachine.c 作为 INCLUDEFILE 被 extmod/machine.c 包含，
    此处显式声明以确保 main 组件能正确链接） */
@@ -123,6 +124,13 @@ bool poincare_runtime_init(size_t heap_size)
 
     /* 添加系统路径 */
     mp_obj_list_append(mp_sys_path, MP_OBJ_NEW_QSTR(MP_QSTR__slash_lib));
+
+    /* 初始化 xiaomiao 扩展模块 framebuffer（40KB PSRAM，供 Python 脚本绘制） */
+    if (!xiaomiao_display_init()) {
+        ESP_LOGW(TAG, "Failed to init xiaomiao framebuffer (PSRAM)");
+    } else {
+        ESP_LOGI(TAG, "xiaomiao framebuffer ready (%d x %d RGB565)", XM_SCREEN_W, XM_SCREEN_H);
+    }
 
     s_initialized = true;
     ESP_LOGI(TAG, "MicroPython runtime initialized successfully");
