@@ -9,6 +9,7 @@
 #include "drv_buzzer.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <math.h>
 
@@ -27,7 +28,7 @@ static uint8_t s_volume = 50;    // 全局音量 0-100
 static bool s_initialized = false;
 
 /* ========== 热插拔检测 ========== */
-static bool s_bt_was_connected = false;
+static bool s_bt_was_connected = false;  /* 用于Phase 3蓝牙热插拔检测 */
 static int64_t s_last_poll_time = 0;
 #define POLL_INTERVAL_MS 5000  // 5秒轮询一次
 
