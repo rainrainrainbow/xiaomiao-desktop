@@ -98,3 +98,49 @@ bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *th
     
     return loaded;
 }
+
+/* ========== 音频输出设备类型存储 ========== */
+void sys_nvs_save_audio_output(int audio_out)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_AUDIO_OUT, audio_out);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Audio output saved: %d", audio_out);
+}
+
+int sys_nvs_load_audio_output(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_OUT, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Audio output loaded: %d", val);
+        return val;
+    }
+    ESP_LOGI(TAG, "Audio output not found, using default (0=auto)");
+    return 0;
+}
+
+/* ========== 音频自动选择模式存储 ========== */
+void sys_nvs_save_audio_auto(bool auto_mode)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_AUDIO_AUTO, auto_mode ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Audio auto mode saved: %d", auto_mode);
+}
+
+bool sys_nvs_load_audio_auto(void)
+{
+    int32_t val = 1;  // 默认自动模式
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_AUTO, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Audio auto mode loaded: %d", val);
+        return (val != 0);
+    }
+    ESP_LOGI(TAG, "Audio auto mode not found, using default (true=auto)");
+    return true;
+}
+
+/* ========== 音量存储 ========== */
+void sys_nvs_save_volume(int volume)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_VOLUME, volume);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Volume saved: %d", volume);
+}
