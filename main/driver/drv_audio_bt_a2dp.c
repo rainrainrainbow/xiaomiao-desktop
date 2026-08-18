@@ -136,7 +136,7 @@ static void bt_avrc_controller_callback(esp_avrc_ct_cb_event_t event, esp_avrc_c
         break;
     
     case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
-        ESP_LOGD(TAG, "AVRCP passthrough response: %d", param->psth_rsp.button_id);
+        ESP_LOGD(TAG, "AVRCP passthrough response received");
         break;
     
     case ESP_AVRC_CT_METADATA_RSP_EVT:
@@ -208,7 +208,7 @@ static esp_err_t bt_a2dp_backend_init(void)
     esp_bt_dev_set_device_name(BT_DEVICE_NAME);
     
     /* 设置可被发现模式 */
-    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISC_ENABLED);
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     
     /* 初始化A2DP Sink */
     ret = esp_a2d_register_callback(bt_a2dp_sink_callback);
