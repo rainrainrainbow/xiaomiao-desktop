@@ -19,6 +19,8 @@
 #define NVS_KEY_FONT_SIZE   "font_size"
 #define NVS_KEY_SLEEP       "sleep"
 #define NVS_KEY_FIRST_RUN   "first_run"  // 首次运行标志
+#define NVS_KEY_AUDIO_OUT   "audio_out"  // 音频输出设备类型
+#define NVS_KEY_AUDIO_AUTO  "audio_auto" // 音频自动选择模式
 
 /* ========== NVS存储接口 ========== */
 
@@ -54,5 +56,35 @@ void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
  */
 bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *theme,
                            bool *wifi_on, int *layout, int *font_size);
+
+/**
+ * 保存音频输出设备类型
+ * @param audio_out 设备类型 (0=none, 1=buzzer, 2=i2s, 3=bt)
+ */
+void sys_nvs_save_audio_output(int audio_out);
+
+/**
+ * 加载音频输出设备类型
+ * @return 设备类型，默认返回0（自动选择）
+ */
+int sys_nvs_load_audio_output(void);
+
+/**
+ * 保存音频自动选择模式
+ * @param auto_mode true=自动, false=手动
+ */
+void sys_nvs_save_audio_auto(bool auto_mode);
+
+/**
+ * 加载音频自动选择模式
+ * @return true=自动（默认），false=手动
+ */
+bool sys_nvs_load_audio_auto(void);
+
+/**
+ * 保存音量
+ * @param volume 音量 (0-100)
+ */
+void sys_nvs_save_volume(int volume);
 
 #endif /* SYS_NVS_H */
