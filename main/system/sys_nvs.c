@@ -111,8 +111,8 @@ int sys_nvs_load_audio_output(void)
 {
     int32_t val = 0;
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_OUT, &val) == ESP_OK) {
-        ESP_LOGI(TAG, "Audio output loaded: %d", val);
-        return val;
+        ESP_LOGI(TAG, "Audio output loaded: %d", (int)val);
+        return (int)val;
     }
     ESP_LOGI(TAG, "Audio output not found, using default (0=auto)");
     return 0;
@@ -130,7 +130,7 @@ bool sys_nvs_load_audio_auto(void)
 {
     int32_t val = 1;  // 默认自动模式
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_AUTO, &val) == ESP_OK) {
-        ESP_LOGI(TAG, "Audio auto mode loaded: %d", val);
+        ESP_LOGI(TAG, "Audio auto mode loaded: %d", (int)val);
         return (val != 0);
     }
     ESP_LOGI(TAG, "Audio auto mode not found, using default (true=auto)");
