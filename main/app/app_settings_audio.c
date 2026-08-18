@@ -6,6 +6,7 @@
 #include "driver/drv_audio_output.h"
 #include "system/sys_nvs.h"
 #include "esp_log.h"
+#include "fonts/lv_freetype_font.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -14,7 +15,7 @@ static const char *TAG = "AUDIO_SETTINGS";
 /* ========== 页面状态 ========== */
 static int s_audio_selected = 0;
 static int s_audio_scroll = 0;
-static lv_obj_t *s_audio_rows[AUDIO_OUT_MAX] = {0};
+static lv_obj_t *s_audio_rows[AUDIO_OUT_MAX + 2] = {0};
 static lv_obj_t *s_audio_mode_label = NULL;
 static lv_obj_t *s_audio_volume_bar = NULL;
 
@@ -24,7 +25,7 @@ static void audio_settings_refresh(void)
     const theme_colors_t *colors = ui_theme_colors();
     ui_state_t *state = ui_state_get();
     int font_px = state->font_size;
-    int row_h = font_px + 4;
+    (void)font_px;
     
     /* 获取设备列表 */
     audio_device_info_t devs[AUDIO_OUT_MAX];
