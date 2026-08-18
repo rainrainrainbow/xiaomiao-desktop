@@ -163,7 +163,6 @@ jobs:
           PATCH_EOF
           echo "Done patching modmachine.h"
 
-
       - name: Patch mbedtls config to disable ECP_RESTARTABLE
         run: |
           # Disable MBEDTLS_ECP_RESTARTABLE in mbedtls esp_config.h to fix
@@ -198,8 +197,7 @@ jobs:
 
           # Override MicroPython macros via compiler flags (highest priority)
           # These force-disable modules that cause linker errors
-          export EXTRA_CFLAGS="-Wno-maybe-uninitialized \
-            -DMICROPY_PY_MACHINE_ADC=0 \
+          export EXTRA_CFLAGS="-DMICROPY_PY_MACHINE_ADC=0 \
             -DMICROPY_PY_MACHINE_ADC_BLOCK=0 \
             -DMICROPY_PY_MACHINE_ADC_READ=0 \
             -DMICROPY_PY_MACHINE_ADC_READ_UV=0 \
@@ -210,7 +208,7 @@ jobs:
             -DMICROPY_PERSISTENT_CODE_LOAD=0 \
             -DMICROPY_HW_ENABLE_SDCARD=0 \
             -DMICROPY_PY_MACHINE_SOFTSPI=0 \
-            -DMICROPY_PY_MACHINE_SOFTI2C=0 "
+            -DMICROPY_PY_MACHINE_SOFTI2C=0"
 
           # Resolve and build
           idf.py reconfigure
@@ -320,7 +318,7 @@ jobs:
           while IFS= read -r -d '' f; do
             if grep -n 'GPIO_NUM_' "$f" > /dev/null 2>&1; then
               # Only allow GPIO references in config files (hardware pin definitions)
-              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c|drv_button\.h|drv_backlight\.h)$'; then
+              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c|drv_button\.h|drv_backlight\.h|drv_audio_i2s\.h)$'; then
                 echo "⚠️  GPIO reference outside config files: $f"
                 grep -n 'GPIO_NUM_' "$f"
                 errors=$((errors + 1))
