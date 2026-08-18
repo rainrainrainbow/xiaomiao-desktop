@@ -20,7 +20,7 @@
 static const char *TAG = "APP_FILEMGR";
 
 #define FILEMGR_MAX_ENTRIES 20
-#define FILEMGR_PATH_LEN   1024
+#define FILEMGR_PATH_LEN   256
 /* 行高根据字体大小动态计算，在 filemgr_init 中设置 */
 static int s_filemgr_row_h = 15;
 
@@ -33,7 +33,7 @@ static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/sdcard";
 static int s_filemgr_scroll = 0;
 
 /* ========== 文本查看器状态 ========== */
-#define TXT_MAX_LINES   64
+#define TXT_MAX_LINES   32
 #define TXT_LINE_LEN    80
 static lv_obj_t *s_txt_obj = NULL;
 static char s_txt_lines[TXT_MAX_LINES][TXT_LINE_LEN];
