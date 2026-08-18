@@ -19,7 +19,7 @@ static const char *TAG = "APP_STORE";
 
 /* ========== 常量 ========== */
 #define STORE_MAX_APPS      20   // 最大显示应用数
-#define STORE_PATH_LEN      128  // 路径缓冲区大小
+#define STORE_PATH_LEN      256  // 路径缓冲区大小（d_name 最大 255 字节 + 前缀）
 #define STORE_SCAN_DIR      "/sdcard"  // 扫描目录（可修改为特定目录）
 
 /* ========== 应用条目 ========== */
@@ -83,7 +83,14 @@ static void scan_sdcard_apps(void)
         
         // 只检查目录
         char full_path[STORE_PATH_LEN];
+        #ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
         snprintf(full_path, sizeof(full_path), "%s/%s", STORE_SCAN_DIR, entry->d_name);
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
         if (!is_dir(full_path))
             continue;
         
