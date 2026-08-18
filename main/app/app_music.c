@@ -33,7 +33,7 @@
 static const char *TAG = "APP_MUSIC";
 
 #define MUSIC_MAX_ENTRIES 16
-#define MUSIC_PATH_LEN    512
+#define MUSIC_PATH_LEN    256
 
 /* ========== 旋律数据结构 ========== */
 typedef struct {
