@@ -21,7 +21,7 @@ idf_component_register(
         "app/app_store.c"
         "app/app_music.c"
         "app/app_filemgr.c"
-        "app/app_midplayer.c"
+        # "app/app_midplayer.c" 已删除
         "app/app_micropython.c"
         "app/bg_manager.c"
         "driver/drv_button.c"
