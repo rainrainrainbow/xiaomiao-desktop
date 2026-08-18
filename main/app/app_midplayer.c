@@ -8,7 +8,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
-#include "driver/drv_buzzer.h"
+#include "driver/drv_audio_output.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
 #include "freertos/FreeRTOS.h"
@@ -214,7 +214,7 @@ static void midplayer_pause(void)
 {
     if (s_mid_state == MID_STATE_PLAYING) {
         s_mid_state = MID_STATE_PAUSED;
-        drv_buzzer_stop();
+        audio_output_stop();
     } else if (s_mid_state == MID_STATE_PAUSED) {
         s_mid_state = MID_STATE_PLAYING;
     }
@@ -224,7 +224,7 @@ static void midplayer_stop(void)
 {
     s_mid_state = MID_STATE_IDLE;
     s_mid_play_pos = 0;
-    drv_buzzer_stop();
+    audio_output_stop();
 }
 
 /* ========== UI 刷新 ========== */
@@ -365,7 +365,7 @@ static void midplayer_play_task(void *arg)
         if (s_mid_state == MID_STATE_PLAYING && s_mid_note_count > 0) {
             if (s_mid_play_pos >= s_mid_note_count) {
                 s_mid_state = MID_STATE_DONE;
-                drv_buzzer_stop();
+                audio_output_stop();
                 midplayer_refresh();
                 continue;
             }
@@ -373,7 +373,7 @@ static void midplayer_play_task(void *arg)
             uint32_t dur = n->duration;
             if (dur < 20) dur = 20;
             if (dur > 2000) dur = 2000;
-            drv_buzzer_play_note(n->note, dur);
+            audio_output_play_note(n->note, dur);
             /* 音符间小间隔 */
             vTaskDelay(pdMS_TO_TICKS(5));
             s_mid_play_pos++;
@@ -455,7 +455,7 @@ static void midplayer_init(void *data)
 static void midplayer_destroy(void)
 {
     ESP_LOGI(TAG, "MID player destroy");
-    drv_buzzer_stop();
+    audio_output_stop();
     s_mid_obj = NULL;
     s_mid_bar = NULL;
     s_mid_state = MID_STATE_IDLE;
