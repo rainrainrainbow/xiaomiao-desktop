@@ -354,10 +354,80 @@ jobs:
           all_syms.sort(reverse=True)
           for size, name, lib in all_syms[:60]:
               print(f"{size:>10}  {name:<40} {lib}")
+          print("")
+          # ==================================================================
+          # 4) 【权威】解析链接器 .map 文件中 .dram0.bss 段的符号
+          #    archive 级 nm 统计会把未提取成员也算进来（虚高），
+          #    只有 .map 中的 dram0.bss 段才是最终链接进内部 DRAM 的符号
+          # ==================================================================
+          mapfile = "build/xiaomiao-desktop.map"
+          if os.path.exists(mapfile):
+              import re as _re
+              print("---- 4) .dram0.bss 段符号（.map 权威, sorted by size desc, Top 100）----")
+              in_bss = False
+              bss_syms = []
+              bss_total_sz = 0
+              with open(mapfile, 'r', errors='replace') as mf:
+                  for line in mf:
+                      # 段标题行: " .dram0.bss      0x...     0x... load address 0x..."
+                      if _re.match(r'^\s*\.dram0\.bss\b', line):
+                          in_bss = True
+                          # 段总大小 = 第二列 0x hex
+                          mm = _re.search(r'\.dram0\.bss\s+0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)', line)
+                          if mm:
+                              bss_total_sz = int(mm.group(1), 16)
+                              print(f"  .dram0.bss total size: {bss_total_sz} bytes")
+                          continue
+                      if in_bss:
+                          # 下一个段标题（空白行 + .xxxx 开头）则退出
+                          if _re.match(r'^\s*\.(?!dram0\.bss)', line) and not line.strip().startswith('0x'):
+                              break
+                          # 符号行: "                0x3ffe...     0x4  symbol_name"
+                          # 与 object 行区分：object 行以 .o 结尾，符号行不是
+                          sm = _re.match(r'^\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)\s+(.+)$', line)
+                          if sm and not sm.group(2).strip().endswith(('.o', '.elf')):
+                              try:
+                                  sz = int(sm.group(1), 16)
+                                  name = sm.group(2).strip()
+                                  bss_syms.append((sz, name))
+                              except:
+                                  pass
+              bss_syms.sort(reverse=True)
+              total = sum(s for s, _ in bss_syms)
+              print(f"  .dram0.bss 解析符号数: {len(bss_syms)}, 符号大小合计: {total} bytes")
+              for sz, name in bss_syms[:100]:
+                  print(f"{sz:>10}  {name}")
+              print("")
+              # 同时解析 .dram0.data 段
+              print("---- 4b) .dram0.data 段符号（Top 40）----")
+              in_data = False
+              data_syms = []
+              with open(mapfile, 'r', errors='replace') as mf:
+                  for line in mf:
+                      if _re.match(r'^\s*\.dram0\.data\b', line):
+                          in_data = True
+                          continue
+                      if in_data:
+                          if _re.match(r'^\s*\.(?!dram0\.data)', line) and not line.strip().startswith('0x'):
+                              break
+                          sm = _re.match(r'^\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)\s+(.+)$', line)
+                          if sm and not sm.group(2).strip().endswith(('.o', '.elf')):
+                              try:
+                                  sz = int(sm.group(1), 16)
+                                  data_syms.append((sz, sm.group(2).strip()))
+                              except:
+                                  pass
+              data_syms.sort(reverse=True)
+              print(f"  .dram0.data 符号数: {len(data_syms)}, 合计: {sum(s for s,_ in data_syms)} bytes")
+              for sz, name in data_syms[:40]:
+                  print(f"{sz:>10}  {name}")
+          else:
+              print("---- 4) WARNING: .map 文件不存在（链接彻底失败前未生成）----")
           print("==================== END MEMORY ANALYSIS ====================")
           ANALYZE_EOF
 
       - name: Upload firmware artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xiaomiao-desktop-firmware
