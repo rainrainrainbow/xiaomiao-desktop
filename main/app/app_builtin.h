@@ -54,10 +54,7 @@ extern const page_callbacks_t g_music_callbacks;
  */
 extern const page_callbacks_t g_filemgr_callbacks;
 
-/**
- * MID蜂鸣器播放器页面回调
- */
-extern const page_callbacks_t g_midplayer_callbacks;
+/* MID蜂鸣器播放器页面回调 - 已删除 */
 
 /**
  * WiFi设置二级页面回调
