@@ -44,6 +44,7 @@
 
 // 应用管理
 #include "app/app_manager.h"
+#include "app/app_micropython.h"
 #include "app/bg_manager.h"
 
 // 驱动层
@@ -973,6 +974,9 @@ void app_main(void)
     // 主循环 - 从事件队列获取按键
     while (true) {
         lv_timer_handler();
+        
+        // Python 应用帧刷新（canvas 承接 framebuffer 的脏标志消费）
+        app_micropython_on_tick();
         
         // 从队列获取按键事件（非阻塞）
         btn_event_t btn_evt;
