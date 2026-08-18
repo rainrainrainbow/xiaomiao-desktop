@@ -6,6 +6,7 @@
  * 支持自动搜索设备、用户手动选择、热插拔检测。
  */
 #include "drv_audio_output.h"
+#include "drv_audio_i2s.h"
 #include "drv_buzzer.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -212,11 +213,8 @@ esp_err_t audio_output_init(void)
     /* 注册蜂鸣器后端（始终可用） */
     audio_output_register_backend(&s_buzzer_backend);
     
-    /* TODO: Phase 2 - 探测I2S DAC */
-    /* if (CONFIG_AUDIO_I2S_ENABLED) {
-     *     audio_output_register_backend(&s_i2s_backend);
-     * }
-     */
+    /* Phase 2: I2S DAC后端（始终可用，硬件直连） */
+    audio_output_register_backend(&s_i2s_backend);
     
     /* TODO: Phase 3 - 初始化蓝牙A2DP */
     /* if (CONFIG_AUDIO_BT_A2DP_ENABLED) {
