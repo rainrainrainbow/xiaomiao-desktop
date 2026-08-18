@@ -74,7 +74,6 @@ typedef enum {
     STR_LANGUAGE,
     // 应用名
     STR_APP_SETTINGS,
-    STR_APP_SNAKE,
     STR_APP_MUSIC,
     STR_APP_EDITOR,
     STR_APP_STORE,
