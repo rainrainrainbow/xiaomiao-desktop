@@ -99,4 +99,9 @@ extern const page_callbacks_t g_sleep_settings_callbacks;
  */
 extern const page_callbacks_t g_datetime_settings_callbacks;
 
+/**
+ * 音频输出设置二级页面回调
+ */
+extern const page_callbacks_t g_audio_settings_callbacks;
+
 #endif /* APP_BUILTIN_H */
