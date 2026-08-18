@@ -44,11 +44,11 @@ static void bt_gap_callback(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *
         }
         break;
     
-    case ESP_BT_GAP_PIN_REQ_EVT:
-        ESP_LOGI(TAG, "PIN request from %s", param->pin_req.bda);
-        /* 使用默认PIN码 */
-        esp_bt_gap_pin_reply(param->pin_req.bda, true, 6, (uint8_t *)"123456");
+    case ESP_BT_GAP_PIN_REQ_EVT: {
+        uint8_t pin[16] = {'1', '2', '3', '4', '5', '6'};
+        esp_bt_gap_pin_reply(param->pin_req.bda, true, 6, pin);
         break;
+    }
     
     case ESP_BT_GAP_CFM_REQ_EVT:
         ESP_LOGI(TAG, "SSP confirmation request");
