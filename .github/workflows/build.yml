@@ -257,6 +257,46 @@ jobs:
               print(f'Merged binary: {size // 1024} KB ({size} bytes)')
           EOF
 
+      # 内存占用分析：即使链接失败(IRAM/DRAM溢出)也分析所有已编译的 .a 静态库
+      # 输出各组件 text/data/bss 汇总 + 最大 BSS 符号，用于定位内存溢出源
+      - name: Analyze memory usage (runs even on link failure)
+        if: always()
+        run: |
+          . /opt/esp/idf/export.sh
+          echo "==================== MEMORY USAGE ANALYSIS ===================="
+          SIZE_BIN=$(ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-size 2>/dev/null | head -1)
+          NM_BIN=$(ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-nm 2>/dev/null | head -1)
+          echo "size tool: $SIZE_BIN"
+          echo "nm tool:   $NM_BIN"
+          echo ""
+          echo "---- 1) Per-component sizes (text/data/bss, sorted by bss desc) ----"
+          printf "%-45s %10s %10s %10s %10s\n" "COMPONENT" "TEXT" "DATA" "BSS" "TOTAL"
+          for lib in $(find build/esp-idf -name "*.a" 2>/dev/null | sort); do
+            out=$($SIZE_BIN "$lib" 2>/dev/null | tail -1)
+            # out format: text data bss dec hex filename
+            text=$(echo $out | awk '{print $1}')
+            data=$(echo $out | awk '{print $2}')
+            bss=$(echo $out | awk '{print $3}')
+            total=$(( ${text:-0} + ${data:-0} + ${bss:-0} ))
+            # 只打印有内容的组件
+            if [ "$total" -gt 0 ] 2>/dev/null; then
+              printf "%-45s %10s %10s %10s %10s\n" "$(basename $lib)" "$text" "$data" "$bss" "$total"
+            fi
+          done | sort -k4 -nr | head -40
+          echo ""
+          echo "---- 2) Top 40 .bss symbols in bt component ----"
+          if [ -f build/esp-idf/bt/libbt.a ]; then
+            $NM_BIN --size-sort --print-size --reverse-sort build/esp-idf/bt/libbt.a 2>/dev/null \
+              | awk '$2=="b" || $2=="B" {printf "%10d  %s\n", strtonum("0x"$1), $3}' | head -40
+          fi
+          echo ""
+          echo "---- 3) Top 40 .bss symbols across ALL components ----"
+          for lib in $(find build/esp-idf -name "*.a" 2>/dev/null); do
+            $NM_BIN --size-sort --print-size --reverse-sort "$lib" 2>/dev/null \
+              | awk -v lib="$lib" '$2=="b" || $2=="B" {printf "%10d  %-30s  %s\n", strtonum("0x"$1), $3, lib}'
+          done | sort -rn | head -40
+          echo "==================== END MEMORY ANALYSIS ===================="
+
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
