@@ -14,14 +14,26 @@
 #include "app_micropython.h"
 #include "ui_framework.h"
 #include "poincare/runtime.h"
+#include "poincare/mp_xiaomiao.h"
+#include "driver/drv_button.h"   /* drv_button_get_event 供注入 */
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 // FreeType 字体支持（统一中文字体入口）
 #include "fonts/lv_freetype_font.h"
+// FreeRTOS 任务
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "APP_PY";
+
+/* ========== 按键读取回调适配（main → micropython） ========== */
+/* 与 xm_btn_event_t 字段布局相同（key + is_long_press），安全转指针 */
+static bool py_btn_read_adapter(xm_btn_event_t *evt)
+{
+    return drv_button_get_event((btn_event_t *)evt);
+}
 
 /* ========== MicroPython 运行时 API（委托给 poincare/runtime） ========== */
 
@@ -32,7 +44,12 @@ static const char *TAG = "APP_PY";
 bool app_micropython_init(void)
 {
     /* 委托给 Poincaré 运行时（默认 64KB PSRAM GC 堆） */
-    return poincare_runtime_init(0);
+    bool ok = poincare_runtime_init(0);
+    if (ok) {
+        /* 注入按键读取回调：main 组件提供 drv_button_get_event */
+        xiaomiao_button_set_read_cb(py_btn_read_adapter);
+    }
+    return ok;
 }
 
 /**
@@ -59,7 +76,83 @@ int app_micropython_exec_file(const char *filename)
     return poincare_runtime_exec_file(filename);
 }
 
-/* ========== MicroPython应用页面回调 ========== */
+/* ========== Python 应用运行支持（v66：屏幕/按键/时间绑定） ========== */
+
+/* Python 任务句柄与运行标志 */
+static TaskHandle_t s_py_task = NULL;
+static volatile bool s_py_task_running = false;
+static volatile bool s_py_running_app = false;   /* 当前是否在运行 Python 应用页面 */
+static char s_py_entry_path[256] = {0};          /* 当前 Python 入口文件 */
+
+/* flush 脏标志：Python 调用 show() 时置位，main 循环 app_micropython_on_tick 消费 */
+static volatile bool s_py_flush_pending = false;
+
+/* LVGL canvas：承接 framebuffer（零拷贝） */
+static lv_obj_t *s_py_canvas = NULL;
+
+/* Python 任务 flush 回调（在 Python 任务上下文调用，仅置脏标志） */
+static void py_flush_cb(void)
+{
+    s_py_flush_pending = true;
+}
+
+/* Python 运行任务：执行 main.py（脚本内含游戏循环），结束后退出 */
+static void py_run_task(void *arg)
+{
+    (void)arg;
+    ESP_LOGI(TAG, "Python task started: %s", s_py_entry_path);
+    s_py_task_running = true;
+
+    /* 清空转发队列，避免残留旧按键 */
+    xiaomiao_button_flush();
+
+    /* 执行入口脚本（阻塞直到脚本返回） */
+    int ret = app_micropython_exec_file(s_py_entry_path);
+    ESP_LOGI(TAG, "Python task finished: %s (ret=%d)", s_py_entry_path, ret);
+
+    s_py_task_running = false;
+    s_py_task = NULL;
+
+    /* 任务自删除 */
+    vTaskDelete(NULL);
+}
+
+/* main 循环周期调用：将 Python framebuffer 刷新到屏幕 */
+void app_micropython_on_tick(void)
+{
+    if (!s_py_running_app || !s_py_canvas) return;
+
+    if (s_py_flush_pending) {
+        s_py_flush_pending = false;
+        /* 在 main 任务上下文操作 LVGL：无效化 canvas 并强制刷新 */
+        lv_obj_invalidate(s_py_canvas);
+        lv_refr_now(NULL);
+        ESP_LOGV(TAG, "Python frame flushed");
+    }
+}
+
+/* 停止当前 Python 应用：请求协作式停止 + 复位 canvas/标志 */
+static void python_app_stop_running(void)
+{
+    if (s_py_task_running) {
+        ESP_LOGI(TAG, "Requesting Python app stop...");
+        xiaomiao_request_stop();
+        /* 等待任务退出（脚本响应 KeyboardInterrupt 后自然结束） */
+        for (int i = 0; i < 50 && s_py_task_running; i++) {
+            vTaskDelay(pdMS_TO_TICKS(20));  /* 最多等 1 秒 */
+        }
+        if (s_py_task_running) {
+            ESP_LOGW(TAG, "Python task did not exit in time, abandoning handle");
+        }
+        s_py_task = NULL;
+    }
+    s_py_running_app = false;
+    s_py_canvas = NULL;
+    s_py_flush_pending = false;
+    xiaomiao_display_set_flush_cb(NULL);  /* 取消 flush 回调 */
+}
+
+/* MicroPython应用页面回调 */
 
 static void python_app_init(void *data);
 static void python_app_activate(void);
@@ -91,14 +184,15 @@ static void python_app_activate(void)
 {
     ESP_LOGI(TAG, "Python app activate");
 
-    /* 获取当前应用的 app_def_t（从页面栈数据传入） */
-    const page_callbacks_t *cbs = ui_stack_current_callbacks();
-    if (cbs && cbs->init == python_app_init) {
-        // 从页面栈获取应用数据
-        // 注意：python_app_init 中 data 参数就是 app_def_t 指针
-    }
-    
-    /* 在屏幕上显示 MicroPython 应用信息 */
+    /* 获取当前应用名（从 app_manager 或标题） */
+    const char *app_name = app_manager_get_current_name();
+    if (!app_name) app_name = "Python";
+
+    int font_px = ui_state_get()->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
+    /* 构建页面：状态栏 + canvas（承接 framebuffer） + dock */
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);
     const theme_colors_t *colors = ui_theme_colors();
@@ -106,28 +200,16 @@ static void python_app_activate(void)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     ui_statusbar_create(scr);
-    
-    /* 获取当前应用名（从 app_manager 或标题） */
-    const char *app_name = app_manager_get_current_name();
-    if (!app_name) app_name = "Python";
     ui_statusbar_set_title(app_name);
 
-    int font_px = ui_state_get()->font_size;
-    if (font_px < 14) font_px = 14;
-    if (font_px > 24) font_px = 24;
-
-    /* 创建内容容器 */
-    lv_obj_t *content = lv_obj_create(scr);
-    lv_obj_remove_style_all(content);
-    lv_obj_set_pos(content, 0, ui_content_y());
-    lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
-    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_coord_t content_y = ui_content_y();
+    lv_coord_t content_h = LCD_V_RES - content_y - DOCK_H;
 
     /* 查找当前应用的入口文件 */
     int py_count = 0;
     const app_def_t *py_apps = app_manager_get_micropython(&py_count);
     const char *entry_file = NULL;
-    
+
     for (int i = 0; i < py_count; i++) {
         if (strcmp(py_apps[i].name, app_name) == 0) {
             entry_file = py_apps[i].py_entry;
@@ -135,7 +217,53 @@ static void python_app_activate(void)
         }
     }
 
-    /* 结果状态 */
+    /*
+     * 核心：Python 应用绘图通过 xiaomiao 模块的 framebuffer（160x128 RGB565 SWAPPED）
+     * 这里用一个 LVGL canvas 以零拷贝方式承接 framebuffer 地址，
+     * Python 脚本调用 show() 时置脏标志，main 循环 in 每次迭代调用
+     * app_micropython_on_tick() 完成 canvas 无效化 + 强制刷新。
+     * 这样 Python 游戏画面就能实时上屏，且不阻塞 main 任务。
+     */
+    uint16_t *fb = xiaomiao_display_get_framebuffer();
+    if (fb && entry_file) {
+        /* 若已有 Python 应用在运行，先停止旧任务 */
+        if (s_py_task_running || s_py_running_app) {
+            python_app_stop_running();
+        }
+
+        lv_obj_t *canvas = lv_canvas_create(scr);
+        lv_obj_remove_style_all(canvas);
+        lv_obj_set_pos(canvas, 0, content_y);
+        lv_obj_set_size(canvas, LCD_H_RES, content_h);
+        lv_obj_clear_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
+        lv_canvas_set_buffer(canvas, fb, LCD_H_RES, content_h, LV_COLOR_FORMAT_RGB565_SWAPPED);
+        lv_obj_set_style_bg_color(canvas, lv_color_hex(colors->bg), 0);
+        lv_obj_set_style_bg_opa(canvas, LV_OPA_COVER, 0);
+
+        s_py_canvas = canvas;
+        s_py_running_app = true;
+
+        /* 注册 flush 回调：Python show() → 置脏标志 */
+        xiaomiao_display_set_flush_cb(py_flush_cb);
+
+        /* 启动独立任务执行 main.py（不阻塞 UI） */
+        strncpy(s_py_entry_path, entry_file, sizeof(s_py_entry_path) - 1);
+        s_py_entry_path[sizeof(s_py_entry_path) - 1] = '\0';
+        xTaskCreate(py_run_task, "py_app", 16384, NULL, 10, &s_py_task);
+
+        /* 显示启动提示 */
+        lv_obj_t *hint = lv_label_create(scr);
+        lv_label_set_text(hint, "加载中...");
+        lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(hint, lv_font_cn_get(font_px), 0);
+        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H - 2);
+
+        ui_dock_create(scr, 1, 0);
+        ESP_LOGI(TAG, "Python app started in background task: %s", entry_file);
+        return;
+    }
+
+    /* 兜底：没有 framebuffer 或入口文件 → 显示传统结果页面 */
     int ret = -1;
     const char *result_msg = NULL;
     const char *result_icon = LV_SYMBOL_OK;
@@ -173,6 +301,13 @@ static void python_app_activate(void)
         }
     }
 
+    /* 创建内容容器 */
+    lv_obj_t *content = lv_obj_create(scr);
+    lv_obj_remove_style_all(content);
+    lv_obj_set_pos(content, 0, content_y);
+    lv_obj_set_size(content, LCD_H_RES, content_h);
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+
     /* 应用图标（居中上方，使用LVGL内置Montserrat字体显示符号） */
     lv_obj_t *icon_lbl = lv_label_create(content);
     lv_label_set_text(icon_lbl, LV_SYMBOL_SETTINGS);
@@ -208,10 +343,22 @@ static void python_app_activate(void)
 static void python_app_destroy(void)
 {
     ESP_LOGI(TAG, "Python app destroy");
+    /* 停止 Python 脚本任务（协作式） */
+    python_app_stop_running();
 }
 
 static bool python_app_on_key(int key)
 {
+    /* Python 游戏运行时：将按键转发到 Python 队列（方向控制等） */
+    if (s_py_task_running && xiaomiao_button_task_is_active()) {
+        xm_btn_event_t evt = { .key = key, .is_long_press = false };
+        xiaomiao_button_push(&evt);
+        /* B 键仍需退出应用，其余按键全部交给 Python */
+        if (key != KEY_B) {
+            return true;
+        }
+    }
+
     if (key == KEY_B) {
         if (ui_stack_depth() > 1) {
             ui_stack_pop();
