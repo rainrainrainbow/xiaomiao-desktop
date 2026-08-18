@@ -235,14 +235,14 @@ static mp_obj_t xm_pixel(mp_obj_t x_obj, mp_obj_t y_obj, mp_obj_t color_obj)
 static MP_DEFINE_CONST_FUN_OBJ_3(xm_pixel_obj, xm_pixel);
 
 /* xiaomiao.rect(x, y, w, h, color, fill) -> None：矩形 */
-static mp_obj_t xm_rect(mp_obj_t x_obj, mp_obj_t y_obj, mp_obj_t w_obj, mp_obj_t h_obj,
-                        mp_obj_t color_obj, mp_obj_t fill_obj)
+static mp_obj_t xm_rect(mp_uint_t n_args, const mp_obj_t *args)
 {
+    (void)n_args;
     if (!xiaomiao_display_init()) mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no framebuffer"));
-    int x = mp_obj_get_int(x_obj), y = mp_obj_get_int(y_obj);
-    int w = mp_obj_get_int(w_obj), h = mp_obj_get_int(h_obj);
-    uint16_t c = xm_rgb565(mp_obj_get_int(color_obj) & 0xFFFFFF);
-    bool fill = mp_obj_is_true(fill_obj);
+    int x = mp_obj_get_int(args[0]), y = mp_obj_get_int(args[1]);
+    int w = mp_obj_get_int(args[2]), h = mp_obj_get_int(args[3]);
+    uint16_t c = xm_rgb565(mp_obj_get_int(args[4]) & 0xFFFFFF);
+    bool fill = mp_obj_is_true(args[5]);
 
     for (int j = y; j < y + h; j++) {
         for (int i = x; i < x + w; i++) {
@@ -253,15 +253,16 @@ static mp_obj_t xm_rect(mp_obj_t x_obj, mp_obj_t y_obj, mp_obj_t w_obj, mp_obj_t
     }
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_6(xm_rect_obj, xm_rect);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(xm_rect_obj, 6, 6, xm_rect);
 
 /* xiaomiao.line(x0, y0, x1, y1, color) -> None：Bresenham直线 */
-static mp_obj_t xm_line(mp_obj_t x0o, mp_obj_t y0o, mp_obj_t x1o, mp_obj_t y1o, mp_obj_t color_obj)
+static mp_obj_t xm_line(mp_uint_t n_args, const mp_obj_t *args)
 {
+    (void)n_args;
     if (!xiaomiao_display_init()) mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no framebuffer"));
-    int x0 = mp_obj_get_int(x0o), y0 = mp_obj_get_int(y0o);
-    int x1 = mp_obj_get_int(x1o), y1 = mp_obj_get_int(y1o);
-    uint16_t c = xm_rgb565(mp_obj_get_int(color_obj) & 0xFFFFFF);
+    int x0 = mp_obj_get_int(args[0]), y0 = mp_obj_get_int(args[1]);
+    int x1 = mp_obj_get_int(args[2]), y1 = mp_obj_get_int(args[3]);
+    uint16_t c = xm_rgb565(mp_obj_get_int(args[4]) & 0xFFFFFF);
 
     int dx = (x1 > x0) ? (x1 - x0) : (x0 - x1);
     int sx = (x0 < x1) ? 1 : -1;
@@ -278,16 +279,16 @@ static mp_obj_t xm_line(mp_obj_t x0o, mp_obj_t y0o, mp_obj_t x1o, mp_obj_t y1o, 
     }
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_5(xm_line_obj, xm_line);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(xm_line_obj, 5, 5, xm_line);
 
 /* xiaomiao.rect_fill(x, y, w, h, color) -> None：填充矩形（便捷） */
-static mp_obj_t xm_rect_fill(mp_obj_t x_obj, mp_obj_t y_obj, mp_obj_t w_obj, mp_obj_t h_obj,
-                             mp_obj_t color_obj)
+static mp_obj_t xm_rect_fill(mp_uint_t n_args, const mp_obj_t *args)
 {
+    (void)n_args;
     if (!xiaomiao_display_init()) mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("no framebuffer"));
-    int x = mp_obj_get_int(x_obj), y = mp_obj_get_int(y_obj);
-    int w = mp_obj_get_int(w_obj), h = mp_obj_get_int(h_obj);
-    uint16_t c = xm_rgb565(mp_obj_get_int(color_obj) & 0xFFFFFF);
+    int x = mp_obj_get_int(args[0]), y = mp_obj_get_int(args[1]);
+    int w = mp_obj_get_int(args[2]), h = mp_obj_get_int(args[3]);
+    uint16_t c = xm_rgb565(mp_obj_get_int(args[4]) & 0xFFFFFF);
     for (int j = y; j < y + h; j++) {
         if (j < 0 || j >= XM_SCREEN_H) continue;
         for (int i = x; i < x + w; i++) {
@@ -296,7 +297,7 @@ static mp_obj_t xm_rect_fill(mp_obj_t x_obj, mp_obj_t y_obj, mp_obj_t w_obj, mp_
     }
     return mp_const_none;
 }
-static MP_DEFINE_CONST_FUN_OBJ_5(xm_rect_fill_obj, xm_rect_fill);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(xm_rect_fill_obj, 5, 5, xm_rect_fill);
 
 /* xiaomiao.show() -> None：将 framebuffer 上屏 */
 static mp_obj_t xm_show(void)
