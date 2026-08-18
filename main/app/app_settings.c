@@ -37,20 +37,21 @@ static const char *s_settings_items[] = {
     "布局",       // 4 - 桌面 → 二级页面
     "字体",       // 5 - 显示 → 二级页面
     "声音",       // 6 - 声音开关（含lv_switch）
-    "屏幕超时",   // 7 - 显示 → 二级页面
-    "日期时间",   // 8 - 系统 → 二级页面
-    "应用管理",   // 9 - 二级页面
-    "关于系统",   // 10 - 二级页面
-    "恢复默认",   // 11 - 操作
-    "保存并退出", // 12 - 操作
-    "返回Loader", // 13 - 操作（重启进入下载模式）
+    "音频输出",   // 7 - 音频输出设备选择 → 二级页面
+    "屏幕超时",   // 8 - 显示 → 二级页面
+    "日期时间",   // 9 - 系统 → 二级页面
+    "应用管理",   // 10 - 二级页面
+    "关于系统",   // 11 - 二级页面
+    "恢复默认",   // 12 - 操作
+    "保存并退出", // 13 - 操作
+    "返回Loader", // 14 - 操作（重启进入下载模式）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[14] = {0};
+static lv_obj_t *s_settings_labels[15] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -61,7 +62,7 @@ static void settings_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     const char *items[] = {
         "亮度", "主题", "音量", "WiFi", "布局", "字体", "声音",
-        "屏幕超时", "日期时间", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
+        "音频输出", "屏幕超时", "日期时间", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
     };
     char buf[64];
     switch (idx) {
@@ -81,16 +82,16 @@ static void settings_refresh_label(int idx)
         break;
     }
     case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;
-    case 7: {
+    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break; /* 音频输出 */
+    case 8: {
         const char *sleep_str = "永不";
         if (st->sleep_timeout == 30) sleep_str = "30秒";
         else if (st->sleep_timeout == 60) sleep_str = "60秒";
         else if (st->sleep_timeout == 120) sleep_str = "2分";
         else if (st->sleep_timeout == 300) sleep_str = "5分";
-        snprintf(buf, sizeof(buf), "%s: %s", items[7], sleep_str);
+        snprintf(buf, sizeof(buf), "%s: %s", items[8], sleep_str);
         break;
     }
-    case 8: snprintf(buf, sizeof(buf), "%s", items[8]); break;
     case 9: snprintf(buf, sizeof(buf), "%s", items[9]); break;
     case 10: snprintf(buf, sizeof(buf), "%s", items[10]); break;
     case 11: snprintf(buf, sizeof(buf), "%s", items[11]); break;
@@ -309,26 +310,36 @@ static bool settings_on_key(int key)
             }
             break;
         case 7:
+            /* 音频输出 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_audio_settings_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 8:
             /* 屏幕超时 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_sleep_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 8:
+        case 9:
             /* 日期时间 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_datetime_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 9:
+        case 10:
+            /* 应用管理 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
             return true;
-        case 10:
+        case 11:
+            /* 关于系统 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
-        case 11:
+        case 12:
+            /* 恢复默认 */
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
             st->sleep_timeout = 60;
@@ -337,12 +348,14 @@ static bool settings_on_key(int key)
             ESP_LOGI(TAG, "Settings reset to defaults");
             settings_rebuild_visible();
             return true;
-        case 12:
+        case 13:
+            /* 保存并退出 */
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
             ui_stack_pop();
             return true;
-        case 13:
+        case 14:
+            /* 返回Loader（重启进入下载模式） */
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
