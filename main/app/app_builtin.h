@@ -45,11 +45,6 @@ extern const page_callbacks_t g_editor_callbacks;
 extern const page_callbacks_t g_store_callbacks;
 
 /**
- * 贪吃蛇页面回调
- */
-extern const page_callbacks_t g_snake_callbacks;
-
-/**
  * 音乐页面回调
  */
 extern const page_callbacks_t g_music_callbacks;
