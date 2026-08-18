@@ -70,13 +70,6 @@ static const app_def_t s_builtin_app_defs[] = {
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
-    {
-        .name = "MID播放",
-        .icon_text = LV_SYMBOL_AUDIO,
-        .icon_color = 0xF59E0B,
-        .type = APP_TYPE_BUILTIN,
-        .launch_cb = NULL,
-    },
 };
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
@@ -100,7 +93,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "音乐") == 0) return &g_music_callbacks;
     if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
     if (strcmp(app_name, "文件") == 0) return &g_filemgr_callbacks;
-    if (strcmp(app_name, "MID播放") == 0) return &g_midplayer_callbacks;
+    /* MID播放器已删除 */
     if (strcmp(app_name, "WiFi设置") == 0) return &g_wifi_settings_callbacks;
     if (strcmp(app_name, "字体设置") == 0) return &g_font_settings_callbacks;
     if (strcmp(app_name, "亮度设置") == 0) return &g_brightness_settings_callbacks;
