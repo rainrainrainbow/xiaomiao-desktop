@@ -166,9 +166,8 @@ static void filemgr_open_file(const char *path, const char *name)
         stash.size = (path_len + 1 > PAGE_STASH_SIZE) ? PAGE_STASH_SIZE : path_len + 1;
         memcpy(stash.data, path, stash.size - 1);
         stash.data[stash.size - 1] = '\0';
-        ui_stash_set(&stash);
-        ui_stack_push(PAGE_APP_PLACEHOLDER, &g_midplayer_callbacks, NULL);
-        ESP_LOGI(TAG, "Opened MID file: %s", path);
+        ESP_LOGI(TAG, "MID file support removed (MID播放器已删除)");
+        ui_statusbar_set_title("MID播放器已移除");
     } else if (file_is_text(name)) {
         /* 打开文本查看器 */
         txt_viewer_open(path);
