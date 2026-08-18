@@ -26,8 +26,8 @@
 #define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 系统版本信息 ========== */
-#define XIAOMIAO_VERSION    "v65"
-#define XIAOMIAO_BUILD      "2026-08-21"
+#define XIAOMIAO_VERSION    "v66"
+#define XIAOMIAO_BUILD      "2026-08-22"
 
 /* ========== 页面类型 ========== */
 typedef enum {
