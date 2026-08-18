@@ -118,9 +118,7 @@ static void bt_a2dp_sink_callback(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *
         break;
     
     case ESP_A2D_AUDIO_CFG_EVT:
-        ESP_LOGI(TAG, "Audio config: codec=%d, sample_rate=%d",
-                 param->aud_cfg.cfg_mcc.codec,
-                 param->aud_cfg.sampling_rate);
+        ESP_LOGI(TAG, "Audio configuration received");
         break;
     
     default:
