@@ -52,6 +52,7 @@
 #include "driver/drv_battery.h"
 #include "driver/drv_backlight.h"
 #include "driver/drv_buzzer.h"
+#include "driver/drv_audio_output.h"
 
 // 系统服务
 #include "system/sys_nvs.h"
@@ -886,7 +887,8 @@ void app_main(void)
     drv_button_init();
     drv_backlight_init();
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
-    drv_buzzer_init();   // 初始化蜂鸣器（GPIO25，LEDC PWM）
+    drv_buzzer_init();   // 初始化蜂鸣器（GPIO14，LEDC PWM）
+    audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
     
     // 启动按键任务（独立任务，5ms扫描周期）
     xTaskCreate(drv_button_task, "btn_task", 2048, NULL, 10, NULL);
