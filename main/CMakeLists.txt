@@ -18,7 +18,6 @@ idf_component_register(
         "app/app_list.c"
         "app/app_editor.c"
         "app/app_store.c"
-        "app/app_snake.c"
         "app/app_music.c"
         "app/app_filemgr.c"
         "app/app_midplayer.c"
