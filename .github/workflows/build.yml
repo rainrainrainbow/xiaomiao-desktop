@@ -269,33 +269,61 @@ jobs:
           echo "size tool: $SIZE_BIN"
           echo "nm tool:   $NM_BIN"
           echo ""
-          echo "---- 1) Per-component sizes (text/data/bss, sorted by bss desc) ----"
-          printf "%-45s %10s %10s %10s %10s\n" "COMPONENT" "TEXT" "DATA" "BSS" "TOTAL"
-          for lib in $(find build/esp-idf -name "*.a" 2>/dev/null | sort); do
-            out=$($SIZE_BIN "$lib" 2>/dev/null | tail -1)
-            # out format: text data bss dec hex filename
-            text=$(echo $out | awk '{print $1}')
-            data=$(echo $out | awk '{print $2}')
-            bss=$(echo $out | awk '{print $3}')
-            total=$(( ${text:-0} + ${data:-0} + ${bss:-0} ))
-            # 只打印有内容的组件
-            if [ "$total" -gt 0 ] 2>/dev/null; then
-              printf "%-45s %10s %10s %10s %10s\n" "$(basename $lib)" "$text" "$data" "$bss" "$total"
-            fi
-          done | sort -k4 -nr | head -40
-          echo ""
-          echo "---- 2) Top 40 .bss symbols in bt component ----"
-          if [ -f build/esp-idf/bt/libbt.a ]; then
-            $NM_BIN --size-sort --print-size --reverse-sort build/esp-idf/bt/libbt.a 2>/dev/null \
-              | awk '$2=="b" || $2=="B" {printf "%10d  %s\n", strtonum("0x"$1), $3}' | head -40
-          fi
-          echo ""
-          echo "---- 3) Top 40 .bss symbols across ALL components ----"
-          for lib in $(find build/esp-idf -name "*.a" 2>/dev/null); do
-            $NM_BIN --size-sort --print-size --reverse-sort "$lib" 2>/dev/null \
-              | awk -v lib="$lib" '$2=="b" || $2=="B" {printf "%10d  %-30s  %s\n", strtonum("0x"$1), $3, lib}'
-          done | sort -rn | head -40
-          echo "==================== END MEMORY ANALYSIS ===================="
+          # 用 python3 解析 size/nm 输出（awk 的 strtonum 在部分环境不存在）
+          python3 << 'ANALYZE_EOF'
+          import subprocess, glob, os
+          size_bin = os.popen(f"ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-size 2>/dev/null | head -1").read().strip()
+          nm_bin   = os.popen(f"ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-nm 2>/dev/null | head -1").read().strip()
+          libs = sorted(glob.glob("build/esp-idf/**/*.a", recursive=True))
+          print("---- 1) Per-component sizes (text/data/bss, sorted by bss desc) ----")
+          print(f"{'COMPONENT':<50} {'TEXT':>10} {'DATA':>10} {'BSS':>10} {'TOTAL':>10}")
+          rows = []
+          for lib in libs:
+              try:
+                  out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[-1]
+                  parts = out.split()
+                  text, data, bss = int(parts[0]), int(parts[1]), int(parts[2])
+                  if text + data + bss > 0:
+                      rows.append((os.path.basename(lib), text, data, bss))
+              except Exception as e:
+                  pass
+          rows.sort(key=lambda r: -r[3])
+          for name, text, data, bss in rows:
+              print(f"{name:<50} {text:>10} {data:>10} {bss:>10} {text+data+bss:>10}")
+          # 只解析带 b/B 的符号（.bss），用 python 解析十六进制尺寸，避免 awk strtonum 缺失
+          def bss_symbols(lib):
+              syms = []
+              try:
+                  out = subprocess.run([nm_bin, "--size-sort", "--print-size", "--reverse-sort", lib],
+                                       capture_output=True, text=True, timeout=15).stdout
+                  for line in out.splitlines():
+                      parts = line.split()
+                      if len(parts) >= 3 and parts[1] in ("b", "B"):
+                          try: size = int(parts[0], 16)
+                          except: continue
+                          syms.append((size, parts[2]))
+              except Exception:
+                  pass
+              return syms
+          print("")
+          print("---- 2) Top 40 .bss symbols in bt component ----")
+          def dump_top(syms, n=40):
+              syms.sort(reverse=True)
+              for size, name in syms[:n]:
+                  print(f"{size:>10}  {name}")
+          bt_syms = bss_symbols("build/esp-idf/bt/libbt.a") if os.path.exists("build/esp-idf/bt/libbt.a") else []
+          dump_top(bt_syms)
+          print("")
+          print("---- 3) Top 60 .bss symbols across ALL components ----")
+          all_syms = []
+          for lib in libs:
+              for size, name in bss_symbols(lib):
+                  all_syms.append((size, name, os.path.basename(lib)))
+          all_syms.sort(reverse=True)
+          for size, name, lib in all_syms[:60]:
+              print(f"{size:>10}  {name:<40} {lib}")
+          print("==================== END MEMORY ANALYSIS ====================")
+          ANALYZE_EOF
 
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
