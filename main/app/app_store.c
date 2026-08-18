@@ -19,7 +19,7 @@ static const char *TAG = "APP_STORE";
 
 /* ========== 常量 ========== */
 #define STORE_MAX_APPS      20   // 最大显示应用数
-#define STORE_PATH_LEN      512  // 路径缓冲区大小
+#define STORE_PATH_LEN      128  // 路径缓冲区大小
 #define STORE_SCAN_DIR      "/sdcard"  // 扫描目录（可修改为特定目录）
 
 /* ========== 应用条目 ========== */
