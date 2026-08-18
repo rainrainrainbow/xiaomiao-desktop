@@ -104,6 +104,14 @@ set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/machine_touchpad.c     # TouchPad 模块（被 modmachine.c 引用，需保留）
 )
 
+# xiaomiao 扩展模块（poincare/mp_xiaomiao.c）
+# 必须在本组件中编译：这样 MP_QSTR_xiaomiao 等 qstr 才能被自动收集，
+# MP_REGISTER_MODULE 才能被 makemoduledefs.py 识别并注册模块。
+# main 组件通过 poincare/mp_xiaomiao.h 中的 extern 声明链接本模块符号。
+set(MICROPY_XIAOMIAO_MOD "${MICROPY_COMPONENT_DIR}/../../poincare/mp_xiaomiao.c")
+list(APPEND MICROPY_SOURCE_PORT ${MICROPY_XIAOMIAO_MOD})
+message(STATUS "Added xiaomiao MicroPython module: ${MICROPY_XIAOMIAO_MOD}")
+
 # 设置共享源文件
 set(MICROPY_SOURCE_SHARED
     ${MICROPY_DIR}/shared/readline/readline.c
@@ -150,6 +158,7 @@ idf_component_register(
         ${MICROPY_PORT_DIR}
         ${MICROPY_BOARD_DIR}
         ${CMAKE_BINARY_DIR}
+        ${MICROPY_COMPONENT_DIR}/../..   # 项目根目录（用于 poincare/mp_xiaomiao.h）
     REQUIRES
         app_update bootloader_support driver esp_adc esp_app_format esp_common esp_driver_dac esp_driver_gpio esp_driver_gptimer esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_mcpwm esp_driver_pcnt esp_driver_rmt esp_driver_sdmmc esp_driver_sdspi esp_driver_spi esp_driver_uart esp_event esp_hw_support esp_mm esp_netif esp_partition esp_pm esp_psram esp_ringbuf esp_rom esp_system esp_timer esp_wifi freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
 )
