@@ -373,12 +373,9 @@ static int about_get_partition_count(void)
     esp_partition_iterator_t iter = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, NULL);
     while (iter) {
         count++;
-        esp_partition_iterator_t next = esp_partition_next(iter);
-        if (!next) {
-            esp_partition_iterator_release(iter);
-            break;
-        }
-        iter = next;
+        /* 注意：esp_partition_next() 内部会释放传入的iterator，
+         * 到达末尾返回NULL时已自动释放，不能再手动 release，否则双重释放崩溃 */
+        iter = esp_partition_next(iter);
     }
     return count;
 }
@@ -392,16 +389,13 @@ static const esp_partition_t *about_get_partition_at(int index)
     while (iter) {
         if (count == index) {
             result = esp_partition_get(iter);
+            /* 注意：esp_partition_next() 内部会释放传入的iterator */
             esp_partition_iterator_release(iter);
             return result;
         }
         count++;
-        esp_partition_iterator_t next = esp_partition_next(iter);
-        if (!next) {
-            esp_partition_iterator_release(iter);
-            break;
-        }
-        iter = next;
+        /* esp_partition_next() 到达末尾返回NULL时已自动释放，不能再次release */
+        iter = esp_partition_next(iter);
     }
     return NULL;
 }

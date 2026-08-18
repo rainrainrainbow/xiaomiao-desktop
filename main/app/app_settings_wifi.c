@@ -1,10 +1,15 @@
 /**
  * @file app_settings_wifi.c
- * @brief WiFi设置二级页面 - 扫描、连接WiFi网络
+ * @brief WiFi设置二级页面 - STA/AP双模式，扫描、连接WiFi网络
  *
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_wifi_settings_callbacks。
- * 当前实现：显示WiFi开关状态，可切换开关；
- * 预留WiFi扫描/连接接口，后续可接入ESP-IDF WiFi驱动。
+ *
+ * v65改进：
+ * 1. STA/AP双模式：第0行左右键切换
+ * 2. STA模式：进入页面自动扫描，状态行A键手动重新扫描
+ * 3. AP模式：显示SSID/密码/频道/连接数信息行
+ * 4. 添加 esp_netif_create_default_wifi_sta/ap() 创建网络接口
+ * 5. WiFi开关移到第1行，模式行独立
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
@@ -12,6 +17,7 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_netif.h"
 #include "nvs_flash.h"
 #include <string.h>
 #include <stdio.h>
@@ -21,6 +27,8 @@ static const char *TAG = "APP_WIFI";
 /* ========== WiFi状态 ========== */
 #define MAX_NETWORKS 8
 #define WIFI_SSID_MAX 32
+#define AP_PASSWORD   "12345678"   /* AP热点密码（8位） */
+#define AP_SSID       "Xiaomiao-AP"
 
 typedef enum {
     WIFI_STATE_OFF = 0,
@@ -30,8 +38,19 @@ typedef enum {
     WIFI_STATE_CONNECTED,
 } wifi_state_t;
 
+/* 用户选择的模式 */
+typedef enum {
+    WIFI_MODE_SEL_STA = 0,
+    WIFI_MODE_SEL_AP,
+    WIFI_MODE_SEL_MAX
+} wifi_mode_sel_t;
+
 static wifi_state_t s_wifi_state = WIFI_STATE_OFF;
 static bool s_wifi_initialized = false;
+static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
+static bool s_ap_netif_created = false;   /* AP netif 是否已创建 */
+static wifi_mode_sel_t s_mode_sel = WIFI_MODE_SEL_STA;
+static int s_ap_sta_count = 0;            /* AP模式下已连接设备数 */
 
 /* 扫描到的网络列表 */
 typedef struct {
@@ -45,8 +64,15 @@ static int s_network_count = 0;
 static int s_connected_idx = -1;  /* 当前连接的网络索引 */
 
 /* ========== UI状态 ========== */
+#define WIFI_ROW_MODE     0   /* 模式行（STA/AP切换） */
+#define WIFI_ROW_SWITCH   1   /* WiFi开关行 */
+#define WIFI_ROW_STATUS   2   /* 状态行（A键扫描） */
+#define WIFI_ROW_NET_BASE 3   /* 网络列表起始行（STA）/ AP信息起始行 */
+#define AP_INFO_ROWS      3   /* AP模式信息行数（名称/密码/频道） */
+
 static lv_obj_t *s_wifi_list = NULL;
-static lv_obj_t *s_wifi_labels[MAX_NETWORKS + 2] = {0};  /* +2: 开关行 + 状态行 */
+/* 标签数组容量：3固定行 + 8网络 + 3AP信息 */
+static lv_obj_t *s_wifi_labels[WIFI_ROW_NET_BASE + MAX_NETWORKS + AP_INFO_ROWS + 2] = {0};
 static lv_obj_t *s_wifi_switch = NULL;                    /* WiFi开关组件 */
 static lv_obj_t *s_wifi_bars[MAX_NETWORKS] = {0};        /* 网络信号强度进度条 */
 static int s_wifi_sel = 0;
@@ -61,13 +87,26 @@ static void wifi_driver_init(void)
     if (s_wifi_initialized) return;
 
     /* 注意：esp_netif_init() 和 esp_event_loop_create_default() 已在 app_main 中初始化一次 */
+
+    /* 创建STA和AP网络接口（各一次，模式切换时复用） */
+    if (!s_sta_netif_created) {
+        esp_netif_create_default_wifi_sta();
+        s_sta_netif_created = true;
+        ESP_LOGI(TAG, "STA netif created");
+    }
+    if (!s_ap_netif_created) {
+        esp_netif_create_default_wifi_ap();
+        s_ap_netif_created = true;
+        ESP_LOGI(TAG, "AP netif created");
+    }
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "WiFi init failed: %s (DMA memory may be insufficient)", esp_err_to_name(ret));
         return;
     }
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    ret = esp_wifi_set_mode(WIFI_MODE_APSTA);  /* 双模式，便于 STA/AP 切换 */
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "WiFi set mode failed: %s", esp_err_to_name(ret));
         return;
@@ -79,13 +118,54 @@ static void wifi_driver_init(void)
     }
 
     s_wifi_initialized = true;
-    ESP_LOGI(TAG, "WiFi driver initialized");
+    ESP_LOGI(TAG, "WiFi driver initialized (APSTA)");
+}
+
+/* ========== 应用当前所选模式 ========== */
+static void wifi_apply_mode(void)
+{
+    if (!s_wifi_initialized) return;
+    ui_state_t *st = ui_state_get();
+    if (!st->wifi_on) return;
+
+    if (s_mode_sel == WIFI_MODE_SEL_AP) {
+        wifi_config_t ap_cfg = {
+            .ap = {
+                .ssid = AP_SSID,
+                .ssid_len = strlen(AP_SSID),
+                .password = AP_PASSWORD,
+                .max_connection = 4,
+                .channel = 1,
+                .authmode = WIFI_AUTH_WPA2_PSK,
+            },
+        };
+        esp_err_t ret = esp_wifi_set_config(WIFI_IF_AP, &ap_cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "AP config failed: %s", esp_err_to_name(ret));
+        }
+        ret = esp_wifi_set_mode(WIFI_MODE_AP);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Set AP mode failed: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "AP mode: %s / %s ch1", AP_SSID, AP_PASSWORD);
+        }
+    } else {
+        esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Set STA mode failed: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "STA mode");
+        }
+    }
 }
 
 /* ========== WiFi扫描 ========== */
 static void wifi_scan(void)
 {
+    if (s_mode_sel != WIFI_MODE_SEL_STA) return;
     if (s_wifi_state == WIFI_STATE_OFF) return;
+    ui_state_t *st = ui_state_get();
+    if (!st->wifi_on) return;
 
     s_wifi_state = WIFI_STATE_SCANNING;
     s_network_count = 0;
@@ -127,7 +207,10 @@ static void wifi_scan(void)
 static void wifi_connect(int idx)
 {
     if (idx < 0 || idx >= s_network_count) return;
+    if (s_mode_sel != WIFI_MODE_SEL_STA) return;
     if (s_wifi_state == WIFI_STATE_OFF) return;
+    ui_state_t *st = ui_state_get();
+    if (!st->wifi_on) return;
 
     s_wifi_state = WIFI_STATE_CONNECTING;
     s_connected_idx = -1;
@@ -169,20 +252,57 @@ static void wifi_disconnect(void)
     }
 }
 
+/* ========== WiFi开关（统一启用/禁用） ========== */
+static void wifi_set_enabled(bool enable)
+{
+    ui_state_t *st = ui_state_get();
+    st->wifi_on = enable;
+
+    if (enable) {
+        if (!s_wifi_initialized) {
+            wifi_driver_init();  /* init + start */
+        } else {
+            esp_wifi_start();
+        }
+        if (!s_wifi_initialized) {
+            ESP_LOGE(TAG, "WiFi enable failed (init failed)");
+            return;
+        }
+        wifi_apply_mode();
+        if (s_mode_sel == WIFI_MODE_SEL_STA) {
+            wifi_scan();
+        }
+    } else {
+        if (s_wifi_initialized) {
+            esp_wifi_stop();
+        }
+        s_network_count = 0;
+        s_connected_idx = -1;
+        s_wifi_state = WIFI_STATE_OFF;
+        ESP_LOGI(TAG, "WiFi disabled");
+    }
+}
+
 /* ========== 刷新UI ========== */
 static void wifi_refresh_label(int idx)
 {
+    if (idx < 0 || idx >= (int)(sizeof(s_wifi_labels) / sizeof(s_wifi_labels[0]))) return;
     if (!s_wifi_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     char buf[64];
 
-    if (idx == 0) {
-        /* 第0行：WiFi开关 — 文本只显示"WiFi"，开关由lv_switch组件管理 */
+    if (idx == WIFI_ROW_MODE) {
+        /* 第0行：模式切换 */
+        snprintf(buf, sizeof(buf), "%s", s_mode_sel == WIFI_MODE_SEL_STA ? "模式: STA" : "模式: AP");
+    } else if (idx == WIFI_ROW_SWITCH) {
+        /* 第1行：WiFi开关 — 文本只显示"WiFi"，开关由lv_switch组件管理 */
         snprintf(buf, sizeof(buf), "WiFi");
-    } else if (idx == 1) {
-        /* 第1行：状态信息 */
+    } else if (idx == WIFI_ROW_STATUS) {
+        /* 第2行：状态信息 */
         if (!st->wifi_on) {
             snprintf(buf, sizeof(buf), "WiFi已关闭");
+        } else if (s_mode_sel == WIFI_MODE_SEL_AP) {
+            snprintf(buf, sizeof(buf), "AP运行中 A=详情");
         } else if (s_wifi_state == WIFI_STATE_SCANNING) {
             snprintf(buf, sizeof(buf), "正在扫描...");
         } else if (s_wifi_state == WIFI_STATE_CONNECTING) {
@@ -190,25 +310,48 @@ static void wifi_refresh_label(int idx)
         } else if (s_wifi_state == WIFI_STATE_CONNECTED && s_connected_idx >= 0) {
             snprintf(buf, sizeof(buf), "已连接: %s", s_networks[s_connected_idx].ssid);
         } else {
-            snprintf(buf, sizeof(buf), "已扫描 %d 个网络", s_network_count);
+            snprintf(buf, sizeof(buf), "已扫%d个 A=扫描", s_network_count);
+        }
+    } else if (idx >= WIFI_ROW_NET_BASE) {
+        if (s_mode_sel == WIFI_MODE_SEL_AP) {
+            /* AP模式信息行 */
+            int ap_idx = idx - WIFI_ROW_NET_BASE;
+            if (ap_idx == 0) snprintf(buf, sizeof(buf), "名称: %s", AP_SSID);
+            else if (ap_idx == 1) snprintf(buf, sizeof(buf), "密码: %s", AP_PASSWORD);
+            else if (ap_idx == 2) {
+                /* 查询AP实际连接数 */
+                wifi_sta_list_t sta_list;
+                memset(&sta_list, 0, sizeof(sta_list));
+                if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+                    s_ap_sta_count = sta_list.num;
+                }
+                snprintf(buf, sizeof(buf), "频道:1 连接:%d", s_ap_sta_count);
+            }
+            else buf[0] = '\0';
+        } else {
+            /* STA模式网络列表行 */
+            int net_idx = idx - WIFI_ROW_NET_BASE;
+            if (net_idx < s_network_count) {
+                const char *lock = "";
+                if (s_networks[net_idx].auth_mode > 0) lock = "🔒";
+                if (net_idx == s_connected_idx) {
+                    snprintf(buf, sizeof(buf), "%s%s ✓", lock, s_networks[net_idx].ssid);
+                } else {
+                    snprintf(buf, sizeof(buf), "%s%s", lock, s_networks[net_idx].ssid);
+                }
+                /* 更新信号强度进度条 */
+                if (net_idx < MAX_NETWORKS && s_wifi_bars[net_idx]) {
+                    int bars = (s_networks[net_idx].rssi + 100) / 17;
+                    if (bars < 0) bars = 0;
+                    if (bars > 4) bars = 4;
+                    lv_bar_set_value(s_wifi_bars[net_idx], bars * 25, LV_ANIM_OFF);
+                }
+            } else {
+                buf[0] = '\0';
+            }
         }
     } else {
-        /* 网络列表行 */
-        int net_idx = idx - 2;
-        if (net_idx < s_network_count) {
-            const char *lock = "";
-            if (s_networks[net_idx].auth_mode > 0) lock = "🔒";
-            snprintf(buf, sizeof(buf), "%s%s", lock, s_networks[net_idx].ssid);
-            /* 更新信号强度进度条 */
-            if (net_idx < MAX_NETWORKS && s_wifi_bars[net_idx]) {
-                int bars = (s_networks[net_idx].rssi + 100) / 17;
-                if (bars < 0) bars = 0;
-                if (bars > 4) bars = 4;
-                lv_bar_set_value(s_wifi_bars[net_idx], bars * 25, LV_ANIM_OFF);
-            }
-        } else {
-            buf[0] = '\0';
-        }
+        buf[0] = '\0';
     }
     lv_label_set_text(s_wifi_labels[idx], buf);
 }
@@ -222,8 +365,13 @@ static void wifi_rebuild_visible(void)
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
     memset(s_wifi_bars, 0, sizeof(s_wifi_bars));
 
-    s_wifi_total = 2 + s_network_count;  /* 开关行 + 状态行 + 网络列表 */
-    if (s_wifi_total < 2) s_wifi_total = 2;
+    if (s_mode_sel == WIFI_MODE_SEL_AP) {
+        s_wifi_total = WIFI_ROW_NET_BASE + AP_INFO_ROWS;  /* 模式+开关+状态+3行AP信息 */
+        if (s_wifi_total < WIFI_ROW_NET_BASE) s_wifi_total = WIFI_ROW_NET_BASE;
+    } else {
+        s_wifi_total = WIFI_ROW_NET_BASE + s_network_count;  /* 模式+开关+状态+网络列表 */
+        if (s_wifi_total < WIFI_ROW_NET_BASE) s_wifi_total = WIFI_ROW_NET_BASE;
+    }
 
     /* 确保选中项在可见范围内 */
     if (s_wifi_sel < s_wifi_scroll) s_wifi_scroll = s_wifi_sel;
@@ -255,8 +403,8 @@ static void wifi_rebuild_visible(void)
         s_wifi_labels[idx] = lbl;
         wifi_refresh_label(idx);
 
-        /* 第0行：添加LVGL开关组件 */
-        if (idx == 0) {
+        /* 第1行：添加LVGL开关组件 */
+        if (idx == WIFI_ROW_SWITCH) {
             lv_obj_t *sw = lv_switch_create(row);
             lv_obj_remove_style_all(sw);
             /* 开关背景 */
@@ -283,9 +431,9 @@ static void wifi_rebuild_visible(void)
             s_wifi_switch = sw;
         }
 
-        /* 网络列表行：添加信号强度进度条 */
-        if (idx >= 2) {
-            int net_idx = idx - 2;
+        /* STA模式网络列表行：添加信号强度进度条 */
+        if (s_mode_sel == WIFI_MODE_SEL_STA && idx >= WIFI_ROW_NET_BASE) {
+            int net_idx = idx - WIFI_ROW_NET_BASE;
             if (net_idx < s_network_count && net_idx < MAX_NETWORKS) {
                 lv_obj_t *bar = lv_bar_create(row);
                 lv_obj_remove_style_all(bar);
@@ -338,10 +486,18 @@ static void wifi_settings_init(void *data)
     s_wifi_sel = 0;
     s_wifi_scroll = 0;
 
-    /* 如果WiFi已打开，初始化驱动并扫描 */
-    if (st->wifi_on && !s_wifi_initialized) {
-        wifi_driver_init();
-        wifi_scan();
+    /* 如果WiFi已打开，初始化驱动并按当前模式处理 */
+    if (st->wifi_on) {
+        if (!s_wifi_initialized) {
+            wifi_driver_init();
+        }
+        wifi_apply_mode();
+        if (s_mode_sel == WIFI_MODE_SEL_STA) {
+            wifi_scan();   /* STA模式：进入页面自动扫描 */
+        }
+        if (!s_wifi_initialized) {
+            ESP_LOGW(TAG, "WiFi not initialized (DMA不足?), 仅显示开关");
+        }
     }
 
     wifi_rebuild_visible();
@@ -377,27 +533,46 @@ static bool wifi_settings_on_key(int key)
         return true;
     }
 
-    if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
-        if (s_wifi_sel == 0) {
-            /* 第0行：切换WiFi开关 */
-            st->wifi_on = !st->wifi_on;
-            if (st->wifi_on) {
-                /* 打开WiFi */
-                if (!s_wifi_initialized) {
-                    wifi_driver_init();
+    if (key == KEY_LEFT || key == KEY_RIGHT) {
+        /* 第0行：切换 STA/AP 模式 */
+        if (s_wifi_sel == WIFI_ROW_MODE) {
+            s_mode_sel = (s_mode_sel == WIFI_MODE_SEL_STA) ? WIFI_MODE_SEL_AP : WIFI_MODE_SEL_STA;
+            if (st->wifi_on && s_wifi_initialized) {
+                wifi_apply_mode();
+                if (s_mode_sel == WIFI_MODE_SEL_STA) {
+                    wifi_scan();   /* 切回STA自动扫描 */
                 }
-                wifi_scan();
+            }
+            s_wifi_sel = WIFI_ROW_MODE;
+            wifi_rebuild_visible();
+            return true;
+        }
+        /* 其他行：无动作 */
+        return true;
+    }
+
+    if (key == KEY_A) {
+        if (s_wifi_sel == WIFI_ROW_SWITCH) {
+            /* WiFi开关 */
+            if (st->wifi_on) {
+                wifi_set_enabled(false);
             } else {
-                /* 关闭WiFi */
-                wifi_disconnect();
-                s_network_count = 0;
+                wifi_set_enabled(true);
             }
             wifi_rebuild_visible();
             return true;
         }
-        if (s_wifi_sel >= 2 && key == KEY_A) {
-            /* 点击网络列表项：尝试连接 */
-            int net_idx = s_wifi_sel - 2;
+        if (s_wifi_sel == WIFI_ROW_STATUS) {
+            /* 状态行：手动扫描（STA）或AP详情提示 */
+            if (st->wifi_on && s_mode_sel == WIFI_MODE_SEL_STA) {
+                wifi_scan();
+                wifi_rebuild_visible();
+            }
+            return true;
+        }
+        if (s_wifi_sel >= WIFI_ROW_NET_BASE && s_mode_sel == WIFI_MODE_SEL_STA) {
+            /* 点击网络列表项：尝试连接/断开 */
+            int net_idx = s_wifi_sel - WIFI_ROW_NET_BASE;
             if (net_idx < s_network_count) {
                 if (s_connected_idx == net_idx) {
                     wifi_disconnect();
