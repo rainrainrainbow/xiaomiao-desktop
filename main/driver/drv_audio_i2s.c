@@ -127,7 +127,7 @@ static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t ch
         channels = 2;
     }
     if (sample_rate < 8000 || sample_rate > 96000) {
-        ESP_LOGW(TAG, "Unsupported sample rate: %lu Hz, falling back to 44100", sample_rate);
+        ESP_LOGW(TAG, "Unsupported sample rate: %u Hz, falling back to 44100", (unsigned)sample_rate);
         sample_rate = 44100;
     }
 
@@ -135,7 +135,8 @@ static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t ch
     s_current_bits = bits;
     s_current_channels = channels;
 
-    ESP_LOGI(TAG, "Opening I2S: %lu Hz, %d bit, %d ch", sample_rate, bits, channels);
+    ESP_LOGI(TAG, "Opening I2S: %u Hz, %d bit, %d ch",
+             (unsigned)sample_rate, bits, channels);
 
     /* ---- 创建I2S TX通道（ESP-IDF v5.3新API） ---- */
     i2s_chan_config_t chan_cfg = {
@@ -198,8 +199,8 @@ static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t ch
     }
 
     s_i2s_opened = true;
-    ESP_LOGI(TAG, "I2S opened successfully (DMA: %d desc x %d frames)",
-             chan_cfg.dma_desc_num, chan_cfg.dma_frame_num);
+    ESP_LOGI(TAG, "I2S opened successfully (DMA: %u desc x %u frames)",
+             (unsigned)chan_cfg.dma_desc_num, (unsigned)chan_cfg.dma_frame_num);
     return ESP_OK;
 }
 
