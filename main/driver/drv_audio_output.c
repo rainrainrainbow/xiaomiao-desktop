@@ -7,6 +7,7 @@
  */
 #include "drv_audio_output.h"
 #include "drv_audio_i2s.h"
+#include "drv_audio_bt_a2dp.h"
 #include "drv_buzzer.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -216,11 +217,8 @@ esp_err_t audio_output_init(void)
     /* Phase 2: I2S DAC后端（始终可用，硬件直连） */
     audio_output_register_backend(&s_i2s_backend);
     
-    /* TODO: Phase 3 - 初始化蓝牙A2DP */
-    /* if (CONFIG_AUDIO_BT_A2DP_ENABLED) {
-     *     audio_output_register_backend(&s_bt_a2dp_backend);
-     * }
-     */
+    /* Phase 3: 蓝牙A2DP后端（连接后可用） */
+    audio_output_register_backend(&s_bt_a2dp_backend);
     
     /* 初始化所有后端 */
     for (int i = 0; i < s_backend_count; i++) {
@@ -512,11 +510,9 @@ void audio_output_poll(void)
     s_last_poll_time = now;
     
     /* 检查蓝牙连接状态（Phase 3实现） */
-    /* TODO:
-     * bool bt_connected = bt_a2dp_is_connected();
-     * if (bt_connected != s_bt_was_connected) {
-     *     audio_output_notify_device_change(AUDIO_OUT_BT_A2DP, bt_connected);
-     *     s_bt_was_connected = bt_connected;
-     * }
-     */
+    bool bt_connected = bt_a2dp_is_connected();
+    if (bt_connected != s_bt_was_connected) {
+        audio_output_notify_device_change(AUDIO_OUT_BT_A2DP, bt_connected);
+        s_bt_was_connected = bt_connected;
+    }
 }
