@@ -8,6 +8,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
+#include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
@@ -28,14 +29,13 @@ typedef enum {
 
 static ntp_state_t s_ntp_state = NTP_IDLE;
 static bool s_ntp_initialized = false;
-static char s_ntp_status[32] = "A键NTP同步";
+/* s_ntp_status removed - use lang_get() directly in dt_refresh_label */
 
 /* ========== NTP同步回调 ========== */
 static void ntp_sync_callback(struct timeval *tv)
 {
     ESP_LOGI(TAG, "NTP time synchronized successfully");
     s_ntp_state = NTP_SUCCESS;
-    strcpy(s_ntp_status, "同步成功!");
 }
 
 /* ========== NTP同步函数 ========== */
@@ -47,7 +47,6 @@ static void ntp_sync_start(void)
     }
 
     s_ntp_state = NTP_SYNCING;
-    strcpy(s_ntp_status, "同步中...");
 
     // 设置时区为北京时间 (UTC+8)
     setenv("TZ", "CST-8", 1);
@@ -111,36 +110,38 @@ static void dt_refresh_label(int idx)
 
     switch (idx) {
     case 0:
-        snprintf(buf, sizeof(buf), "日期: %04d-%02d-%02d",
-                 tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
+        snprintf(buf, sizeof(buf), "%s: %04d-%02d-%02d",
+                 lang_get(STR_DATE_TIME), tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday);
         break;
     case 1:
-        snprintf(buf, sizeof(buf), "时间: %02d:%02d:%02d",
-                 tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
+        snprintf(buf, sizeof(buf), "%s: %02d:%02d:%02d",
+                 lang_get(STR_DATE_TIME), tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
         break;
     case 2:
         // 显示NTP同步状态
         if (s_ntp_state == NTP_SYNCING) {
-            snprintf(buf, sizeof(buf), "NTP: 同步中...");
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNC));
         } else if (s_ntp_state == NTP_SUCCESS) {
-            snprintf(buf, sizeof(buf), "NTP: 已同步 ✓");
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNC_OK));
         } else if (s_ntp_state == NTP_FAILED) {
-            snprintf(buf, sizeof(buf), "NTP: 同步失败");
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNC_FAIL));
         } else {
-            snprintf(buf, sizeof(buf), "NTP: 按A键同步");
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNC_HINT));
         }
         break;
     case 3:
         // 显示NTP状态详情
         if (s_ntp_state == NTP_SUCCESS) {
-            snprintf(buf, sizeof(buf), "当前: %02d:%02d:%02d",
-                     tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
+            snprintf(buf, sizeof(buf), "%s: %02d:%02d:%02d",
+                     lang_get(STR_CURRENT_VALUE), tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);
+        } else if (s_ntp_state == NTP_SYNCING) {
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNCING));
         } else {
-            snprintf(buf, sizeof(buf), "%s", s_ntp_status);
+            snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATETIME_SYNC_HINT));
         }
         break;
     case 4:
-        snprintf(buf, sizeof(buf), "B键返回");
+        snprintf(buf, sizeof(buf), "%s", lang_get(STR_BACK));
         break;
     default:
         buf[0] = '\0';
@@ -187,7 +188,7 @@ static void dt_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("日期时间");
+    ui_statusbar_set_title(lang_get(STR_DATE_TIME));
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
