@@ -8,6 +8,7 @@
 #include "app_micropython.h"
 #include "bg_manager.h"
 #include "ui_framework.h"
+#include "lang/lang.h"
 #include "esp_log.h"
 #include <string.h>
 
@@ -252,13 +253,13 @@ const char* app_install_status_desc(app_install_status_t status)
 {
     switch (status) {
         case APP_INSTALL_OK:
-            return "已安装";
+            return lang_get(STR_INSTALL_OK);
         case APP_INSTALL_BLOCKED:
-            return "已阻止 - 未签名应用";
+            return lang_get(STR_INSTALL_BLOCKED);
         case APP_INSTALL_UNTRUSTED:
-            return "已阻止 - 不受信任来源";
+            return lang_get(STR_INSTALL_UNTRUSTED);
         default:
-            return "未知状态";
+            return lang_get(STR_INSTALL_UNKNOWN);
     }
 }
 
