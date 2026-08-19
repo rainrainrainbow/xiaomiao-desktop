@@ -95,8 +95,19 @@ def ensure_fonttools():
         import fontTools
     except ImportError:
         print("Installing fonttools...")
-        subprocess.run([sys.executable, '-m', 'pip', 'install', 'fonttools'],
-                       check=True, capture_output=True)
+        # Try multiple methods to install fonttools
+        # Method 1: pip in current Python environment
+        result = subprocess.run([sys.executable, '-m', 'pip', 'install', 'fonttools', 'brotli'],
+                               capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"pip install failed: {result.stderr}")
+            # Method 2: try pip3
+            result = subprocess.run(['pip3', 'install', 'fonttools', 'brotli'],
+                                   capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"pip3 install failed: {result.stderr}")
+                raise RuntimeError("Cannot install fonttools. Please install manually: pip install fonttools brotli")
+        print("fonttools installed successfully")
 
 
 def download_font(work_dir: str):
