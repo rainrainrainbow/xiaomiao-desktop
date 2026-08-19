@@ -3,6 +3,7 @@
  * @brief 音频输出设置页面 - 选择输出设备、自动/手动模式
  */
 #include "ui/ui_framework.h"
+#include "lang/lang.h"
 #include "driver/drv_audio_output.h"
 #include "system/sys_nvs.h"
 #include "esp_log.h"
