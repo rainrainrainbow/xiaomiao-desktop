@@ -72,15 +72,20 @@ typedef enum {
     STR_LVGL_VERSION,
     STR_RETRO_CORE,
     STR_LANGUAGE,
+    STR_FONT_SOURCE,
+    STR_FONT_SOURCE_FREETYPE,
+    STR_FONT_SOURCE_BUILTIN,
     // 应用名
     STR_APP_SETTINGS,
     STR_APP_MUSIC,
-    STR_APP_EDITOR,
     STR_APP_STORE,
     STR_APP_FILES,
     STR_APP_MID,
     STR_APP_PYTHON,
     STR_APP_APPS,
+    // 应用类型标签
+    STR_APP_TYPE_BUILTIN,
+    STR_APP_TYPE_PYTHON,
     // 总数
     STR_COUNT
 } str_id_t;
