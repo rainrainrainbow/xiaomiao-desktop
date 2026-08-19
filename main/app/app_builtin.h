@@ -96,4 +96,16 @@ extern const page_callbacks_t g_datetime_settings_callbacks;
  */
 extern const page_callbacks_t g_audio_settings_callbacks;
 
+/**
+ * 字库选择设置二级页面回调
+ */
+extern const page_callbacks_t g_font_source_settings_callbacks;
+
+/**
+ * 根据内置应用内部名称获取本地化显示名
+ * @param internal_name 内部名称（中文，如"设置"、"商店"）
+ * @return 本地化后的显示名
+ */
+const char* app_builtin_get_display_name(const char *internal_name);
+
 #endif /* APP_BUILTIN_H */
