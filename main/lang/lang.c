@@ -61,14 +61,18 @@ static const char *s_zh[STR_COUNT] = {
     [STR_LVGL_VERSION]    = "LVGL版本",
     [STR_RETRO_CORE]      = "存储分区",
     [STR_LANGUAGE]        = "语言",
+    [STR_FONT_SOURCE]     = "字库选择",
+    [STR_FONT_SOURCE_FREETYPE] = "FreeType (SD卡)",
+    [STR_FONT_SOURCE_BUILTIN]  = "内置 (英文)",
     [STR_APP_SETTINGS]    = "设置",
     [STR_APP_MUSIC]       = "音乐",
-    [STR_APP_EDITOR]      = "积木",
     [STR_APP_STORE]       = "商店",
     [STR_APP_FILES]       = "文件",
     [STR_APP_MID]         = "MID播放器",
     [STR_APP_PYTHON]      = "Python",
     [STR_APP_APPS]        = "应用",
+    [STR_APP_TYPE_BUILTIN] = "内置",
+    [STR_APP_TYPE_PYTHON]  = "Python",
 };
 
 /* ========== 英文翻译表 ========== */
@@ -125,14 +129,18 @@ static const char *s_en[STR_COUNT] = {
     [STR_LVGL_VERSION]    = "LVGL Ver",
     [STR_RETRO_CORE]      = "Storage",
     [STR_LANGUAGE]        = "Language",
+    [STR_FONT_SOURCE]     = "Font Source",
+    [STR_FONT_SOURCE_FREETYPE] = "FreeType (SD)",
+    [STR_FONT_SOURCE_BUILTIN]  = "Built-in (English)",
     [STR_APP_SETTINGS]    = "Settings",
     [STR_APP_MUSIC]       = "Music",
-    [STR_APP_EDITOR]      = "Blocks",
     [STR_APP_STORE]       = "Store",
     [STR_APP_FILES]       = "Files",
     [STR_APP_MID]         = "MID Player",
     [STR_APP_PYTHON]      = "Python",
     [STR_APP_APPS]        = "Apps",
+    [STR_APP_TYPE_BUILTIN] = "Built-in",
+    [STR_APP_TYPE_PYTHON]  = "Python",
 };
 
 static lang_id_t s_current_lang = LANG_ZH;
@@ -152,6 +160,15 @@ lang_id_t lang_get_current(void)
 const char* lang_get(str_id_t id)
 {
     if (id >= STR_COUNT) return "";
+    
+    /* 当 FreeType 字体未就绪时，强制使用英文（英文不需要中文字体） */
+    extern bool lv_freetype_font_is_ready(void);
+    if (!lv_freetype_font_is_ready() && s_current_lang == LANG_ZH) {
+        /* 字体不可用，降级为英文 */
+        const char *str = s_en[id];
+        return str ? str : "";
+    }
+    
     const char *str = NULL;
     switch (s_current_lang) {
     case LANG_EN:
