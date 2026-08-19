@@ -228,13 +228,14 @@ def merge_bin(work_dir: str, retro_img: str):
     """
     合并 bootloader + partition-table + app + retro-core 为完整 bin。
     使用 esptool.py merge_bin。
+    输出为 xiaomiao-desktop-full.bin（区别于 xiaomiao-loader 用的合并 bin）。
     """
     # 构建产物路径
     build_dir = os.path.join(work_dir, 'build')
     bootloader = os.path.join(build_dir, 'bootloader', 'bootloader.bin')
     partition_table = os.path.join(build_dir, 'partition_table', 'partition-table.bin')
     app_bin = os.path.join(build_dir, 'xiaomiao-desktop.bin')
-    output = os.path.join(work_dir, 'xiaomiao-desktop-merged.bin')
+    output = os.path.join(work_dir, 'xiaomiao-desktop-full.bin')
     
     # 检查所有文件是否存在
     files_to_check = [
