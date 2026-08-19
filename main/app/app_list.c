@@ -8,6 +8,7 @@
 #include "app_builtin.h"
 #include "app_manager.h"
 #include "ui_framework.h"
+#include "lang/lang.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
 #include <string.h>
@@ -70,12 +71,12 @@ static void applist_rebuild_visible(void)
         lv_obj_set_style_text_color(icon, lv_color_hex(builtin_apps[idx].icon_color), 0);
         lv_obj_align(icon, LV_ALIGN_LEFT_MID, 4, 0);
         lv_obj_t *lbl = lv_label_create(row);
-        lv_label_set_text(lbl, builtin_apps[idx].name);
+        lv_label_set_text(lbl, app_builtin_get_display_name(builtin_apps[idx].name));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *type_lbl = lv_label_create(row);
-        lv_label_set_text(type_lbl, "内置");
+        lv_label_set_text(type_lbl, lang_get(STR_APP_TYPE_BUILTIN));
         lv_obj_set_style_text_color(type_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_align(type_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
         s_applist_labels[row_idx] = lbl;
@@ -120,7 +121,7 @@ static void applist_rebuild_visible(void)
     }
     if (builtin_count == 0 && py_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_applist_obj);
-        lv_label_set_text(lbl, "暂无应用");
+        lv_label_set_text(lbl, lang_get(STR_RECENTS_EMPTY));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
     }
@@ -135,7 +136,7 @@ static void applist_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("应用管理");
+    ui_statusbar_set_title(lang_get(STR_APP_MANAGER));
 
     lv_obj_t *list = lv_obj_create(scr);
     lv_obj_remove_style_all(list);
