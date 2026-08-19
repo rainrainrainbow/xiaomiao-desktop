@@ -41,11 +41,12 @@ CONFIG_LV_FONT_MONTSERRAT_12=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 # CONFIG_LV_FONT_MONTSERRAT_18 is not set
 CONFIG_LV_FONT_DEFAULT_MONTSERRAT_10=y
-# CJK 中文字体
-# 内置思源黑体 CJK 仅含有限字符集，不满足"全部中文"需求
-# 使用自研自定义字体 lv_font_xiaomiao_cn_14（含全部用到的中文字符 + LV符号 + ASCII）
+# CJK 中文字体 - 使用 FreeType 引擎从 SD卡加载 NotoSansSC
+# 内置位图字体（lv_font_xiaomiao_cn_14 约 371KB）已删除，改用 FreeType 渲染
+# 字体文件位置：/sdcard/Fonts/NotoSansSC-Regular.otf
 # CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_14_CJK is not set
 # CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK is not set
+CONFIG_LV_USE_FREETYPE=y
 # CONFIG_LV_USE_CHART is not set
 # CONFIG_LV_USE_SYSMON is not set
 # CONFIG_LV_USE_PERF_MONITOR is not set
@@ -72,14 +73,6 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
 # FreeRTOS 非 ISR 函数放入 Flash 而非 IRAM（节省 ~8KB IRAM）
 CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
-# FreeType 字体支持（用于从SD卡加载TrueType/OpenType字体，实现完整中文显示）
-CONFIG_LV_USE_FREETYPE=y
-# FreeType 使用位图渲染模式（适合嵌入式，内存占用低）
-CONFIG_LV_FREETYPE_RENDER_MODE_BITMAP=y
-# FreeType 最大缓存字形数（每个字体大小独立缓存）
-CONFIG_LV_FREETYPE_CACHE_SIZE=128
-# FreeType 字体缓存内存大小（KB）
-CONFIG_LV_FREETYPE_CACHE_MEM_SIZE=64
 
 # mbedtls 配置：启用 ECDSA（解决 undefined reference to mbedtls_ecdsa_sign）
 CONFIG_MBEDTLS_ECDSA_C=y
