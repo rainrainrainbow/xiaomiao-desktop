@@ -17,7 +17,16 @@ static const char *TAG = "APP_FONT";
 /* ========== 字体选项 ========== */
 #define FONT_OPTION_COUNT 4
 static const int s_font_sizes[FONT_OPTION_COUNT] = {14, 16, 20, 24};
-static const char *s_font_label_names[FONT_OPTION_COUNT] = {"小 (14px)", "中 (16px)", "大 (20px)", "特大 (24px)"};
+/* 国际化：使用 lang_get 获取字体大小名称 */
+static const char *font_label_name(int idx) {
+    switch (idx) {
+        case 0: return lang_get(STR_FONT_SIZE_SMALL);
+        case 1: return lang_get(STR_FONT_SIZE_MEDIUM);
+        case 2: return lang_get(STR_FONT_SIZE_LARGE);
+        case 3: return lang_get(STR_FONT_SIZE_XLARGE);
+        default: return "";
+    }
+}
 
 /* ========== UI状态 ========== */
 static lv_obj_t *s_font_list = NULL;
@@ -53,10 +62,10 @@ static void font_refresh_label(int idx)
 
     if (idx < FONT_OPTION_COUNT) {
         /* 字体选项行 — 文本由复选框组件管理，标签仅用于预览行等 */
-        snprintf(buf, sizeof(buf), "%s", s_font_label_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", font_label_name(idx));
     } else {
         /* 预览行 */
-        snprintf(buf, sizeof(buf), "预览: 小喵桌面 %dpx", st->font_size);
+        snprintf(buf, sizeof(buf), lang_get(STR_FONT_PREVIEW), st->font_size);
     }
     lv_label_set_text(s_font_labels[idx], buf);
 }
@@ -100,7 +109,7 @@ static void font_rebuild_visible(void)
         if (idx < FONT_OPTION_COUNT) {
             /* 使用LVGL复选框组件 */
             lv_obj_t *cb = lv_checkbox_create(row);
-            lv_checkbox_set_text(cb, s_font_label_names[idx]);
+            lv_checkbox_set_text(cb, font_label_name(idx));
             lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
@@ -132,7 +141,7 @@ static void font_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("字体设置");
+    ui_statusbar_set_title(lang_get(STR_FONT));
 
     /* 计算行高和可见行数 */
     int font_px = st->font_size;
