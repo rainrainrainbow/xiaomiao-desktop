@@ -15,9 +15,12 @@
 
 static const char *TAG = "FONT";
 
-/* 字体文件路径 */
-#define FONT_PATH_SDCARD   "/sdcard/Fonts/NotoSansSC-Regular.otf"
-#define FONT_PATH_FLASH    "/flash/Fonts/NotoSansSC-Regular.otf"
+/* 字体文件路径 - 支持多种大小写变体 */
+#define FONT_PATH_SDCARD_1   "/sdcard/Fonts/NotoSansSC-Regular.otf"
+#define FONT_PATH_SDCARD_2   "/sdcard/fonts/NotoSansSC-Regular.otf"
+#define FONT_PATH_SDCARD_3   "/sdcard/Fonts/notosanssc-regular.otf"
+#define FONT_PATH_FLASH_1    "/flash/Fonts/NotoSansSC-Regular.otf"
+#define FONT_PATH_FLASH_2    "/flash/fonts/NotoSansSC-Regular.otf"
 
 /* 最大缓存字形数 */
 #define FONT_CACHE_GLYPH_CNT 256
@@ -29,21 +32,33 @@ static lv_font_t *s_font_20 = NULL;
 static lv_font_t *s_font_24 = NULL;
 static bool s_initialized = false;
 
-/* 尝试从多个路径加载字体文件 */
+/* 尝试打开文件，返回路径或NULL */
+static const char* try_open_font(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f) {
+        fclose(f);
+        ESP_LOGI(TAG, "Font file found: %s", path);
+        return path;
+    }
+    ESP_LOGD(TAG, "Font file not found: %s", path);
+    return NULL;
+}
+
+/* 查找字体文件 - 尝试多个路径 */
 static const char* find_font_file(void)
 {
-    /* 优先从 SD 卡加载 */
-    FILE *f = fopen(FONT_PATH_SDCARD, "rb");
-    if (f) {
-        fclose(f);
-        return FONT_PATH_SDCARD;
-    }
+    const char *path;
+    
+    /* 优先从 SD 卡加载（尝试多种大小写） */
+    if ((path = try_open_font(FONT_PATH_SDCARD_1)) != NULL) return path;
+    if ((path = try_open_font(FONT_PATH_SDCARD_2)) != NULL) return path;
+    if ((path = try_open_font(FONT_PATH_SDCARD_3)) != NULL) return path;
+    
     /* 回退到 retro-core 分区 */
-    f = fopen(FONT_PATH_FLASH, "rb");
-    if (f) {
-        fclose(f);
-        return FONT_PATH_FLASH;
-    }
+    if ((path = try_open_font(FONT_PATH_FLASH_1)) != NULL) return path;
+    if ((path = try_open_font(FONT_PATH_FLASH_2)) != NULL) return path;
+    
     return NULL;
 }
 
@@ -73,7 +88,10 @@ lv_result_t lv_freetype_font_init(void)
     /* 查找字体文件 */
     const char *font_path = find_font_file();
     if (!font_path) {
-        ESP_LOGE(TAG, "Font file not found at %s or %s", FONT_PATH_SDCARD, FONT_PATH_FLASH);
+        ESP_LOGE(TAG, "Font file not found! Tried paths:");
+        ESP_LOGE(TAG, "  SD: %s, %s, %s", FONT_PATH_SDCARD_1, FONT_PATH_SDCARD_2, FONT_PATH_SDCARD_3);
+        ESP_LOGE(TAG, "  Flash: %s, %s", FONT_PATH_FLASH_1, FONT_PATH_FLASH_2);
+        ESP_LOGE(TAG, "Please put font file at: /sdcard/Fonts/NotoSansSC-Regular.otf");
         return LV_RESULT_INVALID;
     }
 
