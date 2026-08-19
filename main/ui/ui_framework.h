@@ -329,6 +329,7 @@ typedef struct {
     int layout;                 // 布局模式 (0=3列, 1=2列)
     int font_size;              // 字体大小 (14/16/20/24)
     int sleep_timeout;          // 屏幕超时秒数 (0=永不, 30/60/120/300)
+    int font_source;            // 字库来源 (0=FreeType/SD卡, 1=内置/英文)
 } ui_state_t;
 
 /**
