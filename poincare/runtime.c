@@ -187,6 +187,12 @@ int poincare_runtime_exec(const char *source, const char *source_name)
 
     poincare_ensure_thread_state();
 
+    /* 重置 C 栈顶到当前任务栈（py_run_task / main 任务），
+     * 避免沿用 ui_init_task 初始化时记录的栈顶。
+     * 若 stack_top 指向其他任务的栈，mp_cstack_check() 的栈用量
+     * 计算会错误，且深调用链下可能破坏 nlr_buf 导致 NLR jump failed。 */
+    mp_stack_ctrl_init();
+
     if (!poincare_runtime_init(s_heap_size)) {
         ESP_LOGE(TAG, "Runtime not initialized");
         return -1;
@@ -227,6 +233,9 @@ int poincare_runtime_exec_file(const char *filename)
     }
 
     poincare_ensure_thread_state();
+
+    /* 重置 C 栈顶到当前任务栈（见 poincare_runtime_exec 注释） */
+    mp_stack_ctrl_init();
 
     if (!poincare_runtime_init(s_heap_size)) {
         ESP_LOGE(TAG, "Runtime not initialized");

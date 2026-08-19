@@ -250,7 +250,7 @@ static void python_app_activate(void)
         /* 启动独立任务执行 main.py（不阻塞 UI） */
         strncpy(s_py_entry_path, entry_file, sizeof(s_py_entry_path) - 1);
         s_py_entry_path[sizeof(s_py_entry_path) - 1] = '\0';
-        xTaskCreate(py_run_task, "py_app", 16384, NULL, 10, &s_py_task);
+        xTaskCreate(py_run_task, "py_app", 32768, NULL, 10, &s_py_task);
 
         /* 显示启动提示 */
         lv_obj_t *hint = lv_label_create(scr);
