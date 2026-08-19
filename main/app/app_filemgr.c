@@ -10,6 +10,7 @@
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
+#include "lang/lang.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -166,8 +167,8 @@ static void filemgr_open_file(const char *path, const char *name)
         stash.size = (path_len + 1 > PAGE_STASH_SIZE) ? PAGE_STASH_SIZE : path_len + 1;
         memcpy(stash.data, path, stash.size - 1);
         stash.data[stash.size - 1] = '\0';
-        ESP_LOGI(TAG, "MID file support removed (MID播放器已删除)");
-        ui_statusbar_set_title("MID播放器已移除");
+        ESP_LOGI(TAG, "MID file support removed");
+        ui_statusbar_set_title(lang_get(STR_FILE_MID_REMOVED));
     } else if (file_is_text(name)) {
         /* 打开文本查看器 */
         txt_viewer_open(path);
@@ -176,10 +177,10 @@ static void filemgr_open_file(const char *path, const char *name)
     } else if (file_is_audio(name)) {
         ESP_LOGW(TAG, "Audio file not supported yet: %s", path);
         /* 状态栏显示提示 */
-        ui_statusbar_set_title("音频暂不支持");
+        ui_statusbar_set_title(lang_get(STR_FILE_AUDIO_NA));
     } else {
         ESP_LOGW(TAG, "Unknown file type: %s", name);
-        ui_statusbar_set_title("不支持的文件");
+        ui_statusbar_set_title(lang_get(STR_FILE_UNSUPPORTED));
     }
 }
 
@@ -213,7 +214,7 @@ static void filemgr_refresh_list(void)
 
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
-        lv_label_set_text(lbl, "(空目录)");
+        lv_label_set_text(lbl, lang_get(STR_FILE_EMPTY_DIR));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
@@ -280,7 +281,7 @@ static void filemgr_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("文件管理");
+    ui_statusbar_set_title(lang_get(STR_APP_FILES));
     
     /* 根据字体大小动态计算行高 */
     int font_px = st->font_size;
