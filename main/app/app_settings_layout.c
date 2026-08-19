@@ -12,8 +12,13 @@
 static const char *TAG = "APP_LAYOUT";
 
 #define LAYOUT_OPTION_COUNT 2
-static const char *s_layout_names[LAYOUT_OPTION_COUNT] = {"3列布局", "2列布局"};
-static const char *s_layout_desc[LAYOUT_OPTION_COUNT] = {"每行3个图标（紧凑）", "每行2个图标（宽松）"};
+/* 国际化：使用 lang_get 获取布局名和描述 */
+static const char *layout_name(int idx) {
+    return idx == 0 ? lang_get(STR_LAYOUT_3COL) : lang_get(STR_LAYOUT_2COL);
+}
+static const char *layout_desc(int idx) {
+    return idx == 0 ? lang_get(STR_LAYOUT_3COL_DESC) : lang_get(STR_LAYOUT_2COL_DESC);
+}
 
 static lv_obj_t *s_layout_list = NULL;
 static lv_obj_t *s_layout_labels[LAYOUT_OPTION_COUNT * 2 + 1] = {0};
@@ -45,11 +50,11 @@ static void layout_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < LAYOUT_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s", s_layout_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", layout_name(idx));
     } else if (idx < LAYOUT_OPTION_COUNT * 2) {
-        snprintf(buf, sizeof(buf), "  %s", s_layout_desc[idx - LAYOUT_OPTION_COUNT]);
+        snprintf(buf, sizeof(buf), "  %s", layout_desc(idx - LAYOUT_OPTION_COUNT));
     } else {
-        snprintf(buf, sizeof(buf), "A键选择  B键返回");
+        snprintf(buf, sizeof(buf), "%s", lang_get(STR_LAYOUT_HINT));
     }
     lv_label_set_text(s_layout_labels[idx], buf);
 }
@@ -83,7 +88,7 @@ static void layout_rebuild_visible(void)
         if (idx < LAYOUT_OPTION_COUNT) {
             /* 使用LVGL复选框组件 */
             lv_obj_t *cb = lv_checkbox_create(row);
-            lv_checkbox_set_text(cb, s_layout_names[idx]);
+            lv_checkbox_set_text(cb, layout_name(idx));
             lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
@@ -113,7 +118,7 @@ static void layout_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("布局设置");
+    ui_statusbar_set_title(lang_get(STR_LAYOUT));
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
