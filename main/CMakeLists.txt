@@ -17,7 +17,7 @@ idf_component_register(
         "app/app_settings_datetime.c"
         "app/app_settings_audio.c"
         "app/app_list.c"
-        "app/app_editor.c"
+        # "app/app_editor.c" 已删除（改为MicroPython应用）
         "app/app_store.c"
         "app/app_music.c"
         "app/app_filemgr.c"
@@ -31,6 +31,7 @@ idf_component_register(
         "driver/drv_audio_output.c"
     "driver/drv_audio_i2s.c"
     "driver/drv_audio_bt_a2dp.c"
+    "driver/drv_audio_decoder.c"
         "system/sys_nvs.c"
         "return_to_loader.c"
         "fonts/lv_font_xiaomiao_cn_14.c"
