@@ -137,6 +137,25 @@ bool sys_nvs_load_audio_auto(void)
     return true;
 }
 
+/* ========== 字库来源存储 ========== */
+void sys_nvs_save_font_source(int font_source)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SOURCE, font_source);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Font source saved: %d", font_source);
+}
+
+int sys_nvs_load_font_source(void)
+{
+    int32_t val = 0;  // 默认 FreeType
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SOURCE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Font source loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Font source not found, using default (0=FreeType)");
+    return 0;
+}
+
 /* ========== 音量存储 ========== */
 void sys_nvs_save_volume(int volume)
 {
