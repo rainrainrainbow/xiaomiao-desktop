@@ -31,22 +31,22 @@ static int s_settings_vis_rows = 6;
 
 /* 设置项：16项，分组显示 */
 static const char *s_settings_items[] = {
-    "亮度",       // 0 - 显示 → 二级页面
-    "主题",       // 1 - 显示 → 二级页面
-    "音量",       // 2 - 声音 → 二级页面
-    "WiFi",       // 3 - 网络 → 二级页面
-    "布局",       // 4 - 桌面 → 二级页面
-    "字体",       // 5 - 显示 → 二级页面
-    "字库选择",   // 6 - 显示 → 二级页面（新增）
-    "声音",       // 7 - 声音开关（含lv_switch）
-    "音频输出",   // 8 - 音频输出设备选择 → 二级页面
-    "屏幕超时",   // 9 - 显示 → 二级页面
-    "日期时间",   // 10 - 系统 → 二级页面
-    "应用管理",   // 11 - 二级页面
-    "关于系统",   // 12 - 二级页面
-    "恢复默认",   // 13 - 操作
-    "保存并退出", // 14 - 操作
-    "返回Loader", // 15 - 操作（重启进入下载模式）
+    "亮度",       // 0 - 显示 → 二级页面  (deprecated, use lang_get)
+    "主题",       // 1
+    "音量",       // 2
+    "WiFi",       // 3
+    "布局",       // 4
+    "字体",       // 5
+    "字库选择",   // 6
+    "声音",       // 7
+    "音频输出",   // 8
+    "屏幕超时",   // 9
+    "日期时间",   // 10
+    "应用管理",   // 11
+    "关于系统",   // 12
+    "恢复默认",   // 13
+    "保存并退出", // 14
+    "返回Loader", // 15
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
@@ -62,48 +62,53 @@ static void settings_refresh_label(int idx)
 {
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
-    const char *items[] = {
-        "亮度", "主题", "音量", "WiFi", "布局", "字体", "字库选择", "声音",
-        "音频输出", "屏幕超时", "日期时间", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
-    };
     char buf[64];
     switch (idx) {
-    case 0: snprintf(buf, sizeof(buf), "%s: %d%%", items[0], st->brightness); break;
-    case 1: snprintf(buf, sizeof(buf), "%s: %s", items[1],
-                     st->theme == THEME_DARK ? "深色" : "浅色"); break;
-    case 2: snprintf(buf, sizeof(buf), "%s: %d%%", items[2], st->volume); break;
-    case 3: snprintf(buf, sizeof(buf), "%s", items[3]); break;
+    case 0: snprintf(buf, sizeof(buf), "%s: %d%%", lang_get(STR_BRIGHTNESS), st->brightness); break;
+    case 1: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_THEME),
+                     st->theme == THEME_DARK ? lang_get(STR_THEME_DARK) : lang_get(STR_THEME_LIGHT)); break;
+    case 2: snprintf(buf, sizeof(buf), "%s: %d%%", lang_get(STR_VOLUME), st->volume); break;
+    case 3: snprintf(buf, sizeof(buf), "%s", lang_get(STR_WIFI)); break;
     case 4: snprintf(buf, sizeof(buf), "%s: %s",
-                     items[4], st->layout == 0 ? "3列" : "2列"); break;
+                     lang_get(STR_LAYOUT), st->layout == 0 ? lang_get(STR_LAYOUT_3COL) : lang_get(STR_LAYOUT_2COL)); break;
     case 5: {
         const char *size_str = "14px";
         if (st->font_size == 16) size_str = "16px";
         else if (st->font_size == 20) size_str = "20px";
         else if (st->font_size == 24) size_str = "24px";
-        snprintf(buf, sizeof(buf), "%s: %s", items[5], size_str);
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT), size_str);
         break;
     }
     case 6: {
-        /* 字库选择：显示当前字库来源 */
-        snprintf(buf, sizeof(buf), "%s: %s", items[6],
-                 st->font_source == 0 ? "FreeType" : "内置");
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT_SOURCE),
+                 st->font_source == 0 ? "FreeType" : lang_get(STR_FONT_SOURCE_BUILTIN));
         break;
     }
-    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break;
-    case 8: snprintf(buf, sizeof(buf), "%s", items[8]); break; /* 音频输出 */
+    case 7: snprintf(buf, sizeof(buf), "%s", lang_get(STR_SOUND)); break;
+    case 8: snprintf(buf, sizeof(buf), "%s", lang_get(STR_AUDIO_OUTPUT)); break;
     case 9: {
-        const char *sleep_str = "永不";
-        if (st->sleep_timeout == 30) sleep_str = "30秒";
-        else if (st->sleep_timeout == 60) sleep_str = "60秒";
-        else if (st->sleep_timeout == 120) sleep_str = "2分";
-        else if (st->sleep_timeout == 300) sleep_str = "5分";
-        snprintf(buf, sizeof(buf), "%s: %s", items[9], sleep_str);
+        const char *sleep_str = lang_get(STR_SLEEP_NEVER);
+        if (st->sleep_timeout == 30) sleep_str = lang_get(STR_SLEEP_30S);
+        else if (st->sleep_timeout == 60) sleep_str = lang_get(STR_SLEEP_60S);
+        else if (st->sleep_timeout == 120) sleep_str = lang_get(STR_SLEEP_2M);
+        else if (st->sleep_timeout == 300) sleep_str = lang_get(STR_SLEEP_5M);
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SLEEP_TIMEOUT), sleep_str);
         break;
     }
-    case 10: snprintf(buf, sizeof(buf), "%s", items[10]); break;
-    case 11: snprintf(buf, sizeof(buf), "%s", items[11]); break;
-    case 12: snprintf(buf, sizeof(buf), "%s", items[12]); break;
-    default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
+    case 10: snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATE_TIME)); break;
+    case 11: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
+    case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
+    default: {
+        const char *def_items[] = {
+            lang_get(STR_BRIGHTNESS), lang_get(STR_THEME), lang_get(STR_VOLUME), lang_get(STR_WIFI),
+            lang_get(STR_LAYOUT), lang_get(STR_FONT), lang_get(STR_FONT_SOURCE), lang_get(STR_SOUND),
+            lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT), lang_get(STR_DATE_TIME),
+            lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT), lang_get(STR_RESET_DEFAULT),
+            lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER)
+        };
+        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 16 ? def_items[idx] : "");
+        break;
+    }
     }
     lv_label_set_text(s_settings_labels[idx], buf);
 }
@@ -499,13 +504,11 @@ static void about_rebuild_visible(void)
                 } else {
                     snprintf(buf, sizeof(buf), "%s: N/A", lang_get(STR_PSRAM));
                 }
-                break;
-            }
-            case 10: {
+case 10: {
                 /* DMA空闲 + 堆最小空闲 */
                 size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
                 size_t min_free = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
-                snprintf(buf, sizeof(buf), "DMA:%luK 堆谷:%luK",
+                snprintf(buf, sizeof(buf), "DMA:%luK Heap:%luK",
                          (unsigned long)(free_dma / 1024),
                          (unsigned long)(min_free / 1024));
                 break;
@@ -516,7 +519,7 @@ static void about_rebuild_visible(void)
                 uint32_t sec = (uint32_t)(us / 1000000);
                 uint32_t h = sec / 3600;
                 uint32_t m = (sec % 3600) / 60;
-                snprintf(buf, sizeof(buf), "运行: %luh%lum", (unsigned long)h, (unsigned long)m);
+                snprintf(buf, sizeof(buf), "%s: %luh%lum", lang_get(STR_UPTIME), (unsigned long)h, (unsigned long)m);
                 break;
             }
             case 12: {
@@ -524,8 +527,10 @@ static void about_rebuild_visible(void)
                 extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end;
                 uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start
                                     + (uint32_t)&_data_end - (uint32_t)&_data_start;
-                snprintf(buf, sizeof(buf), "固件:%luK Flash:4MB",
+                snprintf(buf, sizeof(buf), "%s:%luK Flash:4MB", lang_get(STR_FIRMWARE),
                          (unsigned long)(flash_size / 1024));
+                break;
+            }
                 break;
             }
             default: buf[0] = '\0'; break;
