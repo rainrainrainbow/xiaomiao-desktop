@@ -243,11 +243,12 @@ jobs:
       - name: Build retro-core partition with subsetted font
         run: |
           echo "=== Building retro-core FAT partition image ==="
-          set -x
+          # Source ESP-IDF environment (provides correct python3 + pip)
+          . /opt/esp/idf/export.sh
           # Install needed tools
           apt-get update -qq
-          apt-get install -y -qq mtools 2>&1 | tail -5
-          pip3 install fonttools 2>&1 | tail -5
+          apt-get install -y -qq mtools dosfstools 2>&1 | tail -5
+          pip install fonttools brotli 2>&1 | tail -5
           # Run the build script (downloads NotoSansSC, subsets to project chars,
           # creates FAT12 retro-core.img, skip merge_bin since we do it manually below)
           python3 scripts/build_retro_core.py --skip-merge 2>&1
