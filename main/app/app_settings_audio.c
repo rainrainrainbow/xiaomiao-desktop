@@ -47,7 +47,7 @@ static void audio_settings_refresh(void)
         lv_obj_t *name_lbl = lv_obj_get_child(s_audio_rows[i], 0);
         if (name_lbl) {
             char buf[32];
-            const char *status = devs[i].available ? "" : " (不可用)";
+            const char *status = devs[i].available ? "" : lang_get(STR_AUDIO_UNAVAILABLE);
             snprintf(buf, sizeof(buf), "%s%s", devs[i].name, status);
             lv_label_set_text(name_lbl, buf);
             
@@ -73,7 +73,7 @@ static void audio_settings_refresh(void)
     /* 更新模式标签 */
     if (s_audio_mode_label) {
         bool auto_mode = audio_output_is_auto_mode();
-        lv_label_set_text(s_audio_mode_label, auto_mode ? "自动" : "手动");
+        lv_label_set_text(s_audio_mode_label, auto_mode ? lang_get(STR_AUDIO_MODE_AUTO) : lang_get(STR_AUDIO_MODE_MANUAL));
     }
     
     /* 更新音量条 */
@@ -101,7 +101,7 @@ static void audio_settings_init(void *data)
     
     /* 状态栏 */
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("音频输出");
+    ui_statusbar_set_title(lang_get(STR_AUDIO_OUTPUT));
     
     /* 内容区 */
     lv_obj_t *content = lv_obj_create(scr);
@@ -126,7 +126,7 @@ static void audio_settings_init(void *data)
         /* 设备名称 */
         lv_obj_t *name_lbl = lv_label_create(row);
         char buf[32];
-        const char *status = devs[i].available ? "" : " (不可用)";
+        const char *status = devs[i].available ? "" : lang_get(STR_AUDIO_UNAVAILABLE);
         snprintf(buf, sizeof(buf), "%s%s", devs[i].name, status);
         lv_label_set_text(name_lbl, buf);
         lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
@@ -160,13 +160,13 @@ static void audio_settings_init(void *data)
     lv_obj_clear_flag(mode_row, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *mode_title = lv_label_create(mode_row);
-    lv_label_set_text(mode_title, "模式");
+    lv_label_set_text(mode_title, lang_get(STR_AUDIO_MODE));
     lv_obj_set_style_text_font(mode_title, lv_font_cn_get(font_px), 0);
     lv_obj_align(mode_title, LV_ALIGN_LEFT_MID, 8, 0);
     
     s_audio_mode_label = lv_label_create(mode_row);
     bool auto_mode = audio_output_is_auto_mode();
-    lv_label_set_text(s_audio_mode_label, auto_mode ? "自动" : "手动");
+    lv_label_set_text(s_audio_mode_label, auto_mode ? lang_get(STR_AUDIO_MODE_AUTO) : lang_get(STR_AUDIO_MODE_MANUAL));
     lv_obj_set_style_text_font(s_audio_mode_label, lv_font_cn_get(font_px), 0);
     lv_obj_set_style_text_color(s_audio_mode_label, lv_color_hex(colors->sel_bg), 0);
     lv_obj_align(s_audio_mode_label, LV_ALIGN_RIGHT_MID, -8, 0);
@@ -182,7 +182,7 @@ static void audio_settings_init(void *data)
     lv_obj_clear_flag(vol_row, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *vol_title = lv_label_create(vol_row);
-    lv_label_set_text(vol_title, "音量");
+    lv_label_set_text(vol_title, lang_get(STR_VOLUME));
     lv_obj_set_style_text_font(vol_title, lv_font_cn_get(font_px), 0);
     lv_obj_align(vol_title, LV_ALIGN_LEFT_MID, 8, 0);
     
@@ -197,7 +197,7 @@ static void audio_settings_init(void *data)
     
     /* 底部提示 */
     lv_obj_t *hint = lv_label_create(scr);
-    lv_label_set_text(hint, "A切换 ←→调节 ↑↓选择 B返回");
+    lv_label_set_text(hint, lang_get(STR_AUDIO_HINT));
     lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(hint, lv_font_cn_get(12), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -2);
