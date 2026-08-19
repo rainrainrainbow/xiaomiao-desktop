@@ -36,13 +36,6 @@ static const app_def_t s_builtin_app_defs[] = {
         .launch_cb = NULL,
     },
     {
-        .name = "积木",
-        .icon_text = LV_SYMBOL_EDIT,
-        .icon_color = 0x2DD466,
-        .type = APP_TYPE_BUILTIN,
-        .launch_cb = NULL,
-    },
-    {
         .name = "商店",
         .icon_text = LV_SYMBOL_DOWNLOAD,
         .icon_color = 0xE64B3C,
@@ -88,7 +81,6 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
 {
     if (strcmp(app_name, "设置") == 0) return &g_settings_callbacks;
     if (strcmp(app_name, "应用") == 0) return &g_applist_callbacks;
-    if (strcmp(app_name, "积木") == 0) return &g_editor_callbacks;
     if (strcmp(app_name, "商店") == 0) return &g_store_callbacks;
     if (strcmp(app_name, "音乐") == 0) return &g_music_callbacks;
     if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
