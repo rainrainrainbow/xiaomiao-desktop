@@ -243,12 +243,14 @@ jobs:
       - name: Build retro-core partition with subsetted font
         run: |
           echo "=== Building retro-core FAT partition image ==="
+          set -x
           # Install needed tools
-          apt-get update -qq && apt-get install -y -qq mtools 2>/dev/null | tail -2
-          pip3 install fonttools 2>/dev/null | tail -1
+          apt-get update -qq
+          apt-get install -y -qq mtools 2>&1 | tail -5
+          pip3 install fonttools 2>&1 | tail -5
           # Run the build script (downloads NotoSansSC, subsets to project chars,
           # creates FAT12 retro-core.img, skip merge_bin since we do it manually below)
-          python3 scripts/build_retro_core.py --skip-merge
+          python3 scripts/build_retro_core.py --skip-merge 2>&1
 
       - name: Generate full firmware binary (with retro-core)
         run: |
