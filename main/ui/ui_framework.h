@@ -26,8 +26,8 @@
 #define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 系统版本信息 ========== */
-#define XIAOMIAO_VERSION "v69"
-#define XIAOMIAO_BUILD "2026-08-25"
+#define XIAOMIAO_VERSION "v71"
+#define XIAOMIAO_BUILD "2026-08-26"
 
 /* ========== 页面类型 ========== */
 typedef enum {
@@ -36,7 +36,6 @@ typedef enum {
     PAGE_APP_LIST,          // 应用列表（全部应用）
     PAGE_APP_PLACEHOLDER,   // 应用占位页
     PAGE_APP_RUNNING,       // 运行中App全屏
-    PAGE_EDITOR,            // 积木编辑器
     PAGE_STORE,             // 应用商店
     PAGE_RECENTS,           // 最近任务
     PAGE_CUSTOM,            // 自定义应用页
