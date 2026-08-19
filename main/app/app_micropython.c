@@ -22,6 +22,7 @@
 #include <strings.h>
 // FreeType 字体支持（统一中文字体入口）
 #include "fonts/lv_freetype_font.h"
+#include "lang/lang.h"
 // FreeRTOS 任务
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -253,7 +254,7 @@ static void python_app_activate(void)
 
         /* 显示启动提示 */
         lv_obj_t *hint = lv_label_create(scr);
-        lv_label_set_text(hint, "加载中...");
+        lv_label_set_text(hint, lang_get(STR_MP_LOADING));
         lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(hint, lv_font_cn_get(font_px), 0);
         lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H - 2);
@@ -274,16 +275,16 @@ static void python_app_activate(void)
         /* 执行测试脚本 */
         ret = app_micropython_exec("print('Hello from XiaoMiao MicroPython!')\n", "<boot>");
         if (ret == 0) {
-            result_msg = "MicroPython 运行正常!\nHello from XiaoMiao!";
+            result_msg = lang_get(STR_MP_OK);
             ESP_LOGI(TAG, "MicroPython test PASSED");
         } else {
-            result_msg = "MicroPython 测试失败\n请查看串口日志";
+            result_msg = lang_get(STR_MP_FAIL);
             result_icon = LV_SYMBOL_WARNING;
             result_color = 0xFF4444;
             ESP_LOGE(TAG, "MicroPython test FAILED");
         }
     } else if (!entry_file) {
-        result_msg = "未找到入口文件";
+        result_msg = lang_get(STR_MP_NO_ENTRY);
         result_icon = LV_SYMBOL_WARNING;
         result_color = 0xFFAA00;
     } else {
@@ -291,10 +292,10 @@ static void python_app_activate(void)
         ESP_LOGI(TAG, "Executing MicroPython app: %s", entry_file);
         ret = app_micropython_exec_file(entry_file);
         if (ret == 0) {
-            result_msg = "应用运行完毕";
+            result_msg = lang_get(STR_MP_DONE);
             ESP_LOGI(TAG, "MicroPython app %s executed successfully", entry_file);
         } else {
-            result_msg = "应用执行失败\n请查看串口日志";
+            result_msg = lang_get(STR_MP_EXEC_FAIL);
             result_icon = LV_SYMBOL_WARNING;
             result_color = 0xFF4444;
             ESP_LOGE(TAG, "MicroPython app %s execution FAILED", entry_file);
@@ -332,7 +333,7 @@ static void python_app_activate(void)
 
     /* 操作提示 */
     lv_obj_t *hint_lbl = lv_label_create(content);
-    lv_label_set_text(hint_lbl, "B:返回");
+    lv_label_set_text(hint_lbl, lang_get(STR_BACK));
     lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(font_px), 0);
     lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
