@@ -167,8 +167,8 @@ esp_err_t wav_decoder_open(wav_decoder_t *decoder, const char *filepath)
             decoder->is_8bit = (decoder->format.bits_per_sample == 8);
             fmt_found = true;
 
-            ESP_LOGI(TAG, "WAV format: %d Hz, %d bit, %d ch, %lu bytes/sec",
-                     decoder->format.sample_rate,
+            ESP_LOGI(TAG, "WAV format: %lu Hz, %d bit, %d ch, %lu bytes/sec",
+                     (unsigned long)decoder->format.sample_rate,
                      decoder->format.bits_per_sample,
                      decoder->format.channels,
                      (unsigned long)decoder->format.byte_rate);
