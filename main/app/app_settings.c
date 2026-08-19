@@ -18,6 +18,7 @@
 #include "esp_timer.h"
 #include "esp_partition.h"
 #include "fonts/lv_freetype_font.h"
+#include "lang/lang.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -28,7 +29,7 @@ static const char *TAG = "APP_SETTINGS";
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
 
-/* 设置项：15项，分组显示 */
+/* 设置项：16项，分组显示 */
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示 → 二级页面
     "主题",       // 1 - 显示 → 二级页面
@@ -36,22 +37,23 @@ static const char *s_settings_items[] = {
     "WiFi",       // 3 - 网络 → 二级页面
     "布局",       // 4 - 桌面 → 二级页面
     "字体",       // 5 - 显示 → 二级页面
-    "声音",       // 6 - 声音开关（含lv_switch）
-    "音频输出",   // 7 - 音频输出设备选择 → 二级页面
-    "屏幕超时",   // 8 - 显示 → 二级页面
-    "日期时间",   // 9 - 系统 → 二级页面
-    "应用管理",   // 10 - 二级页面
-    "关于系统",   // 11 - 二级页面
-    "恢复默认",   // 12 - 操作
-    "保存并退出", // 13 - 操作
-    "返回Loader", // 14 - 操作（重启进入下载模式）
+    "字库选择",   // 6 - 显示 → 二级页面（新增）
+    "声音",       // 7 - 声音开关（含lv_switch）
+    "音频输出",   // 8 - 音频输出设备选择 → 二级页面
+    "屏幕超时",   // 9 - 显示 → 二级页面
+    "日期时间",   // 10 - 系统 → 二级页面
+    "应用管理",   // 11 - 二级页面
+    "关于系统",   // 12 - 二级页面
+    "恢复默认",   // 13 - 操作
+    "保存并退出", // 14 - 操作
+    "返回Loader", // 15 - 操作（重启进入下载模式）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[15] = {0};
+static lv_obj_t *s_settings_labels[16] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -61,7 +63,7 @@ static void settings_refresh_label(int idx)
     if (!s_settings_labels[idx]) return;
     ui_state_t *st = ui_state_get();
     const char *items[] = {
-        "亮度", "主题", "音量", "WiFi", "布局", "字体", "声音",
+        "亮度", "主题", "音量", "WiFi", "布局", "字体", "字库选择", "声音",
         "音频输出", "屏幕超时", "日期时间", "应用管理", "关于系统", "恢复默认", "保存并退出", "返回Loader"
     };
     char buf[64];
@@ -81,20 +83,26 @@ static void settings_refresh_label(int idx)
         snprintf(buf, sizeof(buf), "%s: %s", items[5], size_str);
         break;
     }
-    case 6: snprintf(buf, sizeof(buf), "%s", items[6]); break;
-    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break; /* 音频输出 */
-    case 8: {
+    case 6: {
+        /* 字库选择：显示当前字库来源 */
+        snprintf(buf, sizeof(buf), "%s: %s", items[6],
+                 st->font_source == 0 ? "FreeType" : "内置");
+        break;
+    }
+    case 7: snprintf(buf, sizeof(buf), "%s", items[7]); break;
+    case 8: snprintf(buf, sizeof(buf), "%s", items[8]); break; /* 音频输出 */
+    case 9: {
         const char *sleep_str = "永不";
         if (st->sleep_timeout == 30) sleep_str = "30秒";
         else if (st->sleep_timeout == 60) sleep_str = "60秒";
         else if (st->sleep_timeout == 120) sleep_str = "2分";
         else if (st->sleep_timeout == 300) sleep_str = "5分";
-        snprintf(buf, sizeof(buf), "%s: %s", items[8], sleep_str);
+        snprintf(buf, sizeof(buf), "%s: %s", items[9], sleep_str);
         break;
     }
-    case 9: snprintf(buf, sizeof(buf), "%s", items[9]); break;
     case 10: snprintf(buf, sizeof(buf), "%s", items[10]); break;
     case 11: snprintf(buf, sizeof(buf), "%s", items[11]); break;
+    case 12: snprintf(buf, sizeof(buf), "%s", items[12]); break;
     default: snprintf(buf, sizeof(buf), "%s", items[idx]); break;
     }
     lv_label_set_text(s_settings_labels[idx], buf);
@@ -134,8 +142,8 @@ static void settings_rebuild_visible(void)
         s_settings_labels[idx] = lbl;
         settings_refresh_label(idx);
 
-        /* 第6行（声音开关）：添加LVGL开关组件 */
-        if (idx == 6) {
+        /* 第7行（声音开关）：添加LVGL开关组件 */
+        if (idx == 7) {
             lv_obj_t *sw = lv_switch_create(row);
             lv_obj_remove_style_all(sw);
             /* 开关背景 */
@@ -189,7 +197,7 @@ static void settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("设置");
+    ui_statusbar_set_title(lang_get(STR_SETTINGS));
     
     /* 根据字体大小动态计算行高和可见行数 */
     int font_px = st->font_size;
@@ -236,6 +244,7 @@ static bool settings_on_key(int key)
         if (ui_stack_depth() > 1) {
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
+            sys_nvs_save_font_source(st->font_source);
             ui_stack_pop();
         }
         return true;
@@ -297,6 +306,13 @@ static bool settings_on_key(int key)
             }
             break;
         case 6:
+            /* 字库选择 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_font_source_settings_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 7:
             /* 声音开关（含lv_switch） */
             if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
                 st->sound_on = !st->sound_on;
@@ -309,56 +325,58 @@ static bool settings_on_key(int key)
                 }
             }
             break;
-        case 7:
+        case 8:
             /* 音频输出 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_audio_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 8:
+        case 9:
             /* 屏幕超时 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_sleep_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 9:
+        case 10:
             /* 日期时间 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_datetime_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 10:
+        case 11:
             /* 应用管理 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
             return true;
-        case 11:
+        case 12:
             /* 关于系统 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
-        case 12:
+        case 13:
             /* 恢复默认 */
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
-            st->sleep_timeout = 60;
+            st->sleep_timeout = 60; st->font_source = 0;
             drv_backlight_set_brightness(st->brightness);
             ui_theme_set(st->theme);
             ESP_LOGI(TAG, "Settings reset to defaults");
             settings_rebuild_visible();
             return true;
-        case 13:
+        case 14:
             /* 保存并退出 */
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
+            sys_nvs_save_font_source(st->font_source);
             ui_stack_pop();
             return true;
-        case 14:
+        case 15:
             /* 返回Loader（重启进入下载模式） */
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
+            sys_nvs_save_font_source(st->font_source);
             esp_restart();
             return true;
         }
@@ -439,22 +457,22 @@ static void about_rebuild_visible(void)
         if (idx < ABOUT_ITEMS_FIXED) {
             /* 固定信息项 */
             switch (idx) {
-            case 0: snprintf(buf, sizeof(buf), "系统: 小喵桌面"); break;
-            case 1: snprintf(buf, sizeof(buf), "版本: %s", XIAOMIAO_VERSION); break;
-            case 2: snprintf(buf, sizeof(buf), "构建: %s", XIAOMIAO_BUILD); break;
-            case 3: snprintf(buf, sizeof(buf), "芯片: ESP32-WROVER-B"); break;
-            case 4: snprintf(buf, sizeof(buf), "屏幕: ST7735 160x128"); break;
-            case 5: snprintf(buf, sizeof(buf), "Python: %s",
-                             poincare_runtime_is_ready() ? "就绪" : "未初始化"); break;
-            case 6: snprintf(buf, sizeof(buf), "字体: %s",
-                             lv_freetype_font_is_ready() ? "FreeType" : "内置"); break;
+            case 0: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SYSTEM), "XiaoMiaoOS"); break;
+            case 1: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_VERSION), XIAOMIAO_VERSION); break;
+            case 2: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_BUILD), XIAOMIAO_BUILD); break;
+            case 3: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_CHIP), "ESP32-WROVER-B"); break;
+            case 4: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SCREEN), "ST7735 160x128"); break;
+            case 5: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_PYTHON),
+                             poincare_runtime_is_ready() ? "Ready" : "Not Ready"); break;
+            case 6: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT_ENGINE),
+                             lv_freetype_font_is_ready() ? "FreeType" : "Built-in"); break;
             case 7: {
                 float vbat = drv_battery_get_voltage();
                 if (vbat >= BAT_MIN_VALID_V) {
                     int pct = drv_battery_get_percent(vbat);
-                    snprintf(buf, sizeof(buf), "电池: %d%% (%.2fV)", pct, vbat);
+                    snprintf(buf, sizeof(buf), "%s: %d%% (%.2fV)", lang_get(STR_BATTERY), pct, vbat);
                 } else {
-                    snprintf(buf, sizeof(buf), "电池: 未检测到");
+                    snprintf(buf, sizeof(buf), "%s: N/A", lang_get(STR_BATTERY));
                 }
                 break;
             }
@@ -474,11 +492,12 @@ static void about_rebuild_visible(void)
                 if (total_psram > 0) {
                     size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
                     size_t used_psram = total_psram - free_psram;
-                    snprintf(buf, sizeof(buf), "PSRAM:%luK/%luK",
+                    snprintf(buf, sizeof(buf), "%s:%luK/%luK",
+                             lang_get(STR_PSRAM),
                              (unsigned long)(used_psram / 1024),
                              (unsigned long)(total_psram / 1024));
                 } else {
-                    snprintf(buf, sizeof(buf), "PSRAM: 未检测到");
+                    snprintf(buf, sizeof(buf), "%s: N/A", lang_get(STR_PSRAM));
                 }
                 break;
             }
@@ -538,7 +557,7 @@ static void about_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("关于系统");
+    ui_statusbar_set_title(lang_get(STR_ABOUT));
 
     /* 根据字体大小动态计算行高和可见行数 */
     int font_px = st->font_size;
