@@ -35,11 +35,6 @@ extern const page_callbacks_t g_about_callbacks;
 extern const page_callbacks_t g_applist_callbacks;
 
 /**
- * 积木编辑器页面回调
- */
-extern const page_callbacks_t g_editor_callbacks;
-
-/**
  * 商店页面回调
  */
 extern const page_callbacks_t g_store_callbacks;
