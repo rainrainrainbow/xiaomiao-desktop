@@ -1,13 +1,17 @@
 /**
  * @file app_music.c
- * @brief 音乐应用 - 蜂鸣器旋律播放器（改进版）
+ * @brief 音乐应用 - 真实音频播放器（WAV文件播放）
  *
- * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_music_callbacks。
- * 功能：内置6首旋律，蜂鸣器播放，支持进度条、音符可视化、音量控制、播放模式。
+ * 架构说明：
+ * - 使用 drv_audio_decoder 解码WAV文件
+ * - 使用 drv_audio_output 播放PCM数据（通过I2S DAC或蓝牙A2DP）
+ * - 独立播放任务避免阻塞UI
+ * - 扫描/sdcard/music目录下的.wav文件
  *
  * 操作说明：
- *   UP/DOWN  : 选择旋律
- *   LEFT/RIGHT: 调节音量
+ *   UP/DOWN  : 选择文件
+ *   LEFT     : 音量-10%
+ *   RIGHT    : 播放模式切换（单曲/列表循环/随机）
  *   A键      : 播放/暂停切换
  *   长按A    : 停止播放
  *   B键      : 返回上一级
@@ -16,6 +20,7 @@
 #include "app_manager.h"
 #include "ui_framework.h"
 #include "driver/drv_audio_output.h"
+#include "driver/drv_audio_decoder.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
 #include "freertos/FreeRTOS.h"
@@ -32,300 +37,271 @@
 
 static const char *TAG = "APP_MUSIC";
 
-#define MUSIC_MAX_ENTRIES 16
+#define MUSIC_MAX_ENTRIES 32
 #define MUSIC_PATH_LEN    256
-
-/* ========== 旋律数据结构 ========== */
-typedef struct {
-    int freq;       /* 频率(Hz)，0=休止 */
-    int duration;   /* 持续时间(ms) */
-} note_t;
+#define DECODE_BUF_SIZE   512  /* 解码缓冲区大小（16位样本数） */
 
 /* ========== 播放模式 ========== */
 typedef enum {
     PLAY_MODE_SINGLE = 0,      /* 单曲播放（播完即止） */
-    PLAY_MODE_SINGLE_LOOP,     /* 单曲循环 */
     PLAY_MODE_LIST_LOOP,       /* 列表循环 */
     PLAY_MODE_RANDOM,          /* 随机播放 */
     PLAY_MODE_MAX
 } play_mode_t;
 
 static const char *s_mode_icons[PLAY_MODE_MAX] = {
-    "▶", "🔁", "🔂", "🔀"
+    "▶", "🔂", "🔀"
 };
 
-/* ========== 内置旋律（6首） ========== */
-
-/* 1. 两只老虎 */
-static const note_t s_melody_two_tigers[] = {
-    {262, 400}, {294, 400}, {330, 400}, {262, 400},
-    {262, 400}, {294, 400}, {330, 400}, {262, 400},
-    {330, 400}, {349, 400}, {392, 800},
-    {330, 400}, {349, 400}, {392, 800},
-    {392, 200}, {440, 200}, {392, 200}, {349, 200}, {330, 400}, {262, 400},
-    {392, 200}, {440, 200}, {392, 200}, {349, 200}, {330, 400}, {262, 400},
-    {262, 400}, {196, 400}, {262, 600},
-    {262, 400}, {196, 400}, {262, 600},
-    {0, 0},
-};
-
-/* 2. 小星星 */
-static const note_t s_melody_twinkle[] = {
-    {262, 500}, {262, 500}, {392, 500}, {392, 500},
-    {440, 500}, {440, 500}, {392, 1000},
-    {349, 500}, {349, 500}, {330, 500}, {330, 500},
-    {294, 500}, {294, 500}, {262, 1000},
-    {0, 0},
-};
-
-/* 3. 欢乐颂 */
-static const note_t s_melody_ode[] = {
-    {330, 500}, {330, 500}, {349, 500}, {392, 500},
-    {392, 500}, {349, 500}, {330, 500}, {294, 500},
-    {262, 500}, {262, 500}, {294, 500}, {330, 500},
-    {330, 500}, {294, 500}, {294, 800},
-    {0, 0},
-};
-
-/* 4. 生日快乐 */
-static const note_t s_melody_birthday[] = {
-    {262, 400}, {262, 400}, {294, 800}, {262, 800},
-    {349, 800}, {330, 1200},
-    {262, 400}, {262, 400}, {294, 800}, {262, 800},
-    {392, 800}, {349, 1200},
-    {262, 400}, {262, 400}, {523, 800}, {440, 800},
-    {349, 800}, {330, 800}, {294, 800},
-    {494, 400}, {494, 400}, {440, 800}, {349, 800},
-    {392, 800}, {349, 1200},
-    {0, 0},
-};
-
-/* 5. 茉莉花 */
-static const note_t s_melody_jasmine[] = {
-    {330, 400}, {392, 400}, {440, 400}, {523, 400},
-    {523, 400}, {440, 400}, {392, 800},
-    {330, 400}, {392, 400}, {440, 400}, {523, 400},
-    {523, 400}, {440, 400}, {392, 800},
-    {392, 400}, {440, 400}, {523, 400}, {587, 400},
-    {587, 400}, {523, 400}, {440, 400}, {392, 400},
-    {330, 400}, {294, 400}, {330, 800},
-    {0, 0},
-};
-
-/* 6. 致爱丽丝（简单版片段） */
-static const note_t s_melody_elise[] = {
-    {330, 300}, {330, 300}, {349, 300}, {392, 300},
-    {440, 300}, {523, 500}, {440, 300}, {392, 300},
-    {349, 300}, {330, 300}, {294, 300}, {262, 300},
-    {330, 300}, {330, 300}, {349, 300}, {392, 300},
-    {440, 300}, {523, 500}, {440, 300}, {392, 300},
-    {349, 300}, {330, 300}, {294, 300}, {262, 300},
-    {0, 0},
-};
-
-#define MELODY_COUNT 6
-static const char *s_melody_names[MELODY_COUNT] = {
-    "两只老虎", "小星星", "欢乐颂", "生日快乐", "茉莉花", "致爱丽丝"
-};
-static const note_t *s_melody_data[MELODY_COUNT] = {
-    s_melody_two_tigers, s_melody_twinkle, s_melody_ode,
-    s_melody_birthday,   s_melody_jasmine, s_melody_elise
-};
-
-/* ========== UI布局常量（160x128屏，内容区约108px高） ========== */
-#define MUSIC_HEADER_H     18   /* 顶部卡带装饰区高度 */
+/* ========== UI布局常量 ========== */
+#define MUSIC_HEADER_H     18   /* 顶部状态区高度 */
 #define MUSIC_PROGRESS_H   6    /* 进度条高度 */
 #define MUSIC_EQ_H         14   /* 均衡器可视化区高度 */
 #define MUSIC_DIVIDER_H    2    /* 分隔线高度 */
-#define MUSIC_LIST_TOP     (MUSIC_HEADER_H + MUSIC_PROGRESS_H + 2 + MUSIC_EQ_H + 2 + MUSIC_DIVIDER_H)  /* 44 */
+#define MUSIC_LIST_TOP     (MUSIC_HEADER_H + MUSIC_PROGRESS_H + 2 + MUSIC_EQ_H + 2 + MUSIC_DIVIDER_H)
 
 /* ========== UI对象变量 ========== */
 static lv_obj_t *s_music_obj = NULL;
 static lv_obj_t *s_progress_bar = NULL;   /* 播放进度条 */
 static lv_obj_t *s_eq_bars[4] = {NULL};   /* 4段均衡器条 */
-static lv_obj_t *s_status_lbl = NULL;     /* 状态文字（当前旋律名） */
+static lv_obj_t *s_status_lbl = NULL;     /* 状态文字 */
 static lv_obj_t *s_vol_lbl = NULL;        /* 音量标签 */
 static lv_timer_t *s_ui_timer = NULL;     /* UI定时器，200ms刷新 */
 
-static int s_music_sel = 0;               /* 当前选中旋律索引 */
+static int s_music_sel = 0;               /* 当前选中索引 */
 static int s_music_scroll = 0;            /* 列表滚动偏移 */
 static int s_music_vis_rows = 0;          /* 可见行数 */
-static int s_playing_melody = -1;         /* -1=未播放，>=0=正在播放的旋律索引 */
-static int s_playing_note = 0;            /* 当前播放到的音符位置 */
-static int s_total_notes = 0;             /* 当前旋律总音符数 */
-static bool s_playing_paused = false;
-static int s_current_freq = 0;            /* 当前播放频率，用于可视化 */
-static play_mode_t s_play_mode = PLAY_MODE_SINGLE;
-static int s_volume = 50;                 /* 音量 0-100 */
-
-/* 文件扫描相关（保留SD卡目录浏览功能） */
-static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
-static bool s_music_is_dir[MUSIC_MAX_ENTRIES];
-static int s_music_count = 0;
-static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
 static int s_music_row_h = 15;
 
-/* ========== 蜂鸣器播放任务 ========== */
+/* 文件列表 */
+static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
+static int s_music_count = 0;
+static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
+
+/* 播放状态 */
+static bool s_is_playing = false;
+static bool s_is_paused = false;
+static int s_playing_idx = -1;         /* 正在播放的文件索引 */
+static int s_volume = 50;
+static play_mode_t s_play_mode = PLAY_MODE_SINGLE;
+
+/* 解码器（播放任务使用） */
+static wav_decoder_t s_wav_decoder;
+static TaskHandle_t s_play_task = NULL;
+
+/* ========== 文件扫描 ========== */
+static void music_scan_dir(const char *path)
+{
+    s_music_count = 0;
+    strncpy(s_music_current_path, path, MUSIC_PATH_LEN - 1);
+    s_music_current_path[MUSIC_PATH_LEN - 1] = '\0';
+
+    DIR *dir = opendir(path);
+    if (!dir) {
+        ESP_LOGW(TAG, "Cannot open music directory: %s", path);
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && s_music_count < MUSIC_MAX_ENTRIES) {
+        if (entry->d_name[0] == '.') continue;
+
+        /* 只添加.wav文件 */
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) continue;
+        if (strcasecmp(ext, ".wav") != 0) continue;
+
+        strncpy(s_music_entries[s_music_count], entry->d_name, MUSIC_PATH_LEN - 1);
+        s_music_entries[s_music_count][MUSIC_PATH_LEN - 1] = '\0';
+        s_music_count++;
+    }
+    closedir(dir);
+
+    ESP_LOGI(TAG, "Music scan: %d WAV files in %s", s_music_count, path);
+}
+
+/* ========== 播放任务 ========== */
 static void music_play_task(void *arg)
 {
-    int melody_idx = (int)(intptr_t)arg;
-    s_playing_melody = melody_idx;
-    s_playing_note = 0;
-    s_playing_paused = false;
-    s_current_freq = 0;
+    int file_idx = (int)(intptr_t)arg;
+    char fullpath[MUSIC_PATH_LEN];
 
-    /* 计算总音符数 */
-    const note_t *notes = s_melody_data[melody_idx];
-    int total = 0;
-    while (notes[total].freq != 0 || notes[total].duration != 0) total++;
-    s_total_notes = total;
+    snprintf(fullpath, sizeof(fullpath), "%s/%s",
+             s_music_current_path, s_music_entries[file_idx]);
 
-    int note_idx = 0;
-    const note_t *current_notes = notes;
+    ESP_LOGI(TAG, "Starting playback: %s", fullpath);
+
+    /* 初始化并打开WAV解码器 */
+    wav_decoder_init(&s_wav_decoder);
+    if (wav_decoder_open(&s_wav_decoder, fullpath) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open WAV file: %s", fullpath);
+        s_is_playing = false;
+        s_playing_idx = -1;
+        s_play_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
+    ESP_LOGI(TAG, "WAV: %lu Hz, %d bit, %d ch, %lu ms",
+             (unsigned long)fmt->sample_rate, fmt->bits_per_sample,
+             fmt->channels, (unsigned long)fmt->duration_ms);
+
+    /* 打开音频输出 */
+    esp_err_t ret = audio_output_open(fmt->sample_rate, 16, fmt->channels);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "audio_output_open failed: %s", esp_err_to_name(ret));
+        wav_decoder_close(&s_wav_decoder);
+        s_is_playing = false;
+        s_playing_idx = -1;
+        s_play_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    /* 解码缓冲区（16位PCM样本） */
+    int16_t *decode_buf = (int16_t *)malloc(DECODE_BUF_SIZE * sizeof(int16_t));
+    if (!decode_buf) {
+        ESP_LOGE(TAG, "Failed to allocate decode buffer");
+        audio_output_stop();
+        wav_decoder_close(&s_wav_decoder);
+        s_is_playing = false;
+        s_playing_idx = -1;
+        s_play_task = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+
+    s_is_playing = true;
+    s_is_paused = false;
 
     while (1) {
-        if (s_playing_melody != melody_idx) break;
-
-        if (note_idx >= total) {
-            /* 播放结束，根据播放模式决定下一步 */
-            if (s_play_mode == PLAY_MODE_SINGLE) {
-                audio_output_stop();
-                s_playing_melody = -1;
-                s_playing_note = 0;
-                s_total_notes = 0;
-                s_current_freq = 0;
-                vTaskDelete(NULL);
-                return;
-            } else if (s_play_mode == PLAY_MODE_SINGLE_LOOP) {
-                note_idx = 0;
-                s_playing_note = 0;
-                continue;
-            } else {
-                /* 列表循环或随机播放 */
-                if (s_play_mode == PLAY_MODE_LIST_LOOP) {
-                    melody_idx = (melody_idx + 1) % MELODY_COUNT;
-                } else {
-                    int next = rand() % MELODY_COUNT;
-                    if (next == melody_idx && MELODY_COUNT > 1)
-                        next = (next + 1) % MELODY_COUNT;
-                    melody_idx = next;
-                }
-                s_playing_melody = melody_idx;
-                note_idx = 0;
-                s_playing_note = 0;
-                current_notes = s_melody_data[melody_idx];
-                total = 0;
-                while (current_notes[total].freq != 0 || current_notes[total].duration != 0) total++;
-                s_total_notes = total;
-                continue;
-            }
+        /* 检查是否被要求停止 */
+        if (!s_is_playing || s_playing_idx != file_idx) {
+            break;
         }
 
-        if (s_playing_paused) {
+        /* 暂停处理 */
+        if (s_is_paused) {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
-        if (current_notes[note_idx].freq > 0) {
-            audio_output_tone(current_notes[note_idx].freq, 0);
-            s_current_freq = current_notes[note_idx].freq;
-        } else {
-            audio_output_stop();
-            s_current_freq = 0;
+        /* 读取解码数据 */
+        size_t bytes_read = 0;
+        ret = wav_decoder_read(&s_wav_decoder, decode_buf,
+                               DECODE_BUF_SIZE * sizeof(int16_t), &bytes_read);
+
+        if (ret != ESP_OK || bytes_read == 0) {
+            /* 文件播放完毕 */
+            if (wav_decoder_get_state(&s_wav_decoder) == WAV_DECODER_EOF) {
+                ESP_LOGI(TAG, "Playback finished: %s", s_music_entries[file_idx]);
+
+                /* 根据播放模式决定下一步 */
+                if (s_play_mode == PLAY_MODE_SINGLE) {
+                    /* 单曲播放完毕 */
+                    break;
+                } else if (s_play_mode == PLAY_MODE_LIST_LOOP) {
+                    /* 列表循环：播放下一个 */
+                    file_idx = (file_idx + 1) % s_music_count;
+                } else if (s_play_mode == PLAY_MODE_RANDOM) {
+                    /* 随机播放 */
+                    int next = rand() % s_music_count;
+                    if (next == file_idx && s_music_count > 1)
+                        next = (next + 1) % s_music_count;
+                    file_idx = next;
+                }
+
+                s_playing_idx = file_idx;
+
+                /* 关闭当前文件，打开下一个 */
+                wav_decoder_close(&s_wav_decoder);
+
+                snprintf(fullpath, sizeof(fullpath), "%s/%s",
+                         s_music_current_path, s_music_entries[file_idx]);
+
+                if (wav_decoder_open(&s_wav_decoder, fullpath) != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to open next file: %s", fullpath);
+                    break;
+                }
+
+                const wav_format_t *next_fmt = wav_decoder_get_format(&s_wav_decoder);
+                audio_output_open(next_fmt->sample_rate, 16, next_fmt->channels);
+                continue;
+            }
+            break;
         }
-        s_playing_note = note_idx;
-        vTaskDelay(pdMS_TO_TICKS(current_notes[note_idx].duration));
-        note_idx++;
+
+        /* 写入音频输出（通过I2S DAC或蓝牙A2DP） */
+        ret = audio_output_write(decode_buf, bytes_read);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "audio_output_write returned %s", esp_err_to_name(ret));
+        }
     }
 
-    /* 被取代，清理 */
+    /* 清理 */
+    free(decode_buf);
     audio_output_stop();
-    s_playing_melody = -1;
-    s_playing_note = 0;
-    s_total_notes = 0;
-    s_current_freq = 0;
+    wav_decoder_close(&s_wav_decoder);
+
+    s_is_playing = false;
+    s_playing_idx = -1;
+    s_play_task = NULL;
     vTaskDelete(NULL);
 }
 
 static void music_start_playback(int idx)
 {
-    if (idx < 0 || idx >= MELODY_COUNT) return;
-    if (s_playing_melody >= 0) {
-        s_playing_melody = -1;
-        vTaskDelay(pdMS_TO_TICKS(50));
+    if (idx < 0 || idx >= s_music_count) return;
+
+    /* 停止当前播放 */
+    if (s_is_playing) {
+        s_is_playing = false;
+        s_playing_idx = -1;
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    s_playing_note = 0;
-    s_total_notes = 0;
-    s_current_freq = 0;
-    xTaskCreate(music_play_task, "music_play", 2048,
-                (void*)(intptr_t)idx, 5, NULL);
+
+    s_playing_idx = idx;
+    s_is_paused = false;
+
+    xTaskCreate(music_play_task, "music_play", 4096,
+                (void*)(intptr_t)idx, 5, &s_play_task);
 }
 
 static void music_stop_playback(void)
 {
-    if (s_playing_melody >= 0) {
-        s_playing_melody = -1;
+    if (s_is_playing || s_play_task != NULL) {
+        s_is_playing = false;
+        s_playing_idx = -1;
+        s_is_paused = false;
         audio_output_stop();
-        s_playing_note = 0;
-        s_total_notes = 0;
-        s_current_freq = 0;
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(100));
+        s_play_task = NULL;
     }
 }
 
-/* ========== UI定时器回调（200ms刷新进度条+均衡器+转轮+状态文字） ========== */
+/* ========== UI定时器回调（200ms刷新进度条+均衡器） ========== */
 static void music_ui_timer_cb(lv_timer_t *timer)
 {
     if (!s_music_obj || !s_progress_bar) return;
 
-    if (s_playing_melody >= 0 && s_total_notes > 0) {
-        /* 更新进度条 */
-        int pct = (s_playing_note * 100) / s_total_notes;
-        if (pct > 100) pct = 100;
-        lv_bar_set_value(s_progress_bar, pct, LV_ANIM_OFF);
+    if (s_is_playing && s_playing_idx >= 0) {
+        uint32_t pos_ms = wav_decoder_get_position_ms(&s_wav_decoder);
+        const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
+        uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
 
-        /* 更新4段均衡器：根据频率拆分到4个频段模拟多重频段效果 */
-        if (s_current_freq > 0 && !s_playing_paused) {
-            /* 4个频段：低(130-262) 中低(262-440) 中高(440-698) 高(698-1047) */
-            int freq = s_current_freq;
-            int vals[4] = {0};
-            if (freq <= 262) {
-                vals[0] = 30 + (freq - 130) * 70 / (262 - 130);  /* 低音最强 */
-                vals[1] = vals[0] * 2 / 3;
-                vals[2] = vals[0] / 3;
-                vals[3] = 5;
-            } else if (freq <= 440) {
-                vals[1] = 30 + (freq - 262) * 70 / (440 - 262);
-                vals[0] = vals[1] * 2 / 3;
-                vals[2] = vals[1] / 2;
-                vals[3] = 10;
-            } else if (freq <= 698) {
-                vals[2] = 30 + (freq - 440) * 70 / (698 - 440);
-                vals[1] = vals[2] * 2 / 3;
-                vals[3] = vals[2] / 2;
-                vals[0] = 10;
-            } else {
-                vals[3] = 30 + (freq - 698) * 70 / (1047 - 698);
-                vals[2] = vals[3] * 2 / 3;
-                vals[1] = vals[3] / 3;
-                vals[0] = 5;
-            }
+        if (dur_ms > 0) {
+            int pct = (int)(pos_ms * 100 / dur_ms);
+            if (pct > 100) pct = 100;
+            lv_bar_set_value(s_progress_bar, pct, LV_ANIM_OFF);
+        }
+
+        if (!s_is_paused) {
             for (int i = 0; i < 4; i++) {
-                if (vals[i] > 100) vals[i] = 100;
-                if (vals[i] < 0) vals[i] = 0;
+                int val = 20 + (rand() % 60);
                 if (s_eq_bars[i]) {
-                    lv_bar_set_value(s_eq_bars[i], vals[i], LV_ANIM_OFF);
+                    lv_bar_set_value(s_eq_bars[i], val, LV_ANIM_OFF);
                     lv_obj_clear_flag(s_eq_bars[i], LV_OBJ_FLAG_HIDDEN);
-                }
-            }
-        } else {
-            for (int i = 0; i < 4; i++) {
-                if (s_eq_bars[i]) {
-                    lv_bar_set_value(s_eq_bars[i], 0, LV_ANIM_OFF);
-                    if (s_playing_paused) {
-                        /* 暂停时显示为低电平抖动 */
-                        lv_bar_set_value(s_eq_bars[i], 5 + (i * 3), LV_ANIM_OFF);
-                    }
                 }
             }
         }
@@ -340,39 +316,7 @@ static void music_ui_timer_cb(lv_timer_t *timer)
     }
 }
 
-/* ========== 文件扫描 ========== */
-static void music_scan_dir(const char *path)
-{
-    s_music_count = 0;
-    strncpy(s_music_current_path, path, MUSIC_PATH_LEN - 1);
-    DIR *dir = opendir(path);
-    if (!dir) { ESP_LOGW(TAG, "Cannot open music directory: %s", path); return; }
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL && s_music_count < MUSIC_MAX_ENTRIES) {
-        if (entry->d_name[0] == '.') continue;
-        strncpy(s_music_entries[s_music_count], entry->d_name, MUSIC_PATH_LEN - 1);
-        s_music_entries[s_music_count][MUSIC_PATH_LEN - 1] = '\0';
-        s_music_is_dir[s_music_count] = (entry->d_type == DT_DIR);
-        s_music_count++;
-    }
-    closedir(dir);
-    ESP_LOGI(TAG, "Music scan: %d entries in %s", s_music_count, path);
-}
-
-/* ========== UI刷新：复古卡带随身听风格 ==========
- * 布局（从上到下，内容区约108px高）：
- *   ┌──────────────────────────────────┐
- *   │  🎵 小星星          ▶  🔁  │  ← 顶部状态行（18px）
- *   │  ════════════════               │  ← 进度条（6px）
- *   │  ██ ██ ██ ██                    │  ← 4段均衡器（14px）
- *   │  ──────────────────              │  ← 分隔线（2px）
- *   │  01 两只老虎         ▶  │  ← 歌单列表（可滚动，选中高亮）
- *   │  02 小星星                     │
- *   │  03 欢乐颂                      │
- *   │  ...                            │
- *   │  音量: 50%  ←→            │  ← 底部提示
- *   └──────────────────────────────────┘
- */
+/* ========== UI刷新 ========== */
 static void music_refresh_list(void)
 {
     if (!s_music_obj) return;
@@ -389,10 +333,7 @@ static void music_refresh_list(void)
     if (font_px > 24) font_px = 24;
     s_music_row_h = font_px + 1;
 
-    /* ========== 区1：顶部卡带状态区（18px） ==========
-     * 左侧：模式图标 + 当前旋律/状态
-     * 右侧：播放/暂停图标
-     */
+    /* ========== 区1：顶部状态区 ========== */
     lv_obj_t *header = lv_obj_create(s_music_obj);
     lv_obj_remove_style_all(header);
     lv_obj_set_pos(header, 0, 0);
@@ -400,13 +341,19 @@ static void music_refresh_list(void)
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
 
-    /* 左侧：模式图标 + 旋律名 */
     char status[64];
-    if (s_playing_melody >= 0) {
+    if (s_is_playing && s_playing_idx >= 0) {
+        const char *name = s_music_entries[s_playing_idx];
+        char display_name[32];
+        strncpy(display_name, name, sizeof(display_name) - 1);
+        display_name[sizeof(display_name) - 1] = '\0';
+        char *dot = strrchr(display_name, '.');
+        if (dot) *dot = '\0';
+
         snprintf(status, sizeof(status), "%s%s%s",
                  s_mode_icons[s_play_mode],
-                 s_melody_names[s_playing_melody],
-                 s_playing_paused ? " ⏸" : " ▶");
+                 display_name,
+                 s_is_paused ? " ⏸" : " ▶");
     } else {
         snprintf(status, sizeof(status), "%s 按A播放", s_mode_icons[s_play_mode]);
     }
@@ -416,7 +363,6 @@ static void music_refresh_list(void)
     lv_obj_set_style_text_font(s_status_lbl, lv_font_cn_get(14), 0);
     lv_obj_align(s_status_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
-    /* 右侧：音量指示（小条） */
     char vol_str[8];
     snprintf(vol_str, sizeof(vol_str), "%d%%", s_volume);
     s_vol_lbl = lv_label_create(header);
@@ -425,7 +371,6 @@ static void music_refresh_list(void)
     lv_obj_set_style_text_font(s_vol_lbl, lv_font_cn_get(14), 0);
     lv_obj_align(s_vol_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
 
-    /* 音量小进度条 */
     lv_obj_t *vol_bar = lv_bar_create(header);
     lv_obj_remove_style_all(vol_bar);
     lv_obj_set_style_bg_color(vol_bar, lv_color_hex(colors->border), 0);
@@ -439,7 +384,7 @@ static void music_refresh_list(void)
     lv_bar_set_value(vol_bar, s_volume, LV_ANIM_OFF);
     lv_obj_align(vol_bar, LV_ALIGN_RIGHT_MID, -32, 0);
 
-    /* ========== 区2：进度条（6px） ========== */
+    /* ========== 区2：进度条 ========== */
     lv_obj_t *bar = lv_bar_create(s_music_obj);
     lv_obj_remove_style_all(bar);
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
@@ -451,15 +396,10 @@ static void music_refresh_list(void)
     lv_obj_set_size(bar, LCD_H_RES - 8, MUSIC_PROGRESS_H);
     lv_obj_set_pos(bar, 4, MUSIC_HEADER_H + 2);
     lv_bar_set_range(bar, 0, 100);
-    int pct = (s_playing_melody >= 0 && s_total_notes > 0) ? (s_playing_note * 100) / s_total_notes : 0;
-    if (pct > 100) pct = 100;
-    lv_bar_set_value(bar, pct, LV_ANIM_OFF);
+    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     s_progress_bar = bar;
 
-    /* ========== 区3：4段均衡器可视化（14px） ==========
-     * 4个等宽竖条，从左到右：低音→高音
-     * 每个条宽约34px，间距4px
-     */
+    /* ========== 区3：4段均衡器可视化 ========== */
     int eq_y = MUSIC_HEADER_H + MUSIC_PROGRESS_H + 4;
     lv_obj_t *eq_container = lv_obj_create(s_music_obj);
     lv_obj_remove_style_all(eq_container);
@@ -468,7 +408,6 @@ static void music_refresh_list(void)
     lv_obj_clear_flag(eq_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_opa(eq_container, LV_OPA_TRANSP, 0);
 
-    /* 均衡器标签（左下角小字：BASS / TREBLE） */
     lv_obj_t *eq_label = lv_label_create(eq_container);
     lv_label_set_text(eq_label, "BASS");
     lv_obj_set_style_text_color(eq_label, lv_color_hex(colors->text_dim), 0);
@@ -481,14 +420,13 @@ static void music_refresh_list(void)
     lv_obj_set_style_text_font(treble_label, lv_font_cn_get(14), 0);
     lv_obj_align(treble_label, LV_ALIGN_BOTTOM_RIGHT, -4, 0);
 
-    int eq_bar_w = (LCD_H_RES - 24) / 4;  /* 约34px */
+    int eq_bar_w = (LCD_H_RES - 24) / 4;
     for (int i = 0; i < 4; i++) {
         s_eq_bars[i] = lv_bar_create(eq_container);
         lv_obj_remove_style_all(s_eq_bars[i]);
         lv_obj_set_style_bg_color(s_eq_bars[i], lv_color_hex(colors->border), 0);
         lv_obj_set_style_bg_opa(s_eq_bars[i], LV_OPA_COVER, 0);
         lv_obj_set_style_radius(s_eq_bars[i], 1, 0);
-        /* 不同频段用不同颜色：低音用text色，高音用sel_bg色 */
         uint32_t eq_color = (i == 0 || i == 1) ? colors->text : colors->sel_bg;
         lv_obj_set_style_bg_color(s_eq_bars[i], lv_color_hex(eq_color), LV_PART_INDICATOR);
         lv_obj_set_style_bg_opa(s_eq_bars[i], LV_OPA_COVER, LV_PART_INDICATOR);
@@ -500,7 +438,7 @@ static void music_refresh_list(void)
         lv_obj_add_flag(s_eq_bars[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    /* ========== 区4：分隔线（2px） ========== */
+    /* ========== 区4：分隔线 ========== */
     int divider_y = eq_y + MUSIC_EQ_H + 2;
     lv_obj_t *divider = lv_obj_create(s_music_obj);
     lv_obj_remove_style_all(divider);
@@ -510,7 +448,7 @@ static void music_refresh_list(void)
     lv_obj_set_style_bg_color(divider, lv_color_hex(colors->border), 0);
     lv_obj_set_style_bg_opa(divider, LV_OPA_20, 0);
 
-    /* ========== 区5：旋律列表（可滚动，选中高亮） ========== */
+    /* ========== 区5：WAV文件列表 ========== */
     int list_y = MUSIC_LIST_TOP;
     int avail_h = LCD_V_RES - ui_content_y() - DOCK_H - list_y;
     if (font_px >= 20) {
@@ -522,16 +460,17 @@ static void music_refresh_list(void)
     }
     if (s_music_vis_rows < 1) s_music_vis_rows = 1;
 
-    /* 确保选中项可见 */
     if (s_music_sel < s_music_scroll) s_music_scroll = s_music_sel;
-    if (s_music_sel >= s_music_scroll + s_music_vis_rows) s_music_scroll = s_music_sel - s_music_vis_rows + 1;
+    if (s_music_sel >= s_music_scroll + s_music_vis_rows)
+        s_music_scroll = s_music_sel - s_music_vis_rows + 1;
     if (s_music_scroll < 0) s_music_scroll = 0;
-    if (s_music_scroll > MELODY_COUNT - s_music_vis_rows) s_music_scroll = MELODY_COUNT - s_music_vis_rows;
+    if (s_music_scroll > s_music_count - s_music_vis_rows)
+        s_music_scroll = s_music_count - s_music_vis_rows;
     if (s_music_scroll < 0) s_music_scroll = 0;
 
     for (int i = 0; i < s_music_vis_rows; i++) {
         int idx = s_music_scroll + i;
-        if (idx >= MELODY_COUNT) break;
+        if (idx >= s_music_count) break;
 
         int row_y = list_y + i * s_music_row_h;
         lv_obj_t *row = lv_obj_create(s_music_obj);
@@ -541,32 +480,28 @@ static void music_refresh_list(void)
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
         if (idx == s_music_sel) {
-            /* 选中项：棕色背景 + 黑色文字 */
             lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
 
-        /* 编号 + 歌曲名 + 播放指示 */
         char buf[64];
-        const char *playing_mark = (idx == s_playing_melody) ? "▶" : " ";
-        snprintf(buf, sizeof(buf), "%02d %s", idx + 1, s_melody_names[idx]);
+        const char *name = s_music_entries[idx];
+        char display_name[MUSIC_PATH_LEN];
+        strncpy(display_name, name, MUSIC_PATH_LEN - 1);
+        display_name[MUSIC_PATH_LEN - 1] = '\0';
+        char *dot = strrchr(display_name, '.');
+        if (dot) *dot = '\0';
+
+        const char *playing_mark = (idx == s_playing_idx && s_is_playing) ? "▶" : " ";
+        snprintf(buf, sizeof(buf), "%s %s", playing_mark, display_name);
 
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
-
-        /* 右侧：播放标记 */
-        if (idx == s_playing_melody) {
-            lv_obj_t *play_lbl = lv_label_create(row);
-            lv_label_set_text(play_lbl, playing_mark);
-            lv_obj_set_style_text_color(play_lbl, lv_color_hex(colors->text_dim), 0);
-            lv_obj_set_style_text_font(play_lbl, lv_font_cn_get(font_px), 0);
-            lv_obj_align(play_lbl, LV_ALIGN_RIGHT_MID, -6, 0);
-        }
     }
 
     /* ========== 区6：底部操作提示 ========== */
@@ -589,7 +524,7 @@ static void music_refresh_list(void)
 /* ========== 页面生命周期 ========== */
 static void music_init(void *data)
 {
-    ESP_LOGI(TAG, "Music app init");
+    ESP_LOGI(TAG, "Music app init (WAV player)");
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
     lv_obj_clean(scr);
@@ -613,7 +548,6 @@ static void music_init(void *data)
     music_scan_dir(s_music_current_path);
     music_refresh_list();
 
-    /* 创建UI定时器（200ms刷新） */
     if (s_ui_timer) lv_timer_del(s_ui_timer);
     s_ui_timer = lv_timer_create(music_ui_timer_cb, 200, NULL);
 
@@ -644,25 +578,30 @@ static bool music_on_key(int key)
     }
 
     if (key == KEY_UP) {
-        s_music_sel = (s_music_sel - 1 + MELODY_COUNT) % MELODY_COUNT;
-        music_refresh_list();
+        if (s_music_count > 0) {
+            s_music_sel = (s_music_sel - 1 + s_music_count) % s_music_count;
+            music_refresh_list();
+        }
         return true;
     }
 
     if (key == KEY_DOWN) {
-        s_music_sel = (s_music_sel + 1) % MELODY_COUNT;
-        music_refresh_list();
+        if (s_music_count > 0) {
+            s_music_sel = (s_music_sel + 1) % s_music_count;
+            music_refresh_list();
+        }
         return true;
     }
 
     if (key == KEY_A) {
-        if (s_playing_melody == s_music_sel) {
-            /* 已经选中正在播放的旋律：暂停/继续交替 */
-            if (s_playing_melody >= 0) {
-                s_playing_paused = !s_playing_paused;
-                if (s_playing_paused) audio_output_stop();
-                music_refresh_list();
+        if (s_music_count <= 0) return true;
+
+        if (s_is_playing && s_playing_idx == s_music_sel) {
+            s_is_paused = !s_is_paused;
+            if (s_is_paused) {
+                audio_output_stop();
             }
+            music_refresh_list();
         } else {
             music_start_playback(s_music_sel);
             music_refresh_list();
@@ -671,7 +610,6 @@ static bool music_on_key(int key)
     }
 
     if (key == KEY_LEFT) {
-        /* 左键：调节音量（减小） */
         s_volume -= 10;
         if (s_volume < 0) s_volume = 0;
         audio_output_set_volume(s_volume);
@@ -680,9 +618,7 @@ static bool music_on_key(int key)
     }
 
     if (key == KEY_RIGHT) {
-        /* 右键：调节音量（增大）/ 切换播放模式 */
-        if (s_playing_melody >= 0) {
-            /* 播放中：切换播放模式 */
+        if (s_is_playing) {
             s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
             if (s_play_mode == PLAY_MODE_RANDOM) {
                 srand((unsigned)esp_log_timestamp());
@@ -700,7 +636,7 @@ static bool music_on_key(int key)
     return true;
 }
 
-/* ========== 页面回调定义（全局可见） ========== */
+/* ========== 页面回调定义 ========== */
 const page_callbacks_t g_music_callbacks = {
     .init = music_init,
     .destroy = music_destroy,
