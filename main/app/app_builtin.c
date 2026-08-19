@@ -17,6 +17,7 @@
 #include "app_micropython.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "lang/lang.h"
 #include <string.h>
 
 static const char *TAG = "APP_BUILTIN";
@@ -67,6 +68,23 @@ static const app_def_t s_builtin_app_defs[] = {
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
 
+/* ========== 获取本地化应用显示名 ========== */
+/**
+ * 根据内置应用内部名称获取本地化显示名
+ * @param internal_name 内部名称（中文，如"设置"、"商店"）
+ * @return 本地化后的显示名
+ */
+const char* app_builtin_get_display_name(const char *internal_name)
+{
+    if (strcmp(internal_name, "设置") == 0) return lang_get(STR_APP_SETTINGS);
+    if (strcmp(internal_name, "商店") == 0) return lang_get(STR_APP_STORE);
+    if (strcmp(internal_name, "音乐") == 0) return lang_get(STR_APP_MUSIC);
+    if (strcmp(internal_name, "Python") == 0) return lang_get(STR_APP_PYTHON);
+    if (strcmp(internal_name, "文件") == 0) return lang_get(STR_APP_FILES);
+    if (strcmp(internal_name, "应用") == 0) return lang_get(STR_APP_APPS);
+    return internal_name; /* 回退到原始名称 */
+}
+
 /* ========== 注册所有内置应用 ========== */
 void app_builtin_register_all(void)
 {
@@ -88,6 +106,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     /* MID播放器已删除 */
     if (strcmp(app_name, "WiFi设置") == 0) return &g_wifi_settings_callbacks;
     if (strcmp(app_name, "字体设置") == 0) return &g_font_settings_callbacks;
+    if (strcmp(app_name, "字库选择") == 0) return &g_font_source_settings_callbacks;
     if (strcmp(app_name, "亮度设置") == 0) return &g_brightness_settings_callbacks;
     if (strcmp(app_name, "音量设置") == 0) return &g_volume_settings_callbacks;
     if (strcmp(app_name, "主题设置") == 0) return &g_theme_settings_callbacks;
