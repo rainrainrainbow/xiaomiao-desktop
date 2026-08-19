@@ -44,6 +44,7 @@
 
 // 应用管理
 #include "app/app_manager.h"
+#include "app/app_builtin.h"
 #include "app/app_micropython.h"
 #include "app/bg_manager.h"
 
