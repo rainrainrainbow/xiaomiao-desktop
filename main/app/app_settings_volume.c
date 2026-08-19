@@ -28,9 +28,9 @@ static void vol_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     switch (idx) {
-    case 0: snprintf(buf, sizeof(buf), "音量: %d%%", st->volume); break;
-    case 1: snprintf(buf, sizeof(buf), "当前音量"); break;
-    case 2: snprintf(buf, sizeof(buf), "← → 调节  A确认"); break;
+    case 0: snprintf(buf, sizeof(buf), "%s: %d%%", lang_get(STR_VOLUME), st->volume); break;
+    case 1: snprintf(buf, sizeof(buf), "%s", lang_get(STR_VOLUME)); break;
+    case 2: snprintf(buf, sizeof(buf), "%s", lang_get(STR_VOLUME_HINT)); break;
     default: buf[0] = '\0'; break;
     }
     lv_label_set_text(s_vol_labels[idx], buf);
@@ -108,7 +108,7 @@ static void vol_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("音量设置");
+    ui_statusbar_set_title(lang_get(STR_VOLUME));
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
