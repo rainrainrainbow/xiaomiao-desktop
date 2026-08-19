@@ -12,7 +12,10 @@
 static const char *TAG = "APP_THEME";
 
 #define THEME_OPTION_COUNT 2
-static const char *s_theme_names[THEME_OPTION_COUNT] = {"深色主题", "浅色主题"};
+/* 国际化：使用 lang_get 获取主题名 */
+static const char *theme_name(int idx) {
+    return idx == 0 ? lang_get(STR_THEME_DARK) : lang_get(STR_THEME_LIGHT);
+}
 
 static lv_obj_t *s_theme_list = NULL;
 static lv_obj_t *s_theme_labels[THEME_OPTION_COUNT + 1] = {0};
@@ -29,9 +32,9 @@ static void theme_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < THEME_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s", s_theme_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", theme_name(idx));
     } else {
-        snprintf(buf, sizeof(buf), "当前: %s", s_theme_names[st->theme]);
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_CURRENT_VALUE), theme_name(st->theme));
     }
     lv_label_set_text(s_theme_labels[idx], buf);
 }
@@ -80,7 +83,7 @@ static void theme_rebuild_visible(void)
         if (idx < THEME_OPTION_COUNT) {
             /* 使用 LVGL 复选框组件 */
             lv_obj_t *cb = lv_checkbox_create(row);
-            lv_checkbox_set_text(cb, s_theme_names[idx]);
+            lv_checkbox_set_text(cb, theme_name(idx));
             lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
@@ -111,7 +114,7 @@ static void theme_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("主题设置");
+    ui_statusbar_set_title(lang_get(STR_THEME));
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
