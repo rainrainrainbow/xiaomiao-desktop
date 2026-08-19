@@ -39,7 +39,9 @@
 static const char *TAG = "APP_MUSIC";
 
 #define MUSIC_MAX_ENTRIES 32
-#define MUSIC_PATH_LEN    256
+#define MUSIC_PATH_LEN    128  /* 文件名长度 */
+#define MUSIC_FULLPATH_LEN 256 /* 完整路径长度 */
+#define MUSIC_DISPLAY_LEN 32   /* 显示名称长度 */
 #define DECODE_BUF_SIZE   512  /* 解码缓冲区大小（16位样本数） */
 
 /* ========== 播放模式 ========== */
@@ -125,7 +127,7 @@ static void music_scan_dir(const char *path)
 static void music_play_task(void *arg)
 {
     int file_idx = (int)(intptr_t)arg;
-    char fullpath[MUSIC_PATH_LEN];
+    char fullpath[MUSIC_FULLPATH_LEN];
 
     snprintf(fullpath, sizeof(fullpath), "%s/%s",
              s_music_current_path, s_music_entries[file_idx]);
@@ -489,14 +491,14 @@ static void music_refresh_list(void)
 
         char buf[64];
         const char *name = s_music_entries[idx];
-        char display_name[MUSIC_PATH_LEN];
-        strncpy(display_name, name, MUSIC_PATH_LEN - 1);
-        display_name[MUSIC_PATH_LEN - 1] = '\0';
+        char display_name[MUSIC_DISPLAY_LEN];
+        strncpy(display_name, name, sizeof(display_name) - 1);
+        display_name[sizeof(display_name) - 1] = '\0';
         char *dot = strrchr(display_name, '.');
         if (dot) *dot = '\0';
 
         const char *playing_mark = (idx == s_playing_idx && s_is_playing) ? "▶" : " ";
-        snprintf(buf, sizeof(buf), "%s %s", playing_mark, display_name);
+        snprintf(buf, sizeof(buf), "%s %.28s", playing_mark, display_name);
 
         lv_obj_t *lbl = lv_label_create(row);
         lv_label_set_text(lbl, buf);
