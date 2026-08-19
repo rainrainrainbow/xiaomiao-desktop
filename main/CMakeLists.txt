@@ -9,6 +9,7 @@ idf_component_register(
         "app/app_settings.c"
         "app/app_settings_wifi.c"
         "app/app_settings_font.c"
+        "app/app_settings_font_source.c"
         "app/app_settings_brightness.c"
         "app/app_settings_volume.c"
         "app/app_settings_theme.c"
