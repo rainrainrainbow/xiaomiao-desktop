@@ -34,7 +34,6 @@ idf_component_register(
     "driver/drv_audio_decoder.c"
         "system/sys_nvs.c"
         "return_to_loader.c"
-        "fonts/lv_font_xiaomiao_cn_14.c"
         "fonts/lv_freetype_font.c"
         "../ion/display.c"
         "../ion/button.c"
@@ -59,5 +58,5 @@ idf_component_register(
         "../components/micropython/micropython/shared"
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc freetype wear_levelling esp_driver_i2s bt esp_coex
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling esp_driver_i2s bt esp_coex freetype
 )
