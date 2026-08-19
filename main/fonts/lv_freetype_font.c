@@ -11,6 +11,7 @@
 
 #include "lv_freetype_font.h"
 #include "esp_log.h"
+#include <stdio.h>
 
 static const char *TAG = "FONT";
 
