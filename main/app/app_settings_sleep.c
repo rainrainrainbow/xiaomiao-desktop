@@ -13,7 +13,17 @@ static const char *TAG = "APP_SLEEP";
 
 #define SLEEP_OPTION_COUNT 5
 static const int s_sleep_values[SLEEP_OPTION_COUNT] = {0, 30, 60, 120, 300};
-static const char *s_sleep_names[SLEEP_OPTION_COUNT] = {"永不", "30秒", "60秒", "2分钟", "5分钟"};
+/* 国际化：使用 lang_get 获取睡眠时间名称 */
+static const char *sleep_name(int idx) {
+    switch (idx) {
+        case 0: return lang_get(STR_SLEEP_NEVER);
+        case 1: return lang_get(STR_SLEEP_30S);
+        case 2: return lang_get(STR_SLEEP_60S);
+        case 3: return lang_get(STR_SLEEP_2M);
+        case 4: return lang_get(STR_SLEEP_5M);
+        default: return "";
+    }
+}
 
 static lv_obj_t *s_sleep_list = NULL;
 static lv_obj_t *s_sleep_labels[SLEEP_OPTION_COUNT + 1] = {0};
@@ -45,13 +55,13 @@ static void sleep_refresh_label(int idx)
     ui_state_t *st = ui_state_get();
     char buf[48];
     if (idx < SLEEP_OPTION_COUNT) {
-        snprintf(buf, sizeof(buf), "%s", s_sleep_names[idx]);
+        snprintf(buf, sizeof(buf), "%s", sleep_name(idx));
     } else {
-        const char *cur = "永不";
+        const char *cur = sleep_name(0);
         for (int i = 0; i < SLEEP_OPTION_COUNT; i++) {
-            if (s_sleep_values[i] == st->sleep_timeout) { cur = s_sleep_names[i]; break; }
+            if (s_sleep_values[i] == st->sleep_timeout) { cur = sleep_name(i); break; }
         }
-        snprintf(buf, sizeof(buf), "当前: %s", cur);
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_CURRENT_VALUE), cur);
     }
     lv_label_set_text(s_sleep_labels[idx], buf);
 }
@@ -85,7 +95,7 @@ static void sleep_rebuild_visible(void)
         if (idx < SLEEP_OPTION_COUNT) {
             /* 使用LVGL复选框组件 */
             lv_obj_t *cb = lv_checkbox_create(row);
-            lv_checkbox_set_text(cb, s_sleep_names[idx]);
+            lv_checkbox_set_text(cb, sleep_name(idx));
             lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
@@ -115,7 +125,7 @@ static void sleep_settings_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("屏幕超时");
+    ui_statusbar_set_title(lang_get(STR_SLEEP_TIMEOUT));
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
