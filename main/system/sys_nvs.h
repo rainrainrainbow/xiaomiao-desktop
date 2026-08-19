@@ -21,6 +21,7 @@
 #define NVS_KEY_FIRST_RUN   "first_run"  // 首次运行标志
 #define NVS_KEY_AUDIO_OUT   "audio_out"  // 音频输出设备类型
 #define NVS_KEY_AUDIO_AUTO  "audio_auto" // 音频自动选择模式
+#define NVS_KEY_FONT_SOURCE "font_src" // 字库来源 (0=FreeType, 1=内置)
 
 /* ========== NVS存储接口 ========== */
 
@@ -80,6 +81,18 @@ void sys_nvs_save_audio_auto(bool auto_mode);
  * @return true=自动（默认），false=手动
  */
 bool sys_nvs_load_audio_auto(void);
+
+/**
+ * 保存字库来源
+ * @param font_source 字库来源 (0=FreeType/SD卡, 1=内置/英文)
+ */
+void sys_nvs_save_font_source(int font_source);
+
+/**
+ * 加载字库来源
+ * @return 字库来源，默认返回0（FreeType）
+ */
+int sys_nvs_load_font_source(void);
 
 /**
  * 保存音量
