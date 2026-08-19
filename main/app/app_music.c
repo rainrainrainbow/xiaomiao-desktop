@@ -22,6 +22,7 @@
 #include "driver/drv_audio_output.h"
 #include "driver/drv_audio_decoder.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -621,7 +622,7 @@ static bool music_on_key(int key)
         if (s_is_playing) {
             s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
             if (s_play_mode == PLAY_MODE_RANDOM) {
-                srand((unsigned)esp_log_timestamp());
+                srand((unsigned)(esp_timer_get_time() / 1000));
             }
             music_refresh_list();
         } else {
