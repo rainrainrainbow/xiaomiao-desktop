@@ -1,202 +1,136 @@
 /**
  * @file lv_freetype_font.c
- * @brief FreeType 字体管理实现 - 从SD卡加载TrueType/OpenType字体
+ * @brief 中文字体管理实现 - 使用 LVGL FreeType 引擎从 SD 卡加载字体
  *
- * 使用 LVGL 内置的 FreeType 字体引擎（lv_freetype），
- * 从 SD 卡加载 NotoSansSC-Regular.otf 字体文件，
- * 创建多个大小的字体对象供全局使用。
+ * 使用 LVGL 内置的 FreeType 字体引擎，从 SD 卡加载 TTF/OTF 字体文件，
+ * 支持多尺寸中文渲染。不再依赖巨大的内置位图字体（lv_font_xiaomiao_cn_14 约 371KB）。
  *
- * 依赖：
- *   - LVGL v9.5+（内置 lv_freetype 支持，需启用 LV_USE_FREETYPE）
- *   - ESP-IDF 组件：espressif/freetype
- *   - SD 卡文件系统（字体文件存储在 /sdcard/fonts/）
+ * 字体文件路径：/sdcard/Fonts/NotoSansSC-Regular.otf
+ * 备选路径：/flash/Fonts/NotoSansSC-Regular.otf（retro-core 分区）
  */
 
 #include "lv_freetype_font.h"
 #include "esp_log.h"
-#include <sys/stat.h>
 
-static const char *TAG = "LV_FREETYPE_FONT";
+static const char *TAG = "FONT";
 
-/* FreeType 字体文件路径（SD卡） */
-#define FREETYPE_FONT_PATH "/sdcard/fonts/NotoSansSC-Regular.otf"
+/* 字体文件路径 */
+#define FONT_PATH_SDCARD   "/sdcard/Fonts/NotoSansSC-Regular.otf"
+#define FONT_PATH_FLASH    "/flash/Fonts/NotoSansSC-Regular.otf"
 
-/* FreeType 字体对象缓存 */
-#define FREETYPE_FONT_COUNT 4
-static lv_font_t *s_freetype_fonts[FREETYPE_FONT_COUNT] = {NULL};
-static bool s_freetype_initialized = false;
+/* 最大缓存字形数 */
+#define FONT_CACHE_GLYPH_CNT 256
 
-/* 字体大小映射表 */
-static const lv_freetype_font_size_t s_font_sizes[FREETYPE_FONT_COUNT] = {
-    LV_FREETYPE_FONT_SIZE_14,
-    LV_FREETYPE_FONT_SIZE_16,
-    LV_FREETYPE_FONT_SIZE_20,
-    LV_FREETYPE_FONT_SIZE_24,
-};
+/* FreeType 字体句柄（按尺寸缓存） */
+static lv_font_t *s_font_14 = NULL;
+static lv_font_t *s_font_16 = NULL;
+static lv_font_t *s_font_20 = NULL;
+static lv_font_t *s_font_24 = NULL;
+static bool s_initialized = false;
 
-/**
- * @brief 检查字体文件是否存在
- */
-static bool check_font_file_exists(void)
+/* 尝试从多个路径加载字体文件 */
+static const char* find_font_file(void)
 {
-    struct stat st;
-    if (stat(FREETYPE_FONT_PATH, &st) == 0 && S_ISREG(st.st_mode)) {
-        ESP_LOGI(TAG, "Font file found: %s (%d bytes)", FREETYPE_FONT_PATH, (int)st.st_size);
-        return true;
+    /* 优先从 SD 卡加载 */
+    FILE *f = fopen(FONT_PATH_SDCARD, "rb");
+    if (f) {
+        fclose(f);
+        return FONT_PATH_SDCARD;
     }
-    ESP_LOGW(TAG, "Font file not found: %s", FREETYPE_FONT_PATH);
-    ESP_LOGW(TAG, "Please copy NotoSansSC-Regular.otf to /sdcard/fonts/");
-    return false;
+    /* 回退到 retro-core 分区 */
+    f = fopen(FONT_PATH_FLASH, "rb");
+    if (f) {
+        fclose(f);
+        return FONT_PATH_FLASH;
+    }
+    return NULL;
+}
+
+/* 创建指定尺寸的 FreeType 字体 */
+static lv_font_t* create_freetype_font(const char *path, int size)
+{
+    lv_font_t *font = lv_freetype_font_create(
+        path,
+        LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
+        size,
+        LV_FREETYPE_FONT_STYLE_NORMAL
+    );
+    if (font) {
+        ESP_LOGI(TAG, "FreeType font %dpx created from %s", size, path);
+    } else {
+        ESP_LOGW(TAG, "Failed to create FreeType font %dpx from %s", size, path);
+    }
+    return font;
 }
 
 lv_result_t lv_freetype_font_init(void)
 {
-    if (s_freetype_initialized) {
-        ESP_LOGW(TAG, "FreeType font already initialized");
+    if (s_initialized) {
         return LV_RESULT_OK;
     }
 
-    /* 检查字体文件是否存在 */
-    if (!check_font_file_exists()) {
-        ESP_LOGE(TAG, "FreeType font init failed: font file not found");
+    /* 查找字体文件 */
+    const char *font_path = find_font_file();
+    if (!font_path) {
+        ESP_LOGE(TAG, "Font file not found at %s or %s", FONT_PATH_SDCARD, FONT_PATH_FLASH);
         return LV_RESULT_INVALID;
     }
 
-    /* 初始化 LVGL FreeType 引擎 */
-    lv_result_t res = lv_freetype_init(0);  /* 0 = 使用默认缓存大小 */
+    /* 初始化 FreeType 引擎 */
+    lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
     if (res != LV_RESULT_OK) {
         ESP_LOGE(TAG, "lv_freetype_init failed");
         return LV_RESULT_INVALID;
     }
 
-    /* 创建各大小字体对象 */
-    for (int i = 0; i < FREETYPE_FONT_COUNT; i++) {
-        s_freetype_fonts[i] = lv_freetype_font_create(
-            FREETYPE_FONT_PATH,
-            LV_FREETYPE_FONT_RENDER_MODE_BITMAP,
-            (uint32_t)s_font_sizes[i],
-            LV_FREETYPE_FONT_STYLE_NORMAL
-        );
+    /* 创建各尺寸字体 */
+    s_font_14 = create_freetype_font(font_path, 14);
+    s_font_16 = create_freetype_font(font_path, 16);
+    s_font_20 = create_freetype_font(font_path, 20);
+    s_font_24 = create_freetype_font(font_path, 24);
 
-        if (s_freetype_fonts[i] == NULL) {
-            ESP_LOGE(TAG, "Failed to create FreeType font size=%d", s_font_sizes[i]);
-            /* 继续尝试其他大小 */
-        } else {
-            ESP_LOGI(TAG, "FreeType font size=%d created successfully", s_font_sizes[i]);
-        }
-    }
-
-    /* 检查是否至少有一个字体创建成功 */
-    bool any_ok = false;
-    for (int i = 0; i < FREETYPE_FONT_COUNT; i++) {
-        if (s_freetype_fonts[i] != NULL) {
-            any_ok = true;
-            break;
-        }
-    }
-
-    if (!any_ok) {
-        ESP_LOGE(TAG, "FreeType font init failed: no font created");
+    /* 至少 14px 字体必须成功 */
+    if (!s_font_14) {
+        ESP_LOGE(TAG, "Failed to create 14px FreeType font - fallback will use Montserrat");
         lv_freetype_uninit();
         return LV_RESULT_INVALID;
     }
 
-    s_freetype_initialized = true;
-    ESP_LOGI(TAG, "FreeType font engine initialized successfully");
+    s_initialized = true;
+    ESP_LOGI(TAG, "FreeType font engine initialized: %s (%dpx/%dpx/%dpx/%dpx)",
+             font_path, 14, 16, 20, 24);
     return LV_RESULT_OK;
 }
 
-void lv_freetype_font_deinit(void)
+const lv_font_t* lv_font_cn_14(void)
 {
-    if (!s_freetype_initialized) return;
-
-    /* 删除所有字体对象 */
-    for (int i = 0; i < FREETYPE_FONT_COUNT; i++) {
-        if (s_freetype_fonts[i] != NULL) {
-            lv_freetype_font_delete(s_freetype_fonts[i]);
-            s_freetype_fonts[i] = NULL;
-        }
-    }
-
-    /* 反初始化 FreeType 引擎 */
-    lv_freetype_uninit();
-
-    s_freetype_initialized = false;
-    ESP_LOGI(TAG, "FreeType font engine deinitialized");
+    return s_font_14 ? s_font_14 : &lv_font_montserrat_14;
 }
 
-const lv_font_t* lv_freetype_font_get(lv_freetype_font_size_t size)
+const lv_font_t* lv_font_cn_16(void)
 {
-    if (!s_freetype_initialized) return NULL;
+    if (s_font_16) return s_font_16;
+    return lv_font_cn_14();
+}
 
-    for (int i = 0; i < FREETYPE_FONT_COUNT; i++) {
-        if (s_font_sizes[i] == size) {
-            return s_freetype_fonts[i];
-        }
+const lv_font_t* lv_font_cn_20(void)
+{
+    if (s_font_20) return s_font_20;
+    return lv_font_cn_16();
+}
+
+const lv_font_t* lv_font_cn_get(int size)
+{
+    switch (size) {
+        case 14: return lv_font_cn_14();
+        case 16: return lv_font_cn_16();
+        case 20: return lv_font_cn_20();
+        case 24: return s_font_24 ? s_font_24 : lv_font_cn_20();
+        default: return lv_font_cn_14();
     }
-    return NULL;
 }
 
 bool lv_freetype_font_is_ready(void)
 {
-    return s_freetype_initialized;
-}
-
-/**
- * @brief 获取中文显示字体（14px）
- * 
- * 优先返回 FreeType 字体（完整中文支持），
- * 如果 FreeType 未就绪则回退到内置自定义字体。
- */
-const lv_font_t* lv_font_cn_14(void)
-{
-    if (s_freetype_initialized) {
-        const lv_font_t *ft = lv_freetype_font_get(LV_FREETYPE_FONT_SIZE_14);
-        if (ft != NULL) return ft;
-    }
-    /* 回退到内置自定义字体 */
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    return &lv_font_xiaomiao_cn_14;
-}
-
-/**
- * @brief 获取中文显示字体（16px）
- * 
- * 优先返回 FreeType 字体（完整中文支持），
- * 如果 FreeType 未就绪则回退到内置自定义字体。
- */
-const lv_font_t* lv_font_cn_16(void)
-{
-    if (s_freetype_initialized) {
-        const lv_font_t *ft = lv_freetype_font_get(LV_FREETYPE_FONT_SIZE_16);
-        if (ft != NULL) return ft;
-    }
-    /* 回退到内置自定义字体 */
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    return &lv_font_xiaomiao_cn_14;
-}
-
-/**
- * @brief 根据指定大小获取中文显示字体
- * 
- * 优先返回 FreeType 字体（完整中文支持），
- * 如果 FreeType 未就绪则回退到内置自定义字体。
- * 支持大小：14、16、20、24，其他大小回退到14px。
- */
-const lv_font_t* lv_font_cn_get(int size)
-{
-    if (s_freetype_initialized) {
-        lv_freetype_font_size_t ft_size;
-        switch (size) {
-        case 16: ft_size = LV_FREETYPE_FONT_SIZE_16; break;
-        case 20: ft_size = LV_FREETYPE_FONT_SIZE_20; break;
-        case 24: ft_size = LV_FREETYPE_FONT_SIZE_24; break;
-        default: ft_size = LV_FREETYPE_FONT_SIZE_14; break;
-        }
-        const lv_font_t *ft = lv_freetype_font_get(ft_size);
-        if (ft != NULL) return ft;
-    }
-    /* 回退到内置自定义字体 */
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    return &lv_font_xiaomiao_cn_14;
+    return s_initialized && s_font_14 != NULL;
 }
