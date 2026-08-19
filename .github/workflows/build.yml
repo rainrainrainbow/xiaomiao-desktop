@@ -230,7 +230,9 @@ jobs:
           fi
           idf.py build -DCMAKE_C_FLAGS="$EXTRA_CFLAGS $CMAKE_C_FLAGS"
 
-          # Generate merged binary for ota_0 partition (xiaomiao-loader compatible)
+          # Generate merged binary compatible with xiaomiao-loader
+          # Loader checks: magic 0xE9 at offset 0x10000 (factory position)
+          # Loader writes data from 0x10000 onward into ota_0 partition
           python3 -m esptool --chip esp32 merge_bin \
             --flash_mode qio \
             --flash_freq 80m \
@@ -238,7 +240,7 @@ jobs:
             --output xiaomiao-desktop-merged.bin \
             0x1000 build/bootloader/bootloader.bin \
             0x8000 build/partition_table/partition-table.bin \
-            0xA0000 build/xiaomiao-desktop.bin
+            0x10000 build/xiaomiao-desktop.bin
 
       - name: Build retro-core partition with subsetted font
         run: |
@@ -264,7 +266,7 @@ jobs:
             --output xiaomiao-desktop-full.bin \
             0x1000 build/bootloader/bootloader.bin \
             0x8000 build/partition_table/partition-table.bin \
-            0xA0000 build/xiaomiao-desktop.bin \
+            0x10000 build/xiaomiao-desktop.bin \
             0x2E0000 retro-core.img
 
       - name: Show build artifacts
