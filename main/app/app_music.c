@@ -24,6 +24,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
+#include "lang/lang.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdio.h>
@@ -358,7 +359,7 @@ static void music_refresh_list(void)
                  display_name,
                  s_is_paused ? " ⏸" : " ▶");
     } else {
-        snprintf(status, sizeof(status), "%s 按A播放", s_mode_icons[s_play_mode]);
+        snprintf(status, sizeof(status), "%s %s", s_mode_icons[s_play_mode], lang_get(STR_MUSIC_PLAY_HINT));
     }
     s_status_lbl = lv_label_create(header);
     lv_label_set_text(s_status_lbl, status);
@@ -517,7 +518,7 @@ static void music_refresh_list(void)
         lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_opa(hint_row, LV_OPA_TRANSP, 0);
         lv_obj_t *hint_lbl = lv_label_create(hint_row);
-        lv_label_set_text(hint_lbl, "←→音量  A播放  B返回");
+        lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_HINT));
         lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
         lv_obj_align(hint_lbl, LV_ALIGN_CENTER, 0, 0);
@@ -534,7 +535,7 @@ static void music_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("音乐");
+    ui_statusbar_set_title(lang_get(STR_APP_MUSIC));
 
     s_volume = audio_output_get_volume();
 
