@@ -4,6 +4,7 @@
  */
 
 #include "app_manager.h"
+#include "app_builtin.h"
 #include "app_micropython.h"
 #include "bg_manager.h"
 #include "ui_framework.h"
@@ -93,8 +94,8 @@ void app_manager_launch(const app_def_t *app)
     // 记录当前应用名（用于状态栏显示）
     s_current_app_name = app->name;
 
-    // 更新状态栏左上角为当前应用名
-    ui_statusbar_set_title(app->name);
+    // 更新状态栏左上角为当前应用名（使用本地化显示名）
+    ui_statusbar_set_title(app_builtin_get_display_name(app->name));
 
     // 记录到后台管理器（标记为前台运行）
     bg_manager_on_launch(app->name);
