@@ -229,10 +229,10 @@ esp_err_t wav_decoder_open(wav_decoder_t *decoder, const char *filepath)
     decoder->file = f;
     decoder->state = WAV_DECODER_READY;
 
-    ESP_LOGI(TAG, "WAV file opened: %s (%lu ms, %d Hz, %d bit, %d ch)",
+    ESP_LOGI(TAG, "WAV file opened: %s (%lu ms, %lu Hz, %d bit, %d ch)",
              filepath,
              (unsigned long)decoder->format.duration_ms,
-             decoder->format.sample_rate,
+             (unsigned long)decoder->format.sample_rate,
              decoder->format.bits_per_sample,
              decoder->format.channels);
 
