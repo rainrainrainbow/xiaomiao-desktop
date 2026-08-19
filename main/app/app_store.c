@@ -10,6 +10,7 @@
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
+#include "lang/lang.h"
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
@@ -264,7 +265,7 @@ static void store_rebuild_visible(void)
         lv_obj_set_style_text_color(status_lbl, 
             lv_color_hex(app->installed ? 0x22C55E : colors->text_dim), 0);
         lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
-        lv_label_set_text(status_lbl, app->installed ? "已安装" : "未安装");
+        lv_label_set_text(status_lbl, app->installed ? lang_get(STR_STORE_INSTALLED) : lang_get(STR_STORE_NOT_INSTALLED));
     }
     
     // 如果没有应用，显示提示
@@ -273,7 +274,7 @@ static void store_rebuild_visible(void)
         lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
-        lv_label_set_text(empty_lbl, "未找到应用\n请将 .app 目录\n放入SD卡根目录");
+        lv_label_set_text(empty_lbl, lang_get(STR_STORE_EMPTY));
     }
 }
 
@@ -287,7 +288,7 @@ static void update_info_label(void)
         store_app_t *app = &s_apps[s_sel];
         char buf[64];
         snprintf(buf, sizeof(buf), "%s | %s%s",
-                 app->installed ? "A:卸载" : "A:安装",
+                 app->installed ? lang_get(STR_STORE_UNINSTALL) : lang_get(STR_STORE_INSTALL),
                  app->has_app_json ? "✓json" : "✗json",
                  app->has_main_py ? " ✓py" : " ✗py");
         lv_label_set_text(s_info_label, buf);
@@ -310,7 +311,7 @@ static void store_init(void *data)
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
     
     ui_statusbar_create(scr);
-    ui_statusbar_set_title("应用商店");
+    ui_statusbar_set_title(lang_get(STR_APP_STORE));
     
     // 计算行高
     s_row_h = ui_state_get()->font_size + 2;
