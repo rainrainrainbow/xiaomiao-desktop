@@ -55,6 +55,26 @@ const lv_font_t* lv_font_cn_get(int size);
  */
 bool lv_freetype_font_is_ready(void);
 
+/**
+ * @brief 扫描 SD 卡 Fonts 目录下的字体文件
+ * 扫描 /sdcard/Fonts/ 目录（以及 /flash/Fonts/ 备用路径），
+ * 收集所有 .ttf/.otf 文件路径。
+ * @param paths 输出数组，用于存放找到的字体文件完整路径（调用方提供）
+ * @param max_paths paths 数组最大容量
+ * @param path_len 每个路径缓冲区的最大长度
+ * @return 找到的字体文件数量（0 表示未找到）
+ */
+int lv_freetype_font_scan(char paths[][128], int max_paths);
+
+/**
+ * @brief 从指定路径加载 FreeType 字体
+ * 若字体引擎尚未初始化，则自动初始化；
+ * 销毁旧字体（若已加载），从新路径加载各尺寸字体。
+ * @param path 字体文件完整路径（如 /sdcard/Fonts/MyFont.ttf）
+ * @return LV_RESULT_OK 成功，LV_RESULT_INVALID 失败
+ */
+lv_result_t lv_freetype_font_load_path(const char *path);
+
 #ifdef __cplusplus
 }
 #endif

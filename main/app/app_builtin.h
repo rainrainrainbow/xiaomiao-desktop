@@ -102,6 +102,11 @@ extern const page_callbacks_t g_audio_settings_callbacks;
 extern const page_callbacks_t g_font_source_settings_callbacks;
 
 /**
+ * 语言设置二级页面回调
+ */
+extern const page_callbacks_t g_language_settings_callbacks;
+
+/**
  * 根据内置应用内部名称获取本地化显示名
  * @param internal_name 内部名称（中文，如"设置"、"商店"）
  * @return 本地化后的显示名

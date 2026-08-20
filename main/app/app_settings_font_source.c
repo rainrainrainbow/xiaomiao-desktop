@@ -1,29 +1,37 @@
 /**
  * @file app_settings_font_source.c
- * @brief 字库选择二级页面 - 选择字库来源
+ * @brief 字库选择二级页面 - 自动扫描SD卡字体文件
  *
- * 提供两种字库来源选择：
- * 0 = FreeType (SD卡) - 需要SD卡中有NotoSansSC字体文件，支持中文渲染
- * 1 = 内置 (英文) - 使用LVGL内置Montserrat字体，仅显示英文
+ * 自动扫描 /sdcard/Fonts/ 目录下的 .ttf/.otf 文件，
+ * 显示可用字体列表供用户选择，支持"内置(英文)"选项。
+ * 用户选择后保存字体路径索引到 NVS。
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
+#include "system/sys_nvs.h"
 #include <string.h>
 #include <stdio.h>
+#include <dirent.h>
 
 static const char *TAG = "APP_FONT_SRC";
 
-/* ========== 字库来源选项 ========== */
-#define FONT_SRC_OPTION_COUNT 2
-static const int s_font_src_values[FONT_SRC_OPTION_COUNT] = {0, 1};
+/* 最大扫描字体数 */
+#define FONT_SCAN_MAX 16
+
+/* 字体路径缓冲区 */
+static char s_font_paths[FONT_SCAN_MAX][128];
+static int s_font_count = 0;
+
+/* 选项总数（字体文件数 + 1个内置选项） */
+static int s_total_options = 0;
 
 /* ========== UI状态 ========== */
 static lv_obj_t *s_font_src_list = NULL;
-static lv_obj_t *s_font_src_labels[FONT_SRC_OPTION_COUNT] = {0};
-static lv_obj_t *s_font_src_checkboxes[FONT_SRC_OPTION_COUNT] = {0};
+static lv_obj_t *s_font_src_labels[FONT_SCAN_MAX + 1] = {0};
+static lv_obj_t *s_font_src_checkboxes[FONT_SCAN_MAX] = {0};
 static int s_font_src_sel = 0;
 static int s_font_src_scroll = 0;
 static int s_font_src_vis_rows = 6;
@@ -33,9 +41,10 @@ static int s_font_src_row_h = 14;
 static void font_src_refresh_checkboxes(void)
 {
     ui_state_t *st = ui_state_get();
-    for (int i = 0; i < FONT_SRC_OPTION_COUNT; i++) {
+    int cur_idx = sys_nvs_load_font_path(); /* 0=内置, 1+=字体索引+1 */
+    for (int i = 0; i < s_font_count; i++) {
         if (s_font_src_checkboxes[i]) {
-            if (s_font_src_values[i] == st->font_source) {
+            if ((i + 1) == cur_idx) {
                 lv_obj_add_state(s_font_src_checkboxes[i], LV_STATE_CHECKED);
             } else {
                 lv_obj_clear_state(s_font_src_checkboxes[i], LV_STATE_CHECKED);
@@ -58,12 +67,12 @@ static void font_src_rebuild_visible(void)
     if (s_font_src_sel >= s_font_src_scroll + s_font_src_vis_rows) {
         s_font_src_scroll = s_font_src_sel - s_font_src_vis_rows + 1;
     }
-    if (s_font_src_scroll > FONT_SRC_OPTION_COUNT - s_font_src_vis_rows) {
-        s_font_src_scroll = FONT_SRC_OPTION_COUNT - s_font_src_vis_rows;
+    if (s_font_src_scroll > s_total_options - s_font_src_vis_rows) {
+        s_font_src_scroll = s_total_options - s_font_src_vis_rows;
     }
     if (s_font_src_scroll < 0) s_font_src_scroll = 0;
 
-    for (int i = 0; i < s_font_src_vis_rows && (s_font_src_scroll + i) < FONT_SRC_OPTION_COUNT; i++) {
+    for (int i = 0; i < s_font_src_vis_rows && (s_font_src_scroll + i) < s_total_options; i++) {
         int idx = s_font_src_scroll + i;
         lv_obj_t *row = lv_obj_create(s_font_src_list);
         lv_obj_remove_style_all(row);
@@ -78,19 +87,40 @@ static void font_src_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
 
-        /* 使用LVGL复选框组件 */
-        lv_obj_t *cb = lv_checkbox_create(row);
-        const char *label = (idx == 0) ? lang_get(STR_FONT_SOURCE_FREETYPE) : lang_get(STR_FONT_SOURCE_BUILTIN);
-        lv_checkbox_set_text(cb, label);
-        lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
-        lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
-        if (s_font_src_values[idx] == st->font_source) {
-            lv_obj_add_state(cb, LV_STATE_CHECKED);
+        if (idx < s_font_count) {
+            /* 字体文件项：使用复选框 */
+            lv_obj_t *cb = lv_checkbox_create(row);
+            /* 提取文件名（不含路径） */
+            const char *fname = strrchr(s_font_paths[idx], '/');
+            if (fname) fname++; else fname = s_font_paths[idx];
+            lv_checkbox_set_text(cb, fname);
+            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+            /* 选中状态 */
+            int cur_idx = sys_nvs_load_font_path();
+            if ((idx + 1) == cur_idx) {
+                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            }
+            s_font_src_checkboxes[idx] = cb;
+            s_font_src_labels[idx] = lv_label_create(row); /* 占位 */
+        } else {
+            /* 内置(英文)选项 */
+            lv_obj_t *lbl = lv_label_create(row);
+            lv_label_set_text(lbl, lang_get(STR_FONT_SOURCE_BUILTIN));
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
+            s_font_src_labels[idx] = lbl;
         }
-        s_font_src_checkboxes[idx] = cb;
-        s_font_src_labels[idx] = lv_label_create(row); /* 占位 */
     }
+}
+
+/* 获取文件名中最后一个非路径部分 */
+static const char* get_filename(const char *path)
+{
+    const char *p = strrchr(path, '/');
+    return p ? p + 1 : path;
 }
 
 /* ========== 页面生命周期 ========== */
@@ -106,6 +136,12 @@ static void font_src_settings_init(void *data)
     ui_statusbar_create(scr);
     ui_statusbar_set_title(lang_get(STR_FONT_SOURCE));
 
+    /* 扫描字体文件 */
+    s_font_count = lv_freetype_font_scan(s_font_paths, FONT_SCAN_MAX);
+    s_total_options = s_font_count + 1; /* 字体文件 + 内置(英文) */
+
+    ESP_LOGI(TAG, "Font scan: %d fonts found, total options: %d", s_font_count, s_total_options);
+
     /* 计算行高和可见行数 */
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
@@ -120,14 +156,10 @@ static void font_src_settings_init(void *data)
     lv_obj_set_size(s_font_src_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(s_font_src_list, LV_OBJ_FLAG_SCROLLABLE);
 
-    /* 找到当前字库来源的索引 */
-    s_font_src_sel = 0;
-    for (int i = 0; i < FONT_SRC_OPTION_COUNT; i++) {
-        if (s_font_src_values[i] == st->font_source) {
-            s_font_src_sel = i;
-            break;
-        }
-    }
+    /* 找到当前选中的选项 */
+    int cur_idx = sys_nvs_load_font_path(); /* 0=内置, 1+=字体索引+1 */
+    s_font_src_sel = (cur_idx == 0) ? (s_total_options - 1) : (cur_idx - 1);
+    if (s_font_src_sel >= s_total_options) s_font_src_sel = 0;
     s_font_src_scroll = 0;
 
     font_src_rebuild_visible();
@@ -152,26 +184,39 @@ static bool font_src_settings_on_key(int key)
     }
 
     if (key == KEY_UP) {
-        s_font_src_sel = (s_font_src_sel - 1 + FONT_SRC_OPTION_COUNT) % FONT_SRC_OPTION_COUNT;
+        s_font_src_sel = (s_font_src_sel - 1 + s_total_options) % s_total_options;
         font_src_rebuild_visible();
         return true;
     }
     if (key == KEY_DOWN) {
-        s_font_src_sel = (s_font_src_sel + 1) % FONT_SRC_OPTION_COUNT;
+        s_font_src_sel = (s_font_src_sel + 1) % s_total_options;
         font_src_rebuild_visible();
         return true;
     }
 
     if (key == KEY_A) {
-        if (s_font_src_sel < FONT_SRC_OPTION_COUNT) {
-            int new_src = s_font_src_values[s_font_src_sel];
-            if (new_src != st->font_source) {
-                st->font_source = new_src;
-                ESP_LOGI(TAG, "Font source changed to: %d", new_src);
-                font_src_refresh_checkboxes();
-                font_src_rebuild_visible();
+        if (s_font_src_sel < s_font_count) {
+            /* 选择了某个字体文件 */
+            int new_idx = s_font_src_sel + 1; /* 1-based索引，0=内置 */
+            int old_idx = sys_nvs_load_font_path();
+            if (new_idx != old_idx) {
+                sys_nvs_save_font_path(new_idx);
+                st->font_source = 0; /* FreeType 模式 */
+                /* 立即加载该字体 */
+                lv_freetype_font_load_path(s_font_paths[s_font_src_sel]);
+                ESP_LOGI(TAG, "Font changed to: %s", get_filename(s_font_paths[s_font_src_sel]));
+            }
+        } else {
+            /* 选择了内置(英文) */
+            int old_idx = sys_nvs_load_font_path();
+            if (old_idx != 0) {
+                sys_nvs_save_font_path(0);
+                st->font_source = 1; /* 内置模式 */
+                ESP_LOGI(TAG, "Font changed to built-in (English)");
             }
         }
+        font_src_refresh_checkboxes();
+        font_src_rebuild_visible();
         return true;
     }
 

@@ -107,6 +107,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "WiFi设置") == 0) return &g_wifi_settings_callbacks;
     if (strcmp(app_name, "字体设置") == 0) return &g_font_settings_callbacks;
     if (strcmp(app_name, "字库选择") == 0) return &g_font_source_settings_callbacks;
+    if (strcmp(app_name, "语言") == 0) return &g_language_settings_callbacks;
     if (strcmp(app_name, "亮度设置") == 0) return &g_brightness_settings_callbacks;
     if (strcmp(app_name, "音量设置") == 0) return &g_volume_settings_callbacks;
     if (strcmp(app_name, "主题设置") == 0) return &g_theme_settings_callbacks;

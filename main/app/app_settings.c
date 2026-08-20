@@ -29,7 +29,7 @@ static const char *TAG = "APP_SETTINGS";
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
 
-/* 设置项：16项，分组显示 */
+/* 设置项：17项，分组显示 */
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示 → 二级页面  (deprecated, use lang_get)
     "主题",       // 1
@@ -38,22 +38,23 @@ static const char *s_settings_items[] = {
     "布局",       // 4
     "字体",       // 5
     "字库选择",   // 6
-    "声音",       // 7
-    "音频输出",   // 8
-    "屏幕超时",   // 9
-    "日期时间",   // 10
-    "应用管理",   // 11
-    "关于系统",   // 12
-    "恢复默认",   // 13
-    "保存并退出", // 14
-    "返回Loader", // 15
+    "语言",       // 7
+    "声音",       // 8
+    "音频输出",   // 9
+    "屏幕超时",   // 10
+    "日期时间",   // 11
+    "应用管理",   // 12
+    "关于系统",   // 13
+    "恢复默认",   // 14
+    "保存并退出", // 15
+    "返回Loader", // 16
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[16] = {0};
+static lv_obj_t *s_settings_labels[17] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -84,9 +85,15 @@ static void settings_refresh_label(int idx)
                  st->font_source == 0 ? "FreeType" : lang_get(STR_FONT_SOURCE_BUILTIN));
         break;
     }
-    case 7: snprintf(buf, sizeof(buf), "%s", lang_get(STR_SOUND)); break;
-    case 8: snprintf(buf, sizeof(buf), "%s", lang_get(STR_AUDIO_OUTPUT)); break;
-    case 9: {
+    case 7: {
+        /* 语言：显示当前语言 */
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_LANGUAGE),
+                 lang_get_current() == LANG_ZH ? lang_get(STR_LANGUAGE_ZH) : lang_get(STR_LANGUAGE_EN));
+        break;
+    }
+    case 8: snprintf(buf, sizeof(buf), "%s", lang_get(STR_SOUND)); break;
+    case 9: snprintf(buf, sizeof(buf), "%s", lang_get(STR_AUDIO_OUTPUT)); break;
+    case 10: {
         const char *sleep_str = lang_get(STR_SLEEP_NEVER);
         if (st->sleep_timeout == 30) sleep_str = lang_get(STR_SLEEP_30S);
         else if (st->sleep_timeout == 60) sleep_str = lang_get(STR_SLEEP_60S);
@@ -95,18 +102,18 @@ static void settings_refresh_label(int idx)
         snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SLEEP_TIMEOUT), sleep_str);
         break;
     }
-    case 10: snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATE_TIME)); break;
-    case 11: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
-    case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
+    case 11: snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATE_TIME)); break;
+    case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
+    case 13: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
     default: {
         const char *def_items[] = {
             lang_get(STR_BRIGHTNESS), lang_get(STR_THEME), lang_get(STR_VOLUME), lang_get(STR_WIFI),
-            lang_get(STR_LAYOUT), lang_get(STR_FONT), lang_get(STR_FONT_SOURCE), lang_get(STR_SOUND),
-            lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT), lang_get(STR_DATE_TIME),
-            lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT), lang_get(STR_RESET_DEFAULT),
-            lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER)
+            lang_get(STR_LAYOUT), lang_get(STR_FONT), lang_get(STR_FONT_SOURCE), lang_get(STR_LANGUAGE),
+            lang_get(STR_SOUND), lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT),
+            lang_get(STR_DATE_TIME), lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT),
+            lang_get(STR_RESET_DEFAULT), lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER)
         };
-        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 16 ? def_items[idx] : "");
+        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 17 ? def_items[idx] : "");
         break;
     }
     }
@@ -147,8 +154,8 @@ static void settings_rebuild_visible(void)
         s_settings_labels[idx] = lbl;
         settings_refresh_label(idx);
 
-        /* 第7行（声音开关）：添加LVGL开关组件 */
-        if (idx == 7) {
+        /* 第8行（声音开关）：添加LVGL开关组件 */
+        if (idx == 8) {
             lv_obj_t *sw = lv_switch_create(row);
             lv_obj_remove_style_all(sw);
             /* 开关背景 */
@@ -318,6 +325,13 @@ static bool settings_on_key(int key)
             }
             break;
         case 7:
+            /* 语言 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_language_settings_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 8:
             /* 声音开关（含lv_switch） */
             if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
                 st->sound_on = !st->sound_on;
@@ -330,36 +344,36 @@ static bool settings_on_key(int key)
                 }
             }
             break;
-        case 8:
+        case 9:
             /* 音频输出 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_audio_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 9:
+        case 10:
             /* 屏幕超时 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_sleep_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 10:
+        case 11:
             /* 日期时间 → 二级页面 */
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_datetime_settings_callbacks, NULL);
                 return true;
             }
             break;
-        case 11:
+        case 12:
             /* 应用管理 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
             return true;
-        case 12:
+        case 13:
             /* 关于系统 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
-        case 13:
+        case 14:
             /* 恢复默认 */
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
@@ -369,14 +383,14 @@ static bool settings_on_key(int key)
             ESP_LOGI(TAG, "Settings reset to defaults");
             settings_rebuild_visible();
             return true;
-        case 14:
+        case 15:
             /* 保存并退出 */
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
             sys_nvs_save_font_source(st->font_source);
             ui_stack_pop();
             return true;
-        case 15:
+        case 16:
             /* 返回Loader（重启进入下载模式） */
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,

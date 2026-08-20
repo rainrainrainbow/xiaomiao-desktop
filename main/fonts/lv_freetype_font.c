@@ -12,6 +12,9 @@
 #include "lv_freetype_font.h"
 #include "esp_log.h"
 #include <stdio.h>
+#include <string.h>
+#include <strings.h>
+#include <dirent.h>
 
 static const char *TAG = "FONT";
 
@@ -152,4 +155,115 @@ const lv_font_t* lv_font_cn_get(int size)
 bool lv_freetype_font_is_ready(void)
 {
     return s_initialized && s_font_14 != NULL;
+}
+
+/* ========== 字体文件自动扫描 ========== */
+
+/* 扫描指定目录中的字体文件 */
+static int scan_font_dir(const char *dir_path, char paths[][128], int max_paths, int count)
+{
+    DIR *dir = opendir(dir_path);
+    if (!dir) {
+        ESP_LOGI(TAG, "Font dir not found: %s", dir_path);
+        return count;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && count < max_paths) {
+        if (entry->d_name[0] == '.') continue;
+
+        /* 检查扩展名 */
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) continue;
+        if (strcasecmp(ext, ".ttf") != 0 && strcasecmp(ext, ".otf") != 0) continue;
+
+        /* 拼接完整路径 */
+        snprintf(paths[count], 128, "%s/%s", dir_path, entry->d_name);
+        ESP_LOGI(TAG, "Found font: %s", paths[count]);
+        count++;
+    }
+    closedir(dir);
+    return count;
+}
+
+int lv_freetype_font_scan(char paths[][128], int max_paths)
+{
+    if (!paths || max_paths <= 0) return 0;
+    int count = 0;
+
+    /* 优先扫描 SD 卡 Fonts 目录 */
+    count = scan_font_dir("/sdcard/Fonts", paths, max_paths, count);
+    if (count < max_paths) {
+        count = scan_font_dir("/sdcard/fonts", paths, max_paths, count);
+    }
+    /* 回退到 retro-core 分区 */
+    if (count < max_paths) {
+        count = scan_font_dir("/flash/Fonts", paths, max_paths, count);
+    }
+    if (count < max_paths) {
+        count = scan_font_dir("/flash/fonts", paths, max_paths, count);
+    }
+
+    ESP_LOGI(TAG, "Font scan complete: %d font file(s) found", count);
+    return count;
+}
+
+/* ========== 从指定路径加载字体 ========== */
+
+lv_result_t lv_freetype_font_load_path(const char *path)
+{
+    if (!path) return LV_RESULT_INVALID;
+
+    /* 验证文件存在 */
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        ESP_LOGE(TAG, "Font file not found: %s", path);
+        return LV_RESULT_INVALID;
+    }
+    fclose(f);
+
+    /* 若引擎未初始化，先初始化 */
+    if (!s_initialized) {
+        lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
+        if (res != LV_RESULT_OK) {
+            ESP_LOGE(TAG, "lv_freetype_init failed");
+            return LV_RESULT_INVALID;
+        }
+        s_initialized = true;
+    }
+
+    /* 销毁旧字体（若已加载） */
+    if (s_font_14) {
+        lv_freetype_font_delete(s_font_14);
+        s_font_14 = NULL;
+    }
+    if (s_font_16) {
+        lv_freetype_font_delete(s_font_16);
+        s_font_16 = NULL;
+    }
+    if (s_font_20) {
+        lv_freetype_font_delete(s_font_20);
+        s_font_20 = NULL;
+    }
+    if (s_font_24) {
+        lv_freetype_font_delete(s_font_24);
+        s_font_24 = NULL;
+    }
+
+    /* 创建各尺寸字体 */
+    s_font_14 = create_freetype_font(path, 14);
+    s_font_16 = create_freetype_font(path, 16);
+    s_font_20 = create_freetype_font(path, 20);
+    s_font_24 = create_freetype_font(path, 24);
+
+    /* 至少 14px 字体必须成功 */
+    if (!s_font_14) {
+        ESP_LOGE(TAG, "Failed to create 14px FreeType font from %s", path);
+        /* 标记为未初始化，下一次 init 会重试 */
+        s_initialized = false;
+        return LV_RESULT_INVALID;
+    }
+
+    ESP_LOGI(TAG, "Font reloaded from: %s (%dpx/%dpx/%dpx/%dpx)", path, 14, 16, 20, 24);
+    return LV_RESULT_OK;
 }

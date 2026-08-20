@@ -856,25 +856,42 @@ static void ui_init_task(void *arg)
     // 根据字库来源设置初始化字体
     ui_state_t *state = ui_state_get();
     if (state->font_source == 0) {
-        /* FreeType 模式：尝试从 SD 卡加载中文字体 */
-        if (sdcard_ok) {
-            if (lv_freetype_font_init() == LV_RESULT_OK) {
-                ESP_LOGI(TAG, "FreeType font engine initialized from SD card");
-            } else {
-                ESP_LOGW(TAG, "FreeType font init failed, falling back to English UI");
+        /* FreeType 模式：优先加载用户自定义字体（NVS 中的路径索引） */
+        int font_path_idx = sys_nvs_load_font_path();
+        bool font_loaded = false;
+        if (font_path_idx > 0) {
+            /* 用户选择了某个字体文件（1=扫描列表第1个, ...），扫描并加载对应路径 */
+            char paths[16][128];
+            int n = lv_freetype_font_scan(paths, 16);
+            if (font_path_idx - 1 < n) {
+                if (lv_freetype_font_load_path(paths[font_path_idx - 1]) == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font loaded from user-selected path: %s",
+                             paths[font_path_idx - 1]);
+                    font_loaded = true;
+                }
             }
-        } else {
-            /* SD卡不可用时，尝试从其他路径加载字体 */
-            if (lv_freetype_font_init() == LV_RESULT_OK) {
-                ESP_LOGI(TAG, "FreeType font engine initialized (fallback path)");
+        }
+        if (!font_loaded) {
+            /* 回退到默认路径 */
+            if (sdcard_ok) {
+                if (lv_freetype_font_init() == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font engine initialized from SD card");
+                } else {
+                    ESP_LOGW(TAG, "FreeType font init failed, falling back to English UI");
+                }
             } else {
-                ESP_LOGW(TAG, "FreeType font init failed (no SD card), falling back to English UI");
+                /* SD卡不可用时，尝试从其他路径加载字体 */
+                if (lv_freetype_font_init() == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font engine initialized (fallback path)");
+                } else {
+                    ESP_LOGW(TAG, "FreeType font init failed (no SD card), falling back to English UI");
+                }
             }
         }
     } else {
-        /* 内置模式：强制使用英文，不加载 FreeType 字体 */
-        ESP_LOGI(TAG, "Font source set to built-in, using English UI");
-        lang_set(LANG_EN);
+        /* 内置模式：不加载 FreeType 字体。
+         * 语言由用户选择（lang_get 在 FreeType 未就绪时会自动降级英文） */
+        ESP_LOGI(TAG, "Font source set to built-in, FreeType not loaded");
     }
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
@@ -915,6 +932,10 @@ void app_main(void)
     sys_nvs_load_settings(&state->brightness, &state->volume, &state->sound_on, 
                       (int*)&state->theme, &state->wifi_on, &state->layout, &state->font_size);
     state->font_source = sys_nvs_load_font_source();
+    // 加载用户选择的语言（0=中文, 1=English），持久化后重启生效
+    int saved_lang = sys_nvs_load_language();
+    if (saved_lang == LANG_EN) lang_set(LANG_EN);
+    else lang_set(LANG_ZH);
     
     // 应用设置
     drv_backlight_set_brightness(state->brightness);
