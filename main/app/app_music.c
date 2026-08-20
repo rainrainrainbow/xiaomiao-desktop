@@ -413,7 +413,8 @@ static void music_ui_timer_cb(lv_timer_t *timer)
                 uint32_t pos_s = pos_ms / 1000;
                 uint32_t dur_s = dur_ms / 1000;
                 snprintf(buf, sizeof(buf), "%02u:%02u/%02u:%02u",
-                         pos_s / 60, pos_s % 60, dur_s / 60, dur_s % 60);
+                         (unsigned int)(pos_s / 60), (unsigned int)(pos_s % 60),
+                         (unsigned int)(dur_s / 60), (unsigned int)(dur_s % 60));
                 lv_label_set_text(s_time_lbl, buf);
             }
 
@@ -791,7 +792,8 @@ static void music_refresh_play_page(void)
     uint32_t pos_s = pos_ms / 1000;
     uint32_t dur_s = dur_ms / 1000;
     snprintf(time_str, sizeof(time_str), "%02u:%02u/%02u:%02u",
-             pos_s / 60, pos_s % 60, dur_s / 60, dur_s % 60);
+             (unsigned int)(pos_s / 60), (unsigned int)(pos_s % 60),
+             (unsigned int)(dur_s / 60), (unsigned int)(dur_s % 60));
     s_time_lbl = lv_label_create(s_music_obj);
     lv_label_set_text(s_time_lbl, time_str);
     lv_obj_set_style_text_color(s_time_lbl, lv_color_hex(colors->text_dim), 0);
