@@ -392,8 +392,10 @@ static bool settings_on_key(int key)
 }
 
 /* ========== 关于系统页面（可滚动） ========== */
-/* 固定信息项数量（不含分区列表） */
-#define ABOUT_ITEMS_FIXED   13
+/* 固定信息项数量（不含分区列表）
+ * 0系统 1版本 2构建 3芯片 4屏幕 5Python 6字体引擎 7电池
+ * 8DRAM 9PSRAM 10IRAM 11通用堆 12运行时间 13固件大小 */
+#define ABOUT_ITEMS_FIXED   14
 /* 行高根据字体大小动态计算，在 about_init 中设置 */
 static int s_about_row_h = 14;
 static int s_about_vis_rows = 6;
@@ -514,6 +516,21 @@ static void about_rebuild_visible(void)
                 break;
             }
             case 10: {
+                /* IRAM (指令内存): 总容量/空闲 + 最低空闲 + 最大连续块 */
+                size_t total_iram = heap_caps_get_total_size(MALLOC_CAP_EXEC);
+                size_t free_iram = heap_caps_get_free_size(MALLOC_CAP_EXEC);
+                size_t used_iram = total_iram - free_iram;
+                size_t minfree_iram = heap_caps_get_minimum_free_size(MALLOC_CAP_EXEC);
+                size_t lrg_iram = heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
+                snprintf(buf, sizeof(buf), "%s %lu/%luK 低%lu 大%lu",
+                         lang_get(STR_IRAM),
+                         (unsigned long)(used_iram / 1024),
+                         (unsigned long)(total_iram / 1024),
+                         (unsigned long)(minfree_iram / 1024),
+                         (unsigned long)(lrg_iram / 1024));
+                break;
+            }
+            case 11: {
                 /* 通用堆: 总容量/空闲 + 最大连续块；DMA可用 */
                 size_t total8 = heap_caps_get_total_size(MALLOC_CAP_8BIT);
                 size_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
@@ -527,7 +544,7 @@ static void about_rebuild_visible(void)
                          (unsigned long)(free_dma / 1024));
                 break;
             }
-            case 11: {
+            case 12: {
                 /* 运行时间 */
                 uint64_t us = esp_timer_get_time();
                 uint32_t sec = (uint32_t)(us / 1000000);
@@ -536,7 +553,7 @@ static void about_rebuild_visible(void)
                 snprintf(buf, sizeof(buf), "%s: %luh%lum", lang_get(STR_UPTIME), (unsigned long)h, (unsigned long)m);
                 break;
             }
-            case 12: {
+            case 13: {
                 /* 固件大小 */
                 extern uint8_t _rodata_start, _rodata_end, _data_start, _data_end;
                 uint32_t flash_size = (uint32_t)&_rodata_end - (uint32_t)&_rodata_start

@@ -156,6 +156,7 @@ typedef enum {
     STR_WIFI_PASSWORD,
     STR_WIFI_CHANNEL,
     STR_WIFI_SCAN_HINT,
+    STR_IRAM,
     // 总数
     STR_COUNT
 } str_id_t;
