@@ -156,6 +156,44 @@ int sys_nvs_load_font_source(void)
     return 0;
 }
 
+/* ========== 语言存储 ========== */
+void sys_nvs_save_language(int lang)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_LANGUAGE, lang);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Language saved: %d", lang);
+}
+
+int sys_nvs_load_language(void)
+{
+    int32_t val = 0;  // 默认中文
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_LANGUAGE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Language loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Language not found, using default (0=中文)");
+    return 0;
+}
+
+/* ========== 字体文件路径索引存储 ========== */
+void sys_nvs_save_font_path(int path_idx)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_PATH, path_idx);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Font path index saved: %d", path_idx);
+}
+
+int sys_nvs_load_font_path(void)
+{
+    int32_t val = 0;  // 默认自动
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_PATH, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Font path index loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Font path index not found, using default (0=auto)");
+    return 0;
+}
+
 /* ========== 音量存储 ========== */
 void sys_nvs_save_volume(int volume)
 {

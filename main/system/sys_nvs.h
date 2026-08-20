@@ -22,6 +22,8 @@
 #define NVS_KEY_AUDIO_OUT   "audio_out"  // 音频输出设备类型
 #define NVS_KEY_AUDIO_AUTO  "audio_auto" // 音频自动选择模式
 #define NVS_KEY_FONT_SOURCE "font_src" // 字库来源 (0=FreeType, 1=内置)
+#define NVS_KEY_LANGUAGE    "language"  // 语言 (0=中文, 1=English)
+#define NVS_KEY_FONT_PATH   "font_path" // 字体文件路径编号或完整路径
 
 /* ========== NVS存储接口 ========== */
 
@@ -93,6 +95,30 @@ void sys_nvs_save_font_source(int font_source);
  * @return 字库来源，默认返回0（FreeType）
  */
 int sys_nvs_load_font_source(void);
+
+/**
+ * 保存语言
+ * @param lang 语言 (0=中文, 1=English)
+ */
+void sys_nvs_save_language(int lang);
+
+/**
+ * 加载语言
+ * @return 语言，默认返回0（中文）
+ */
+int sys_nvs_load_language(void);
+
+/**
+ * 保存当前字体文件路径索引
+ * @param path_idx 字体索引 (0=自动/默认, 否则为扫描列表索引+1)
+ */
+void sys_nvs_save_font_path(int path_idx);
+
+/**
+ * 加载字体文件路径索引
+ * @return 字体索引，默认返回0（自动）
+ */
+int sys_nvs_load_font_path(void);
 
 /**
  * 保存音量
