@@ -366,6 +366,8 @@ static void music_refresh_list(void)
     lv_label_set_text(s_status_lbl, status);
     lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(colors->text), 0);
     lv_obj_set_style_text_font(s_status_lbl, lv_font_cn_get(14), 0);
+    lv_obj_set_width(s_status_lbl, LCD_H_RES - 40);
+    lv_label_set_long_mode(s_status_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(s_status_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
     char vol_str[8];
@@ -506,6 +508,8 @@ static void music_refresh_list(void)
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 8);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 

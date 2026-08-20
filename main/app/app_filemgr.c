@@ -98,6 +98,8 @@ static void txt_viewer_refresh(void)
         lv_label_set_text(lbl, s_txt_lines[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 8);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 }
@@ -210,6 +212,8 @@ static void filemgr_refresh_list(void)
     lv_label_set_text(path_lbl, header);
     lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
     lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
+    lv_obj_set_width(path_lbl, LCD_H_RES - 8);
+    lv_label_set_long_mode(path_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
     if (s_filemgr_count == 0) {
@@ -244,6 +248,8 @@ static void filemgr_refresh_list(void)
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 8);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
 }

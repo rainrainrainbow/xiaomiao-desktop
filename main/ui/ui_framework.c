@@ -416,6 +416,8 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
         lv_label_set_text(brand, "XiaoMiaoOS");
     }
     lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
+    lv_obj_set_width(brand, LCD_H_RES - 90);  /* 左侧品牌名区（避开中间时间+右侧电池） */
+    lv_label_set_long_mode(brand, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
     s_ui_state.brand_label = brand;
     

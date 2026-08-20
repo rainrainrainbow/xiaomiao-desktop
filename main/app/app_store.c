@@ -256,6 +256,8 @@ static void store_rebuild_visible(void)
         lv_obj_t *name_lbl = lv_label_create(row);
         lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_width(name_lbl, LCD_H_RES - 70);
+        lv_label_set_long_mode(name_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 2, 0);
         lv_label_set_text(name_lbl, app->name);
         
@@ -328,6 +330,8 @@ static void store_init(void *data)
     s_info_label = lv_label_create(scr);
     lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
     lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
+    lv_obj_set_width(s_info_label, LCD_H_RES - 4);
+    lv_label_set_long_mode(s_info_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
     
     // 底部导航栏

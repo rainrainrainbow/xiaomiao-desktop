@@ -74,6 +74,8 @@ static void applist_rebuild_visible(void)
         lv_label_set_text(lbl, app_builtin_get_display_name(builtin_apps[idx].name));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 60);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *type_lbl = lv_label_create(row);
         lv_label_set_text(type_lbl, lang_get(STR_APP_TYPE_BUILTIN));
@@ -106,6 +108,8 @@ static void applist_rebuild_visible(void)
         lv_label_set_text(lbl, py_apps[py_idx].name);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 60);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 22, 0);
         lv_obj_t *status_lbl = lv_label_create(row);
         if (py_apps[py_idx].install_status == APP_INSTALL_OK) {

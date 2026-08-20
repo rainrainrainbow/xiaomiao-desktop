@@ -150,6 +150,8 @@ static void settings_rebuild_visible(void)
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         /* 设置页面的字体根据 font_size 自适应 */
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 12);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_settings_labels[idx] = lbl;
         settings_refresh_label(idx);
@@ -472,6 +474,8 @@ static void about_rebuild_visible(void)
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         /* 关于页面的字体根据 font_size 自适应 */
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 12);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         char buf[64];
         if (idx < ABOUT_ITEMS_FIXED) {

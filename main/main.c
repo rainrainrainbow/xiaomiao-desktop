@@ -635,6 +635,8 @@ static void recents_page_init(void *data)
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 70);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
 
         // 状态标签
@@ -678,6 +680,8 @@ static void recents_page_init(void *data)
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 70);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
         row++;
     }

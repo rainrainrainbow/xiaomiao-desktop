@@ -402,6 +402,8 @@ static void wifi_rebuild_visible(void)
         lv_obj_t *lbl = lv_label_create(row);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 12);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
         s_wifi_labels[idx] = lbl;
         wifi_refresh_label(idx);
