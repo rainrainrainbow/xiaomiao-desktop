@@ -100,6 +100,27 @@ static const char *s_zh[STR_COUNT] = {
     [STR_VOLUME_HINT]      = "← → 调节  A确认",
     [STR_MUSIC_PLAY_HINT]  = "按A播放",
     [STR_MUSIC_HINT]       = "←→音量  A播放  B返回",
+    [STR_MUSIC_LIST]       = "播放列表",
+    [STR_MUSIC_SETTINGS]   = "音乐设置",
+    [STR_MUSIC_SPECTRUM]   = "频谱",
+    [STR_MUSIC_LYRICS]     = "歌词",
+    [STR_MUSIC_LRC_OFF]    = "歌词:关",
+    [STR_MUSIC_LRC_ON]     = "歌词:开",
+    [STR_MUSIC_LOOP_MODE]  = "循环模式",
+    [STR_MUSIC_LOOP_SINGLE]= "单曲循环",
+    [STR_MUSIC_LOOP_LIST]  = "列表循环",
+    [STR_MUSIC_LOOP_RANDOM]= "随机播放",
+    [STR_MUSIC_PREV]       = "上一首",
+    [STR_MUSIC_NEXT]       = "下一首",
+    [STR_MUSIC_PLAY]       = "播放",
+    [STR_MUSIC_PAUSE]      = "暂停",
+    [STR_MUSIC_STOP]       = "停止",
+    [STR_MUSIC_PLAYING]    = "正在播放",
+    [STR_MUSIC_NO_FILE]    = "未找到音频文件\n请将WAV文件放入\nSD卡 /music 目录",
+    [STR_MUSIC_SPECTRUM_OFF] = "频谱:关",
+    [STR_MUSIC_SPECTRUM_ON]  = "频谱:开",
+    [STR_MUSIC_SETTINGS_HINT]= "↑↓选择 A切换 B返回",
+    [STR_MUSIC_PLAY_HINT2]   = "A暂停 ←→切歌 B列表",
     [STR_FILE_EMPTY_DIR]   = "(空目录)",
     [STR_FILE_UNSUPPORTED] = "不支持的文件",
     [STR_FILE_MID_REMOVED] = "MID播放器已移除",
@@ -235,6 +256,27 @@ static const char *s_en[STR_COUNT] = {
     // 音乐提示
     [STR_MUSIC_PLAY_HINT]  = "Press A to play",
     [STR_MUSIC_HINT]       = "←→:Volume  A:Play  B:Back",
+    [STR_MUSIC_LIST]       = "Playlist",
+    [STR_MUSIC_SETTINGS]   = "Music Settings",
+    [STR_MUSIC_SPECTRUM]   = "Spectrum",
+    [STR_MUSIC_LYRICS]     = "Lyrics",
+    [STR_MUSIC_LRC_OFF]    = "Lyrics: Off",
+    [STR_MUSIC_LRC_ON]     = "Lyrics: On",
+    [STR_MUSIC_LOOP_MODE]  = "Loop Mode",
+    [STR_MUSIC_LOOP_SINGLE]= "Single Loop",
+    [STR_MUSIC_LOOP_LIST]  = "List Loop",
+    [STR_MUSIC_LOOP_RANDOM]= "Shuffle",
+    [STR_MUSIC_PREV]       = "Prev",
+    [STR_MUSIC_NEXT]       = "Next",
+    [STR_MUSIC_PLAY]       = "Play",
+    [STR_MUSIC_PAUSE]      = "Pause",
+    [STR_MUSIC_STOP]       = "Stop",
+    [STR_MUSIC_PLAYING]    = "Playing",
+    [STR_MUSIC_NO_FILE]    = "No audio files\nPlace WAV files in\nSD /music folder",
+    [STR_MUSIC_SPECTRUM_OFF] = "Spectrum: Off",
+    [STR_MUSIC_SPECTRUM_ON]  = "Spectrum: On",
+    [STR_MUSIC_SETTINGS_HINT]= "↑↓:Select A:Toggle B:Back",
+    [STR_MUSIC_PLAY_HINT2]   = "A:Pause ←→:Track B:List",
     // 文件管理器
     [STR_FILE_EMPTY_DIR]   = "(empty directory)",
     [STR_FILE_UNSUPPORTED] = "Unsupported file",
@@ -294,7 +336,9 @@ const char* lang_get(str_id_t id)
 {
     if (id >= STR_COUNT) return "";
     
-    /* 当 FreeType 字体未就绪时，强制使用英文（英文不需要中文字体） */
+    /* 当 FreeType 字体未就绪时，强制使用英文（英文不需要中文字体）。
+     * 注意：仅当 FreeType 字体确实不可用且当前语言为中文时降级。
+     * 如果用户明确选择了中文但字体不可用，显示英文是为了避免乱码。 */
     extern bool lv_freetype_font_is_ready(void);
     if (!lv_freetype_font_is_ready() && s_current_lang == LANG_ZH) {
         /* 字体不可用，降级为英文 */

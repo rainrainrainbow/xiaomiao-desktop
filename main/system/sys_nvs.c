@@ -201,3 +201,58 @@ void sys_nvs_save_volume(int volume)
     nvs_commit(s_nvs_handle);
     ESP_LOGI(TAG, "Volume saved: %d", volume);
 }
+
+/* ========== 音乐设置存储 ========== */
+void sys_nvs_save_music_eq(int enabled)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_EQ, enabled ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music EQ saved: %d", enabled ? 1 : 0);
+}
+
+int sys_nvs_load_music_eq(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_EQ, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music EQ loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music EQ not found, using default (0=off)");
+    return 0;
+}
+
+void sys_nvs_save_music_lrc(int enabled)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_LRC, enabled ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music LRC saved: %d", enabled ? 1 : 0);
+}
+
+int sys_nvs_load_music_lrc(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_LRC, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music LRC loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music LRC not found, using default (0=off)");
+    return 0;
+}
+
+void sys_nvs_save_music_mode(int mode)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_MODE, mode);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music mode saved: %d", mode);
+}
+
+int sys_nvs_load_music_mode(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_MODE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music mode loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music mode not found, using default (0=single)");
+    return 0;
+}

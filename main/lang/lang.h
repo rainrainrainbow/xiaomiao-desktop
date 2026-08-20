@@ -117,6 +117,28 @@ typedef enum {
     // 音乐提示
     STR_MUSIC_PLAY_HINT,
     STR_MUSIC_HINT,
+    // 音乐播放器三页面
+    STR_MUSIC_LIST,          // 播放列表
+    STR_MUSIC_SETTINGS,      // 音乐设置
+    STR_MUSIC_SPECTRUM,      // 频谱
+    STR_MUSIC_LYRICS,        // 歌词
+    STR_MUSIC_LRC_OFF,       // 歌词:关
+    STR_MUSIC_LRC_ON,        // 歌词:开
+    STR_MUSIC_LOOP_MODE,     // 循环模式
+    STR_MUSIC_LOOP_SINGLE,   // 单曲循环
+    STR_MUSIC_LOOP_LIST,     // 列表循环
+    STR_MUSIC_LOOP_RANDOM,   // 随机播放
+    STR_MUSIC_PREV,          // 上一首
+    STR_MUSIC_NEXT,          // 下一首
+    STR_MUSIC_PLAY,          // 播放
+    STR_MUSIC_PAUSE,         // 暂停
+    STR_MUSIC_STOP,          // 停止
+    STR_MUSIC_PLAYING,       // 正在播放
+    STR_MUSIC_NO_FILE,       // 无音频文件
+    STR_MUSIC_SPECTRUM_OFF,  // 频谱:关
+    STR_MUSIC_SPECTRUM_ON,   // 频谱:开
+    STR_MUSIC_SETTINGS_HINT, // 设置页操作提示
+    STR_MUSIC_PLAY_HINT2,    // 播放页操作提示
     // 文件管理器
     STR_FILE_EMPTY_DIR,
     STR_FILE_UNSUPPORTED,

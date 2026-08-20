@@ -24,6 +24,9 @@
 #define NVS_KEY_FONT_SOURCE "font_src" // 字库来源 (0=FreeType, 1=内置)
 #define NVS_KEY_LANGUAGE    "language"  // 语言 (0=中文, 1=English)
 #define NVS_KEY_FONT_PATH   "font_path" // 字体文件路径编号或完整路径
+#define NVS_KEY_MUSIC_EQ     "music_eq"   // 音乐频谱模式 (0=关, 1=开)
+#define NVS_KEY_MUSIC_LRC    "music_lrc"  // 音乐歌词显示 (0=关, 1=开)
+#define NVS_KEY_MUSIC_MODE   "music_mode" // 音乐循环模式 (0=单曲, 1=列表, 2=随机)
 
 /* ========== NVS存储接口 ========== */
 
@@ -125,5 +128,41 @@ int sys_nvs_load_font_path(void);
  * @param volume 音量 (0-100)
  */
 void sys_nvs_save_volume(int volume);
+
+/**
+ * 保存音乐频谱模式
+ * @param enabled 0=关闭, 1=开启
+ */
+void sys_nvs_save_music_eq(int enabled);
+
+/**
+ * 加载音乐频谱模式
+ * @return 0=关闭（默认）, 1=开启
+ */
+int sys_nvs_load_music_eq(void);
+
+/**
+ * 保存音乐歌词显示
+ * @param enabled 0=关闭, 1=开启
+ */
+void sys_nvs_save_music_lrc(int enabled);
+
+/**
+ * 加载音乐歌词显示
+ * @return 0=关闭（默认）, 1=开启
+ */
+int sys_nvs_load_music_lrc(void);
+
+/**
+ * 保存音乐循环模式
+ * @param mode 0=单曲循环, 1=列表循环, 2=随机播放
+ */
+void sys_nvs_save_music_mode(int mode);
+
+/**
+ * 加载音乐循环模式
+ * @return 0=单曲（默认）, 1=列表, 2=随机
+ */
+int sys_nvs_load_music_mode(void);
 
 #endif /* SYS_NVS_H */
