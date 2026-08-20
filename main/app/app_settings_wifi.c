@@ -119,6 +119,7 @@ static void wifi_driver_init(void)
     }
 
     s_wifi_initialized = true;
+    s_wifi_state = WIFI_STATE_IDLE;
     ESP_LOGI(TAG, "WiFi driver initialized (APSTA)");
 }
 
@@ -264,6 +265,7 @@ static void wifi_set_enabled(bool enable)
             wifi_driver_init();  /* init + start */
         } else {
             esp_wifi_start();
+            s_wifi_state = WIFI_STATE_IDLE;  /* 重新启动后设为空闲状态 */
         }
         if (!s_wifi_initialized) {
             ESP_LOGE(TAG, "WiFi enable failed (init failed)");

@@ -457,8 +457,7 @@ static void about_rebuild_visible(void)
         /* 关于页面的字体根据 font_size 自适应 */
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
-        char buf[48];
-
+        char buf[64];
         if (idx < ABOUT_ITEMS_FIXED) {
             /* 固定信息项 */
             switch (idx) {
@@ -482,35 +481,50 @@ static void about_rebuild_visible(void)
                 break;
             }
             case 8: {
-                /* DRAM: 已用/总容量 */
+                /* DRAM: 已用/总容量 + 最低空闲 + 最大连续块 */
                 size_t total_dram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
                 size_t free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
                 size_t used_dram = total_dram - free_dram;
-                snprintf(buf, sizeof(buf), "DRAM:%luK/%luK",
+                size_t minfree_dram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+                size_t lrg_dram = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+                snprintf(buf, sizeof(buf), "DRAM %lu/%luK 低%lu 大%lu",
                          (unsigned long)(used_dram / 1024),
-                         (unsigned long)(total_dram / 1024));
+                         (unsigned long)(total_dram / 1024),
+                         (unsigned long)(minfree_dram / 1024),
+                         (unsigned long)(lrg_dram / 1024));
                 break;
             }
             case 9: {
-                /* PSRAM: 已用/总容量 */
+                /* PSRAM: 已用/总容量 + 最低空闲 + 最大连续块 */
                 size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
                 if (total_psram > 0) {
                     size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
                     size_t used_psram = total_psram - free_psram;
-                    snprintf(buf, sizeof(buf), "%s:%luK/%luK",
+                    size_t minfree_psram = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
+                    size_t lrg_psram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+                    snprintf(buf, sizeof(buf), "%s %lu/%luK 低%lu 大%lu",
                              lang_get(STR_PSRAM),
                              (unsigned long)(used_psram / 1024),
-                             (unsigned long)(total_psram / 1024));
+                             (unsigned long)(total_psram / 1024),
+                             (unsigned long)(minfree_psram / 1024),
+                             (unsigned long)(lrg_psram / 1024));
                 } else {
-                    snprintf(buf, sizeof(buf), "%s: N/A", lang_get(STR_PSRAM));
+                    snprintf(buf, sizeof(buf), "%s N/A", lang_get(STR_PSRAM));
                 }
-case 10: {
-                /* DMA空闲 + 堆最小空闲 */
+                break;
+            }
+            case 10: {
+                /* 通用堆: 总容量/空闲 + 最大连续块；DMA可用 */
+                size_t total8 = heap_caps_get_total_size(MALLOC_CAP_8BIT);
+                size_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+                size_t lrg8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
                 size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
-                size_t min_free = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
-                snprintf(buf, sizeof(buf), "DMA:%luK Heap:%luK",
-                         (unsigned long)(free_dma / 1024),
-                         (unsigned long)(min_free / 1024));
+                snprintf(buf, sizeof(buf), "%s %lu/%luK 大%lu DMA%lu",
+                         lang_get(STR_MEMORY),
+                         (unsigned long)(free8 / 1024),
+                         (unsigned long)(total8 / 1024),
+                         (unsigned long)(lrg8 / 1024),
+                         (unsigned long)(free_dma / 1024));
                 break;
             }
             case 11: {
@@ -529,8 +543,6 @@ case 10: {
                                     + (uint32_t)&_data_end - (uint32_t)&_data_start;
                 snprintf(buf, sizeof(buf), "%s:%luK Flash:4MB", lang_get(STR_FIRMWARE),
                          (unsigned long)(flash_size / 1024));
-                break;
-            }
                 break;
             }
             default: buf[0] = '\0'; break;
