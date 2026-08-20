@@ -177,8 +177,14 @@ static int scan_font_dir(const char *dir_path, char paths[][128], int max_paths,
         if (!ext) continue;
         if (strcasecmp(ext, ".ttf") != 0 && strcasecmp(ext, ".otf") != 0) continue;
 
-        /* 拼接完整路径 */
-        snprintf(paths[count], 128, "%s/%s", dir_path, entry->d_name);
+        /* 拼接完整路径 - 手动拼接避免 -Werror=format-truncation 警告
+         * （d_name 最大 255 字节 + dir_path 可能导致 snprintf 理论截断） */
+        size_t dlen = strlen(dir_path);
+        if (dlen >= 127) dlen = 126;  /* 预留 '/' + NUL */
+        memcpy(paths[count], dir_path, dlen);
+        paths[count][dlen] = '/';
+        strncpy(paths[count] + dlen + 1, entry->d_name, 127 - dlen - 1);
+        paths[count][127] = '\0';
         ESP_LOGI(TAG, "Found font: %s", paths[count]);
         count++;
     }
