@@ -5,6 +5,8 @@
 
 #include "event_bus.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <string.h>
 
 static const char *TAG = "EVENT_BUS";
