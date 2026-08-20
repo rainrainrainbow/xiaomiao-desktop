@@ -117,9 +117,9 @@ void app_manager_add_recents(const app_def_t *app);
 /**
  * 获取最近打开的应用列表（最近优先）
  * @param count 输出数量
- * @return 应用数组指针（最多 MAX_RECENTS 个）
+ * 通过 app_manager_get_recents_at(i) 按索引获取具体条目
  */
-const app_def_t* app_manager_get_recents(int *count);
+void app_manager_get_recents(int *count);
 
 /**
  * 获取最近任务的第 i 个应用指针

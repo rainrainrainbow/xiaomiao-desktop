@@ -116,7 +116,7 @@ void app_manager_launch(const app_def_t *app)
             } else {
                 ESP_LOGE(TAG, "No callbacks for builtin app: %s", app->name);
             }
-            // 兼容旧的launch_cb接口
+            // 注意：所有内置应用的 launch_cb 均为 NULL，该接口已废弃，暂保留以兼容外部扩展
             if (app->launch_cb) {
                 app->launch_cb();
             }
@@ -166,14 +166,10 @@ void app_manager_add_recents(const app_def_t *app)
     }
 }
 
-const app_def_t* app_manager_get_recents(int *count)
+void app_manager_get_recents(int *count)
 {
     if (count) *count = s_recents_count;
-    // s_recents 是指针数组（const app_def_t*[]），不是连续的结构体数组，
-    // 不能直接返回指针数组的第一个元素强转为结构体指针。
-    // 调用方应通过 app_manager_get_recents_at(i) 按索引获取条目。
-    // 返回 NULL 表示调用方应通过 count 知晓数量，通过 _at 函数获取具体条目。
-    return NULL;
+    /* 不再返回指针数组，调用方应通过 app_manager_get_recents_at(i) 获取具体条目 */
 }
 
 /* 获取最近任务的第 i 个应用指针 */

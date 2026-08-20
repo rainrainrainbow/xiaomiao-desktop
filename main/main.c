@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/param.h>
 #include <unistd.h>
 #include <time.h>
@@ -36,7 +37,7 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "sdkconfig.h"
-#include "return_to_loader.h"
+#include "return_to_loader.h"  // 来自 components/return_to_loader
 
 // UI框架
 #include "ui/ui_framework.h"
@@ -131,9 +132,24 @@ static void st7735_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
 {
-    uint16_t line[LCD_H_RES * 8];
+    /* 使用 PSRAM 堆分配代替栈分配（main任务栈仅8KB，栈上2560字节缓冲区风险高） */
+    uint16_t *line = heap_caps_malloc(LCD_H_RES * 8 * sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (!line) {
+        ESP_LOGE(TAG, "Failed to allocate clear_black buffer, using stack fallback");
+        uint16_t line_stack[LCD_H_RES * 8];
+        memset(line_stack, 0, sizeof(line_stack));
+        const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
+        st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
+        for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
+            const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
+            const uint8_t raset[] = {(uint8_t)(y>>8), (uint8_t)(y&0xFF), (uint8_t)(y2>>8), (uint8_t)(y2&0xFF)};
+            st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
+            st7735_tx(io, ST7735_RAMWR, line_stack, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
+        }
+        return;
+    }
+    memset(line, 0, LCD_H_RES * 8 * sizeof(uint16_t));
     const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
-    memset(line, 0, sizeof(line));
     st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
     for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
         const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
@@ -141,6 +157,7 @@ static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
         st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
         st7735_tx(io, ST7735_RAMWR, line, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
     }
+    free(line);
 }
 
 static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
@@ -151,14 +168,19 @@ static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
     st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
     st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
     
-    // 填充整屏纯色（分块发送避免大缓冲）
-    uint16_t buf[LCD_H_RES * 16];
+    /* 使用 PSRAM 堆分配代替栈分配（5KB+栈缓冲区对8KB main任务栈风险高） */
+    uint16_t *buf = heap_caps_malloc(LCD_H_RES * 16 * sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (!buf) {
+        ESP_LOGW(TAG, "Splash buf alloc failed, skipping splash");
+        return;
+    }
     for (int i = 0; i < LCD_H_RES * 16; i++) buf[i] = color;
     
     for (int y = 0; y < LCD_V_RES; y += 16) {
         int h = (y + 16 <= LCD_V_RES) ? 16 : (LCD_V_RES - y);
         st7735_tx(io, ST7735_RAMWR, buf, LCD_H_RES * h * sizeof(uint16_t));
     }
+    free(buf);
 }
 
 static void st7735_init(esp_lcd_panel_io_handle_t io)
@@ -265,6 +287,10 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
     /* 之前2×16KB=32KB DMA内存占用过高，导致WiFi驱动初始化时DMA分配失败 */
     size_t sz = 8 * 1024;
     void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    if (!b1) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer (size=%d)!", sz);
+        return d;  /* 返回创建但无缓冲的display，LVGL会报错但不会崩溃 */
+    }
     lv_display_set_color_format(d, cf);
     lv_display_set_buffers(d, b1, NULL, sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_user_data(d, io);

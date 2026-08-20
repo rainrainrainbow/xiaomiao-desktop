@@ -54,6 +54,16 @@ bool app_micropython_init(void)
 }
 
 /**
+ * @brief 反初始化 MicroPython 运行时，释放 heap 和资源
+ * 注意事项：调用此函数后，所有 MicroPython 相关功能不可用。
+ * 目前仅在系统需要完全重置 MicroPython 状态时使用。
+ */
+void app_micropython_deinit(void)
+{
+    poincare_runtime_deinit();
+}
+
+/**
  * @brief 检查 MicroPython 是否已初始化
  */
 bool app_micropython_is_ready(void)

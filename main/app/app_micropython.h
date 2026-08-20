@@ -30,6 +30,11 @@ bool app_micropython_init(void);
 bool app_micropython_is_ready(void);
 
 /**
+ * @brief 反初始化 MicroPython 运行时，释放 heap 和资源
+ */
+void app_micropython_deinit(void);
+
+/**
  * @brief 执行一段 Python 源码字符串
  * @param source Python 源码
  * @param source_name 源码名称（用于错误报告），可为 NULL

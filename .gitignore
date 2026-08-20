@@ -7,7 +7,7 @@ build/
 **/build/
 build_cmake_test/
 sdkconfig.old
-sdkconfig.defaults
+# sdkconfig.defaults 是项目核心配置，必须被版本控制追踪
 dependencies.lock
 
 # IDE

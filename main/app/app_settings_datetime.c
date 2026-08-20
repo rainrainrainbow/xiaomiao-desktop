@@ -13,6 +13,7 @@
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -29,6 +30,8 @@ typedef enum {
 
 static ntp_state_t s_ntp_state = NTP_IDLE;
 static bool s_ntp_initialized = false;
+static int64_t s_ntp_sync_start_time = 0;  /* NTP同步开始时间戳（微秒） */
+#define NTP_TIMEOUT_MS    10000  /* NTP同步超时（10秒） */
 /* s_ntp_status removed - use lang_get() directly in dt_refresh_label */
 
 /* ========== NTP同步回调 ========== */
@@ -47,6 +50,7 @@ static void ntp_sync_start(void)
     }
 
     s_ntp_state = NTP_SYNCING;
+    s_ntp_sync_start_time = esp_timer_get_time();  /* 记录开始时间 */
 
     // 设置时区为北京时间 (UTC+8)
     setenv("TZ", "CST-8", 1);
@@ -94,6 +98,17 @@ static void dt_timer_cb(lv_timer_t *t)
         dt_refresh_label(0);  /* 日期 */
         dt_refresh_label(1);  /* 时间 */
         dt_refresh_label(3);  /* NTP状态详情 */
+
+        /* NTP 超时检测：如果同步中且超过10秒未成功，标记为失败 */
+        if (s_ntp_state == NTP_SYNCING) {
+            int64_t elapsed = (esp_timer_get_time() - s_ntp_sync_start_time) / 1000;
+            if (elapsed > NTP_TIMEOUT_MS) {
+                ESP_LOGW(TAG, "NTP sync timed out (%lld ms)", elapsed);
+                s_ntp_state = NTP_FAILED;
+                dt_refresh_label(2);  /* 刷新NTP状态行 */
+                dt_refresh_label(3);  /* 刷新详情行 */
+            }
+        }
     }
 }
 

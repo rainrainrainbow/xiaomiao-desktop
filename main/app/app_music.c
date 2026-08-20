@@ -21,6 +21,7 @@
 #include "ui_framework.h"
 #include "driver/drv_audio_output.h"
 #include "driver/drv_audio_decoder.h"
+#include "system/sys_nvs.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
@@ -617,6 +618,7 @@ static bool music_on_key(int key)
         s_volume -= 10;
         if (s_volume < 0) s_volume = 0;
         audio_output_set_volume(s_volume);
+        sys_nvs_save_volume(s_volume);
         music_refresh_list();
         return true;
     }
@@ -632,6 +634,7 @@ static bool music_on_key(int key)
             s_volume += 10;
             if (s_volume > 100) s_volume = 100;
             audio_output_set_volume(s_volume);
+            sys_nvs_save_volume(s_volume);
             music_refresh_list();
         }
         return true;

@@ -298,7 +298,9 @@ lv_coord_t ui_content_y(void);
 void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected);
 
 /* ========== 长按A键相关 ========== */
-#define LONG_PRESS_MS   360  // 模拟器长按时间（ms）
+/* 长按阈值统一使用 drv_button.h 中的定义 (500ms) */
+/* 此项目前为模拟器备用值，实际使用以 drv_button.h 为准 */
+#include "driver/drv_button.h"  // 引入 LONG_PRESS_MS 定义
 
 /* ========== 按键定义 ========== */
 typedef enum {

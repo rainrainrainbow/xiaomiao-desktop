@@ -54,13 +54,13 @@ static const theme_colors_t s_themes[THEME_MAX] = {
         .sel_border = 0x5C4220, // 棕色选中边框
     },
     [THEME_LIGHT] = {
-        .bg = 0xF6D34A,         // 黄色背景（同色，不区分）
-        .text = 0x1B1713,
-        .text_dim = 0x5C4220,
-        .header_bg = 0x5C4220,
-        .border = 0x5C4220,
-        .sel_bg = 0x5C4220,
-        .sel_border = 0x5C4220,
+        .bg = 0xFFFFFF,         // 白色背景
+        .text = 0x1B1713,       // 黑色文字
+        .text_dim = 0x888888,   // 灰色次要文字
+        .header_bg = 0xF0F0F0,  // 浅灰状态栏/标题栏
+        .border = 0xCCCCCC,     // 浅灰边框
+        .sel_bg = 0xDDDDDD,     // 浅灰选中背景
+        .sel_border = 0xAAAAAA, // 灰色选中边框
     },
 };
 
