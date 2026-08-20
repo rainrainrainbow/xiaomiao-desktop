@@ -61,34 +61,4 @@ idf_component_register(
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
     REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling esp_driver_i2s bt esp_coex freetype return_to_loader
-
-# ============================================================================
-# 版本号注入（I-02 Coze Review 改进）
-# 优先从 git describe --tags 获取版本号，无 git/tag 时回退到 ui_framework.h 默认值
-# ============================================================================
-execute_process(
-    COMMAND git describe --tags --always --dirty
-    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/..
-    OUTPUT_VARIABLE GIT_DESCRIBE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-if(NOT GIT_DESCRIBE)
-    set(GIT_DESCRIBE "v71")
-endif()
-# 构建日期（UTC，YYYY-MM-DD）
-execute_process(
-    COMMAND date +%Y-%m-%d
-    OUTPUT_VARIABLE BUILD_DATE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-if(NOT BUILD_DATE)
-    set(BUILD_DATE "2026-08-26")
-endif()
-message(STATUS "XIAOMIAO_VERSION=${GIT_DESCRIBE}  XIAOMIAO_BUILD=${BUILD_DATE}")
-target_compile_definitions(${COMPONENT_LIB} PUBLIC
-    XIAOMIAO_VERSION="${GIT_DESCRIBE}"
-    XIAOMIAO_BUILD="${BUILD_DATE}"
-)
 )
