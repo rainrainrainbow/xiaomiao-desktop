@@ -610,12 +610,14 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         // 图标：优先从 app.json 读取
         char icon_buf[8];
         if (json_content && json_get_string(json_content, "icon", icon_buf, sizeof(icon_buf))) {
-            // 使用静态字符串存储图标
-            static char s_icon_pool[16][8];
+            // 使用静态字符串存储图标，容量与最大Python应用数一致
+            // 避免超过16个应用时覆盖旧图标
+            static char s_icon_pool[MAX_PYTHON_APPS][8];
             static int s_icon_idx = 0;
-            strncpy(s_icon_pool[s_icon_idx % 16], icon_buf, 7);
-            s_icon_pool[s_icon_idx % 16][7] = '\0';
-            app->icon_text = s_icon_pool[s_icon_idx % 16];
+            int pool_idx = s_icon_idx % MAX_PYTHON_APPS;
+            strncpy(s_icon_pool[pool_idx], icon_buf, 7);
+            s_icon_pool[pool_idx][7] = '\0';
+            app->icon_text = s_icon_pool[pool_idx];
             s_icon_idx++;
         } else {
             app->icon_text = LV_SYMBOL_COPY; // 默认图标

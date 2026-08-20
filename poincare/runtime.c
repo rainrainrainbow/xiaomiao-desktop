@@ -57,8 +57,10 @@ static size_t s_heap_size = 0;
 /* ========== NLR jump fail 处理 ========== */
 void nlr_jump_fail(void *val)
 {
-    ESP_LOGE(TAG, "NLR jump failed, val=%p", val);
-    esp_restart();
+    /* 不再重启系统，改为记录错误日志并返回。
+     * 上层（app_micropython.c 的 python_app_activate）会捕获执行失败
+     * 并显示错误信息，用户可按 B 键安全退出。 */
+    ESP_LOGE(TAG, "NLR jump failed, val=%p - MicroPython runtime error, returning to caller", val);
 }
 
 /* ========== Native code commit stub ========== */

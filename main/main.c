@@ -994,6 +994,9 @@ void app_main(void)
     while (true) {
         lv_timer_handler();
         
+        // 音频后端热插拔检测（蓝牙A2DP设备连接/断开时自动切换）
+        audio_output_poll();
+        
         // Python 应用帧刷新（canvas 承接 framebuffer 的脏标志消费）
         app_micropython_on_tick();
         

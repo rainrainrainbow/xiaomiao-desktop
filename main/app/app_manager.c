@@ -15,12 +15,10 @@
 static const char *TAG = "APP_MGR";
 
 /* ========== 内置应用列表 ========== */
-#define MAX_BUILTIN_APPS 16
 static app_def_t s_builtin_apps[MAX_BUILTIN_APPS];
 static int s_builtin_count = 0;
 
 /* ========== MicroPython应用列表 ========== */
-#define MAX_PYTHON_APPS 16
 static app_def_t s_python_apps[MAX_PYTHON_APPS];
 static int s_python_count = 0;
 
@@ -171,13 +169,10 @@ void app_manager_add_recents(const app_def_t *app)
 const app_def_t* app_manager_get_recents(int *count)
 {
     if (count) *count = s_recents_count;
-    // 返回最近任务对应的应用定义数组
-    // 注意：s_recents 是指针数组，这里返回的是指向数组的指针。
-    // 我们改为返回内置应用定义数组，调用方用索引访问。
-    // 实际上这里返回 NULL 时 count=0，调用方应通过 index 从 recents 获取。
-    if (s_recents_count > 0) {
-        return (const app_def_t*)s_recents[0];
-    }
+    // s_recents 是指针数组（const app_def_t*[]），不是连续的结构体数组，
+    // 不能直接返回指针数组的第一个元素强转为结构体指针。
+    // 调用方应通过 app_manager_get_recents_at(i) 按索引获取条目。
+    // 返回 NULL 表示调用方应通过 count 知晓数量，通过 _at 函数获取具体条目。
     return NULL;
 }
 

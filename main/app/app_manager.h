@@ -10,6 +10,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* ========== 容量常量 ========== */
+#define MAX_BUILTIN_APPS 16   // 内置应用最大数量
+#define MAX_PYTHON_APPS  16   // MicroPython 应用最大数量
+
 /* ========== 应用类型 ========== */
 typedef enum {
     APP_TYPE_BUILTIN = 0,     // 内置C应用
