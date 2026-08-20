@@ -121,3 +121,16 @@ CONFIG_UNITY_ENABLE_DOUBLE=n
 CONFIG_UNITY_ENABLE_64BIT=n
 CONFIG_UNITY_ENABLE_COLOR=n
 CONFIG_UNITY_ENABLE_FIXTURE=n
+
+# ============================================================================
+# 看门狗定时器配置（I-03 Coze Review 改进）
+# ============================================================================
+# TWDT（Task Watchdog Timer） - 监控任务是否卡死
+# 启用后，被 TWDT 监控的任务若超过超时时间未让步（如 vTaskDelay），
+# 则会触发打印或系统重启，有助于发现任务死循环。
+# 超时时间：5秒（足够长，避免 LVGL 渲染等耗时操作误触发）
+CONFIG_ESP_TASK_WDT=y
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y

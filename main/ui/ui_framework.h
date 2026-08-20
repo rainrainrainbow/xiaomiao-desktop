@@ -26,8 +26,16 @@
 #define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 系统版本信息 ========== */
+/*
+ * 版本号默认值：构建时由 main/CMakeLists.txt 通过 target_compile_definitions
+ * 从 git describe --tags 注入（CI 自动覆盖）。本地无 git 或浅克隆时回退到此处默认值。
+ */
+#ifndef XIAOMIAO_VERSION
 #define XIAOMIAO_VERSION "v71"
+#endif
+#ifndef XIAOMIAO_BUILD
 #define XIAOMIAO_BUILD "2026-08-26"
+#endif
 
 /* ========== 页面类型 ========== */
 typedef enum {
