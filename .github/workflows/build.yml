@@ -172,14 +172,12 @@ jobs:
           if [ -f "$ESP_CONFIG" ]; then
             echo "Patching $ESP_CONFIG to disable MBEDTLS_ECP_RESTARTABLE..."
             grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
-            # Comment out MBEDTLS_ECP_RESTARTABLE if defined
-            if grep -q "^#define MBEDTLS_ECP_RESTARTABLE" "$ESP_CONFIG"; then
-              echo "Disabling MBEDTLS_ECP_RESTARTABLE..."
-              sed -i 's|^#define MBEDTLS_ECP_RESTARTABLE|// #define MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
-              echo "Disabled MBEDTLS_ECP_RESTARTABLE"
-            else
-              echo "MBEDTLS_ECP_RESTARTABLE not found in esp_config.h"
-            fi
+            # Comment out BOTH the #ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE guard AND the #define
+            # so that MBEDTLS_ECP_RESTARTABLE stays undefined regardless of CONFIG_* setting
+            sed -i 's|^#ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE|// #ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
+            sed -i 's|^#define MBEDTLS_ECP_RESTARTABLE|// #define MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
+            echo "Disabled MBEDTLS_ECP_RESTARTABLE (both #ifdef and #define commented out)"
+            grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
             echo "Done patching mbedtls esp_config.h"
           else
             echo "WARNING: $ESP_CONFIG not found"
