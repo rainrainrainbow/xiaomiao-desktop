@@ -104,6 +104,14 @@ set(MICROPY_SOURCE_PORT
     ${MICROPY_PORT_DIR}/machine_touchpad.c     # TouchPad 模块（被 modmachine.c 引用，需保留）
 )
 
+# xiaomiao 扩展模块（poincare/mp_xiaomiao.c）
+# 必须在本组件中编译：这样 MP_QSTR_xiaomiao 等 qstr 才能被自动收集，
+# MP_REGISTER_MODULE 才能被 makemoduledefs.py 识别并注册模块。
+# main 组件通过 poincare/mp_xiaomiao.h 中的 extern 声明链接本模块符号。
+set(MICROPY_XIAOMIAO_MOD "${MICROPY_COMPONENT_DIR}/../../poincare/mp_xiaomiao.c")
+list(APPEND MICROPY_SOURCE_PORT ${MICROPY_XIAOMIAO_MOD})
+message(STATUS "Added xiaomiao MicroPython module: ${MICROPY_XIAOMIAO_MOD}")
+
 # 设置共享源文件
 set(MICROPY_SOURCE_SHARED
     ${MICROPY_DIR}/shared/readline/readline.c
@@ -117,13 +125,14 @@ set(MICROPY_SOURCE_SHARED
 )
 
 # 设置 lib 源文件
+# 注意：MICROPY_VFS_FAT=0 时，不需要编译 oofatfs/ff.c 和 ffunicode.c，
+# 因为 ESP-IDF 自带的 fatfs 组件已经提供了 f_mount、f_open 等符号，
+# 同时编译两个版本的 ff.c 会导致 multiple definition 链接错误。
 set(MICROPY_SOURCE_LIB
     ${MICROPY_DIR}/lib/littlefs/lfs1.c
     ${MICROPY_DIR}/lib/littlefs/lfs1_util.c
     ${MICROPY_DIR}/lib/littlefs/lfs2.c
     ${MICROPY_DIR}/lib/littlefs/lfs2_util.c
-    ${MICROPY_DIR}/lib/oofatfs/ff.c
-    ${MICROPY_DIR}/lib/oofatfs/ffunicode.c
 )
 
 # 设置 drivers 源文件（softspi 等）
@@ -149,6 +158,7 @@ idf_component_register(
         ${MICROPY_PORT_DIR}
         ${MICROPY_BOARD_DIR}
         ${CMAKE_BINARY_DIR}
+        ${MICROPY_COMPONENT_DIR}/../..   # 项目根目录（用于 poincare/mp_xiaomiao.h）
     REQUIRES
         app_update bootloader_support driver esp_adc esp_app_format esp_common esp_driver_dac esp_driver_gpio esp_driver_gptimer esp_driver_i2c esp_driver_i2s esp_driver_ledc esp_driver_mcpwm esp_driver_pcnt esp_driver_rmt esp_driver_sdmmc esp_driver_sdspi esp_driver_spi esp_driver_uart esp_event esp_hw_support esp_mm esp_netif esp_partition esp_pm esp_psram esp_ringbuf esp_rom esp_system esp_timer esp_wifi freertos hal heap log lwip mbedtls newlib nvs_flash sdmmc soc spi_flash vfs
 )
@@ -161,7 +171,7 @@ if(TARGET ${COMPONENT_LIB})
 
 # 设置编译定义
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
-    MICROPY_VFS_FAT=1
+    MICROPY_VFS_FAT=0
     MICROPY_VFS_LFS2=1
     FFCONF_H="${MICROPY_DIR}/lib/oofatfs/ffconf.h"
     LFS1_NO_MALLOC LFS1_NO_DEBUG LFS1_NO_WARN LFS1_NO_ERROR LFS1_NO_ASSERT
