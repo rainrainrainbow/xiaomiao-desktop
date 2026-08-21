@@ -1,3 +1,6 @@
+#ifndef MPCONFIGBOARD_H
+#define MPCONFIGBOARD_H
+
 // 小喵掌机 MicroPython 板级配置
 // XiaoMiao Desktop Board Configuration for MicroPython
 
@@ -13,8 +16,10 @@
 #define MICROPY_PY_BLUETOOTH                (0)
 #define MICROPY_PY_ESPNOW                   (0)
 
-// 启用 FAT 文件系统支持
-#define MICROPY_VFS_FAT                     (1)
+// 禁用 FAT 文件系统支持（使用 ESP-IDF 自带的 fatfs，避免链接冲突）
+// MicroPython 的 fatfs 与 ESP-IDF 的 fatfs 都定义了 f_mount、f_open 等符号，
+// 同时链接会导致 multiple definition 错误。
+#define MICROPY_VFS_FAT                     (0)
 
 // 禁用 ULP（超低功耗）协处理器
 #define MICROPY_PY_MACHINE_ULP              (0)
@@ -65,3 +70,5 @@
 #ifndef MICROPY_ESP_IDF_ENTRY
 #define MICROPY_ESP_IDF_ENTRY xiaomiao_mp_entry
 #endif
+
+#endif // MPCONFIGBOARD_H
