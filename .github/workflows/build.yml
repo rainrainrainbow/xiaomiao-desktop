@@ -14,10 +14,10 @@ name: XiaoMiao Desktop CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, v65-*]
     tags: ['v*.*.*']
   pull_request:
-    branches: [main]
+    branches: [main, v65-*]
   workflow_dispatch:
     inputs:
       build_type:
@@ -104,13 +104,16 @@ jobs:
               'MICROPY_PY_MACHINE_ADC_INCLUDEFILE',
               'MICROPY_EMIT_XTENSAWIN',
               'MICROPY_PERSISTENT_CODE_LOAD',
+              'MICROPY_PY_MACHINE_SDCARD',
+              'MICROPY_PY_MACHINE_TOUCHPAD',
           ]
 
           for macro in macros_to_wrap:
-              # Match: #define MACRO ... (at start of line)
-              pattern = rf'^(#define {re.escape(macro)}\s+.*)$'
+              # Match: #define MACRO ... (at start of line, may have spaces)
+              # Also match: #define MICROPY_PY_MACHINE_ADC (1)  etc.
+              pattern = rf'^#define\s+{re.escape(macro)}\s+.*$'
               # Use real newlines in replacement
-              replacement = f'#ifndef {macro}\n\\1\n#endif'
+              replacement = f'#ifndef {macro}\n\\g<0>\n#endif'
               content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
           with open(filepath, 'w') as f:
@@ -118,6 +121,70 @@ jobs:
 
           print(f"Patched {filepath} to wrap {len(macros_to_wrap)} macros in #ifndef guards")
           PATCH_EOF
+
+      - name: Patch MicroPython sources to disable touchpad, softspi, and legacy SPI fallback
+        run: |
+          # Disable touchpad in modmachine.c (SOC_TOUCH_SENSOR_SUPPORTED is hardware-defined)
+          sed -i 's/#if SOC_TOUCH_SENSOR_SUPPORTED/#if 0 \/\/ SOC_TOUCH_SENSOR_SUPPORTED (disabled)/' \
+            components/micropython/micropython/ports/esp32/modmachine.c
+          echo "Patched modmachine.c to disable touchpad"
+          # Disable soft SPI in extmod/machine_spi.c
+          sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
+            components/micropython/micropython/extmod/machine_spi.c
+          echo "Patched machine_spi.c to disable soft SPI"
+          # Disable SoftSPI entry in extmod/modmachine.c
+          sed -i 's/#if MICROPY_PY_MACHINE_SOFTSPI/#if 0 \/\/ MICROPY_PY_MACHINE_SOFTSPI (disabled)/' \
+            components/micropython/micropython/extmod/modmachine.c
+          echo "Patched extmod/modmachine.c to disable SoftSPI entry"
+          # Disable legacy SoftSPI fallback macro in extmod/modmachine.h
+          # The macro MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION (lines 104-115)
+          # unconditionally references &mp_machine_soft_spi_type, causing linker error
+          # when SoftSPI is disabled. Replace the entire macro with a no-op stub.
+          python3 << 'PATCH_EOF'
+          filepath = "components/micropython/micropython/extmod/modmachine.h"
+          with open(filepath, 'r') as f:
+              content = f.read()
+          start_marker = "// Temporary support for legacy construction of SoftSPI via SPI type."
+          end_marker = "} while (0)"
+          start_idx = content.find(start_marker)
+          if start_idx >= 0:
+              end_idx = content.find(end_marker, start_idx)
+              if end_idx >= 0:
+                  end_idx += len(end_marker)
+                  stub = "// Legacy SoftSPI fallback disabled\n#define MP_MACHINE_SPI_CHECK_FOR_LEGACY_SOFTSPI_CONSTRUCTION(n_args, n_kw, all_args)"
+                  content = content[:start_idx] + stub + content[end_idx:]
+                  print("Patched modmachine.h: replaced legacy SoftSPI macro with empty stub")
+              else:
+                  print("ERROR: Could not find end of legacy SoftSPI macro")
+          else:
+              print("ERROR: Could not find legacy SoftSPI macro in modmachine.h")
+          with open(filepath, 'w') as f:
+              f.write(content)
+          PATCH_EOF
+          echo "Done patching modmachine.h"
+
+      - name: Patch mbedtls config to disable ECP_RESTARTABLE
+        run: |
+          # Disable MBEDTLS_ECP_RESTARTABLE in mbedtls esp_config.h to fix
+          # undefined reference to mbedtls_ecdsa_sign/mbedtls_ecdsa_verify
+          # and reduce IRAM usage
+          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
+          if [ -f "$ESP_CONFIG" ]; then
+            echo "Patching $ESP_CONFIG to disable MBEDTLS_ECP_RESTARTABLE..."
+            grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
+            # Comment out MBEDTLS_ECP_RESTARTABLE if defined
+            if grep -q "^#define MBEDTLS_ECP_RESTARTABLE" "$ESP_CONFIG"; then
+              echo "Disabling MBEDTLS_ECP_RESTARTABLE..."
+              sed -i 's|^#define MBEDTLS_ECP_RESTARTABLE|// #define MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
+              echo "Disabled MBEDTLS_ECP_RESTARTABLE"
+            else
+              echo "MBEDTLS_ECP_RESTARTABLE not found in esp_config.h"
+            fi
+            echo "Done patching mbedtls esp_config.h"
+          else
+            echo "WARNING: $ESP_CONFIG not found"
+            find /opt/esp/idf/components/mbedtls -name "esp_config.h" 2>/dev/null
+          fi
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
@@ -128,11 +195,44 @@ jobs:
           pip3 install --upgrade idf-component-manager
           idf.py --version
 
+          # Override MicroPython macros via compiler flags (highest priority)
+          # These force-disable modules that cause linker errors
+          export EXTRA_CFLAGS="-DMICROPY_PY_MACHINE_ADC=0 \
+            -DMICROPY_PY_MACHINE_ADC_BLOCK=0 \
+            -DMICROPY_PY_MACHINE_ADC_READ=0 \
+            -DMICROPY_PY_MACHINE_ADC_READ_UV=0 \
+            -DMICROPY_PY_MACHINE_BITSTREAM=0 \
+            -DMICROPY_PY_MACHINE_DHT_READINTO=0 \
+            -DMICROPY_PY_MACHINE_PULSE=0 \
+            -DMICROPY_EMIT_XTENSAWIN=0 \
+            -DMICROPY_PERSISTENT_CODE_LOAD=0 \
+            -DMICROPY_HW_ENABLE_SDCARD=0 \
+            -DMICROPY_PY_MACHINE_SOFTSPI=0 \
+            -DMICROPY_PY_MACHINE_SOFTI2C=0 \
+            -Wno-maybe-uninitialized"
+
           # Resolve and build
           idf.py reconfigure
-          idf.py build
+          # Patch LVGL's esp.cmake after reconfigure (managed_components are downloaded)
+          LVGL_ESP_CMAKE="managed_components/lvgl__lvgl/env_support/cmake/esp.cmake"
+          if [ -f "$LVGL_ESP_CMAKE" ]; then
+            echo "Patching $LVGL_ESP_CMAKE to add freetype to PRIV_REQUIRES..."
+            sed -i 's/PRIV_REQUIRES ${IDF_COMPONENTS}/PRIV_REQUIRES ${IDF_COMPONENTS} freetype/' "$LVGL_ESP_CMAKE"
+            echo "Patched successfully. Changed line:"
+            grep "PRIV_REQUIRES" "$LVGL_ESP_CMAKE"
+            # Re-run reconfigure to pick up the patched CMake file
+            echo "Re-running idf.py reconfigure to apply patch..."
+            idf.py reconfigure
+          else
+            echo "WARNING: $LVGL_ESP_CMAKE not found after reconfigure!"
+            echo "Contents of managed_components:"
+            find managed_components -name "esp.cmake" 2>/dev/null || echo "  (no esp.cmake found)"
+          fi
+          idf.py build -DCMAKE_C_FLAGS="$EXTRA_CFLAGS $CMAKE_C_FLAGS"
 
-          # Generate merged binary for ota_0 partition
+          # Generate merged binary compatible with xiaomiao-loader
+          # Loader checks: magic 0xE9 at offset 0x10000 (factory position)
+          # Loader writes data from 0x10000 onward into ota_0 partition
           python3 -m esptool --chip esp32 merge_bin \
             --flash_mode qio \
             --flash_freq 80m \
@@ -140,12 +240,41 @@ jobs:
             --output xiaomiao-desktop-merged.bin \
             0x1000 build/bootloader/bootloader.bin \
             0x8000 build/partition_table/partition-table.bin \
-            0xA0000 build/xiaomiao-desktop.bin
+            0x10000 build/xiaomiao-desktop.bin
+
+      - name: Build retro-core partition with subsetted font
+        run: |
+          echo "=== Building retro-core FAT partition image ==="
+          # Source ESP-IDF environment (provides correct python3 + pip)
+          . /opt/esp/idf/export.sh
+          # Install needed tools
+          apt-get update -qq
+          apt-get install -y -qq mtools dosfstools 2>&1 | tail -5
+          pip install fonttools brotli 2>&1 | tail -5
+          # Run the build script (downloads NotoSansSC, subsets to project chars,
+          # creates FAT12 retro-core.img, skip merge_bin since we do it manually below)
+          python3 scripts/build_retro_core.py --skip-merge 2>&1
+
+      - name: Generate full firmware binary (with retro-core)
+        run: |
+          echo "=== Generating full firmware binary (with retro-core partition) ==="
+          . /opt/esp/idf/export.sh
+          python3 -m esptool --chip esp32 merge_bin \
+            --flash_mode qio \
+            --flash_freq 80m \
+            --flash_size 4MB \
+            --output xiaomiao-desktop-full.bin \
+            0x1000 build/bootloader/bootloader.bin \
+            0x8000 build/partition_table/partition-table.bin \
+            0x10000 build/xiaomiao-desktop.bin \
+            0x2E0000 retro-core.img
 
       - name: Show build artifacts
         run: |
           ls -lh build/
+          ls -lh retro-core.img
           ls -lh xiaomiao-desktop-merged.bin
+          ls -lh xiaomiao-desktop-full.bin
           echo "--- Build Summary ---"
           python3 << 'EOF'
           import os
@@ -153,13 +282,183 @@ jobs:
           if os.path.exists(elf):
               size = os.path.getsize(elf)
               print(f'Firmware ELF: {size // 1024} KB')
-          mb = 'xiaomiao-desktop-merged.bin'
-          if os.path.exists(mb):
-              size = os.path.getsize(mb)
-              print(f'Merged binary: {size // 1024} KB ({size} bytes)')
+          for f in ['retro-core.img', 'xiaomiao-desktop-merged.bin', 'xiaomiao-desktop-full.bin']:
+              if os.path.exists(f):
+                  size = os.path.getsize(f)
+                  print(f'{f}: {size // 1024} KB ({size} bytes)')
           EOF
 
+      # 内存占用分析：即使链接失败(IRAM/DRAM溢出)也分析所有已编译的 .a 静态库
+      # 输出各组件 text/data/bss 汇总 + 最大 BSS 符号，用于定位内存溢出源
+      - name: Analyze memory usage (runs even on link failure)
+        if: always()
+        run: |
+          . /opt/esp/idf/export.sh
+          echo "==================== MEMORY USAGE ANALYSIS ===================="
+          SIZE_BIN=$(ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-size 2>/dev/null | head -1)
+          NM_BIN=$(ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-nm 2>/dev/null | head -1)
+          echo "size tool: $SIZE_BIN"
+          echo "nm tool:   $NM_BIN"
+          echo ""
+          # 用 python3 解析 size/nm 输出（awk 的 strtonum 在部分环境不存在）
+          python3 << 'ANALYZE_EOF'
+          import subprocess, glob, os
+          size_bin = os.popen(f"ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-size 2>/dev/null | head -1").read().strip()
+          nm_bin   = os.popen(f"ls /opt/esp/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32-elf-nm 2>/dev/null | head -1").read().strip()
+          libs = sorted(glob.glob("build/esp-idf/**/*.a", recursive=True))
+          print("---- 1) Per-component sizes (text/data/bss, sorted by bss desc) ----")
+          print(f"{'COMPONENT':<50} {'TEXT':>10} {'DATA':>10} {'BSS':>10} {'TOTAL':>10}")
+          rows = []
+          for lib in libs:
+              try:
+                  out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip()
+                  # size 对 archive 输出多行（每成员一行 + "TOTAL" 总计行），取总计行
+                  total_line = ""
+                  for line in reversed(out.splitlines()):
+                      parts = line.split()
+                      # 总计行形如:  <text> <data> <bss> <dec> <hex> <filename>（filename 可含 TOTAL/总）
+                      if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                          total_line = parts
+                          break
+                  if not total_line:
+                      continue
+                  text, data, bss = int(total_line[0]), int(total_line[1]), int(total_line[2])
+                  if text + data + bss > 0:
+                      rows.append((os.path.basename(lib), text, data, bss))
+              except Exception as e:
+                  pass
+          rows.sort(key=lambda r: -r[3])
+          for name, text, data, bss in rows:
+              print(f"{name:<50} {text:>10} {data:>10} {bss:>10} {text+data+bss:>10}")
+          # 只解析带 b/B 的符号（.bss），用 python 解析十六进制尺寸，避免 awk strtonum 缺失
+          # nm --size-sort --print-size 输出: <value> <size> <type> <name>（archive 有 xxx.o: 标题行）
+          def bss_symbols(lib):
+              syms = []
+              try:
+                  out = subprocess.run([nm_bin, "--size-sort", "--print-size", "--reverse-sort", lib],
+                                       capture_output=True, text=True, timeout=30).stdout
+                  for line in out.splitlines():
+                      parts = line.split()
+                      if len(parts) >= 4 and parts[2] in ("b", "B"):
+                          try: size = int(parts[1], 16)
+                          except: continue
+                          syms.append((size, parts[3]))
+              except Exception:
+                  pass
+              return syms
+          print("")
+          print("---- 1b) 每库 BSS 总和（含 archive 所有成员，按 BSS 降序）----")
+          lib_bss_total = []
+          for lib in libs:
+              syms = bss_symbols(lib)
+              total = sum(s for s, _ in syms)
+              if total > 0:
+                  lib_bss_total.append((total, len(syms), os.path.basename(lib)))
+          lib_bss_total.sort(reverse=True)
+          for total, cnt, name in lib_bss_total[:40]:
+              print(f"{total:>10} BSS bytes ({cnt:>4} syms)  {name}")
+          print("")
+          print("---- 1c) 预编译控制器库 libbtdm_app.a BSS ----")
+          btdm_libs = sorted(glob.glob("/opt/esp/idf/components/bt/controller/lib_esp32/esp32/*.a"))
+          for lib in btdm_libs:
+              p = os.path.basename(lib)
+              out = subprocess.run([size_bin, lib], capture_output=True, text=True, timeout=10).stdout.strip()
+              for line in reversed(out.splitlines()):
+                  parts = line.split()
+                  if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+                      print(f"  {p}: text={parts[0]} data={parts[1]} bss={parts[2]}")
+                      break
+          print("---- 2) Top 80 .bss symbols in bt component ----")
+          def dump_top(syms, n=80):
+              syms.sort(reverse=True)
+              for size, name in syms[:n]:
+                  print(f"{size:>10}  {name}")
+          bt_syms = bss_symbols("build/esp-idf/bt/libbt.a") if os.path.exists("build/esp-idf/bt/libbt.a") else []
+          print(f"  (libbt.a total BSS: {sum(s for s,_ in bt_syms)} bytes, {len(bt_syms)} syms)")
+          dump_top(bt_syms)
+          print("")
+          print("---- 3) Top 60 .bss symbols across ALL components ----")
+          all_syms = []
+          for lib in libs:
+              for size, name in bss_symbols(lib):
+                  all_syms.append((size, name, os.path.basename(lib)))
+          all_syms.sort(reverse=True)
+          for size, name, lib in all_syms[:60]:
+              print(f"{size:>10}  {name:<40} {lib}")
+          print("")
+          # ==================================================================
+          # 4) 【权威】解析链接器 .map 文件中 .dram0.bss 段的符号
+          #    archive 级 nm 统计会把未提取成员也算进来（虚高），
+          #    只有 .map 中的 dram0.bss 段才是最终链接进内部 DRAM 的符号
+          # ==================================================================
+          mapfile = "build/xiaomiao-desktop.map"
+          if os.path.exists(mapfile):
+              import re as _re
+              print("---- 4) .dram0.bss 段符号（.map 权威, sorted by size desc, Top 100）----")
+              in_bss = False
+              bss_syms = []
+              bss_total_sz = 0
+              with open(mapfile, 'r', errors='replace') as mf:
+                  for line in mf:
+                      # 段标题行: " .dram0.bss      0x...     0x... load address 0x..."
+                      if _re.match(r'^\s*\.dram0\.bss\b', line):
+                          in_bss = True
+                          # 段总大小 = 第二列 0x hex
+                          mm = _re.search(r'\.dram0\.bss\s+0x[0-9a-fA-F]+\s+(0x[0-9a-fA-F]+)', line)
+                          if mm:
+                              bss_total_sz = int(mm.group(1), 16)
+                              print(f"  .dram0.bss total size: {bss_total_sz} bytes")
+                          continue
+                      if in_bss:
+                          # 下一个段标题（空白行 + .xxxx 开头）则退出
+                          if _re.match(r'^\s*\.(?!dram0\.bss)', line) and not line.strip().startswith('0x'):
+                              break
+                          # 符号行: "                0x3ffe...     0x4  symbol_name"
+                          # 与 object 行区分：object 行以 .o 结尾，符号行不是
+                          sm = _re.match(r'^\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)\s+(.+)$', line)
+                          if sm and not sm.group(2).strip().endswith(('.o', '.elf')):
+                              try:
+                                  sz = int(sm.group(1), 16)
+                                  name = sm.group(2).strip()
+                                  bss_syms.append((sz, name))
+                              except:
+                                  pass
+              bss_syms.sort(reverse=True)
+              total = sum(s for s, _ in bss_syms)
+              print(f"  .dram0.bss 解析符号数: {len(bss_syms)}, 符号大小合计: {total} bytes")
+              for sz, name in bss_syms[:100]:
+                  print(f"{sz:>10}  {name}")
+              print("")
+              # 同时解析 .dram0.data 段
+              print("---- 4b) .dram0.data 段符号（Top 40）----")
+              in_data = False
+              data_syms = []
+              with open(mapfile, 'r', errors='replace') as mf:
+                  for line in mf:
+                      if _re.match(r'^\s*\.dram0\.data\b', line):
+                          in_data = True
+                          continue
+                      if in_data:
+                          if _re.match(r'^\s*\.(?!dram0\.data)', line) and not line.strip().startswith('0x'):
+                              break
+                          sm = _re.match(r'^\s+0x[0-9a-fA-F]+\s+0x([0-9a-fA-F]+)\s+(.+)$', line)
+                          if sm and not sm.group(2).strip().endswith(('.o', '.elf')):
+                              try:
+                                  sz = int(sm.group(1), 16)
+                                  data_syms.append((sz, sm.group(2).strip()))
+                              except:
+                                  pass
+              data_syms.sort(reverse=True)
+              print(f"  .dram0.data 符号数: {len(data_syms)}, 合计: {sum(s for s,_ in data_syms)} bytes")
+              for sz, name in data_syms[:40]:
+                  print(f"{sz:>10}  {name}")
+          else:
+              print("---- 4) WARNING: .map 文件不存在（链接彻底失败前未生成）----")
+          print("==================== END MEMORY ANALYSIS ====================")
+          ANALYZE_EOF
+
       - name: Upload firmware artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: xiaomiao-desktop-firmware
@@ -170,6 +469,8 @@ jobs:
             build/${{ env.PROJECT_NAME }}.elf
             build/${{ env.PROJECT_NAME }}.map
             xiaomiao-desktop-merged.bin
+            xiaomiao-desktop-full.bin
+            retro-core.img
             build/flash_args
             build/ota_data_initial.bin
             build/config/sdkconfig.json
@@ -221,7 +522,7 @@ jobs:
           while IFS= read -r -d '' f; do
             if grep -n 'GPIO_NUM_' "$f" > /dev/null 2>&1; then
               # Only allow GPIO references in config files (hardware pin definitions)
-              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c|drv_button\.h|drv_backlight\.h)$'; then
+              if ! echo "$f" | grep -qE '(xiaomiao_desktop\.h|keypad\.c|drv_button\.h|drv_backlight\.h|drv_audio_i2s\.h|sys_sdcard\.h)$'; then
                 echo "⚠️  GPIO reference outside config files: $f"
                 grep -n 'GPIO_NUM_' "$f"
                 errors=$((errors + 1))
@@ -331,6 +632,8 @@ jobs:
           prerelease: false
           files: |
             ./artifacts/xiaomiao-desktop-merged.bin
+            ./artifacts/xiaomiao-desktop-full.bin
+            ./artifacts/retro-core.img
             ./artifacts/bootloader.bin
             ./artifacts/partition-table.bin
             ./artifacts/${{ env.PROJECT_NAME }}.bin
