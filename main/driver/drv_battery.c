@@ -47,9 +47,9 @@ float drv_battery_get_voltage(void)
     int mv = 0;
     ESP_ERROR_CHECK(adc_cali_raw_to_voltage(s_adc_chars, raw, &mv));
     
-    // 分压计算：Vbat = Vadc * (R1 + R2) / R2
+    // 分压计算：Vbat = Vadc * (R1 + R2) / R2 + 二极管压降
     float vadc = mv / 1000.0f;
-    float vbat = vadc * (float)(BAT_VDIV_R1 + BAT_VDIV_R2) / (float)BAT_VDIV_R2;
+    float vbat = vadc * (float)(BAT_VDIV_R1 + BAT_VDIV_R2) / (float)BAT_VDIV_R2 + BAT_DIODE_DROP;
     
     return vbat;
 }
@@ -57,10 +57,15 @@ float drv_battery_get_voltage(void)
 /* ========== 计算电池电量百分比 ========== */
 int drv_battery_get_percent(float vbat)
 {
-    // 锂电池放电曲线近似：3.0V=0%, 4.2V=100%
-    if (vbat >= 4.2f) return 100;
-    if (vbat <= 3.0f) return 0;
-    return (int)((vbat - 3.0f) / (4.2f - 3.0f) * 100.0f);
+    // 锂电池放电曲线分段近似（3.0V=0%, 4.2V=100%）
+    // 使用 5 个关键点拟合实际放电曲线
+    if (vbat >= 4.10f) return 100;
+    if (vbat >= 3.95f) return (int)((vbat - 3.95f) / (4.10f - 3.95f) * 20.0f + 80.0f);  // 80%~100%
+    if (vbat >= 3.80f) return (int)((vbat - 3.80f) / (3.95f - 3.80f) * 30.0f + 50.0f);  // 50%~80%
+    if (vbat >= 3.65f) return (int)((vbat - 3.65f) / (3.80f - 3.65f) * 20.0f + 30.0f);  // 30%~50%
+    if (vbat >= 3.45f) return (int)((vbat - 3.45f) / (3.65f - 3.45f) * 20.0f + 10.0f);  // 10%~30%
+    if (vbat >= 3.00f) return (int)((vbat - 3.00f) / (3.45f - 3.00f) * 10.0f);           // 0%~10%
+    return 0;
 }
 
 /* ========== 读取ADC通道原始值（供按键等复用） ========== */
