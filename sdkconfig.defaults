@@ -98,7 +98,10 @@ CONFIG_ESP_NETIF_L2_TUNNEL=n
 # 禁用ESP-TLS debug
 CONFIG_ESP_TLS_USE_DS_PERIPHERAL=n
 # 禁用mbedtls的ECP重启功能（节省IRAM，避免restartable符号链接）
-CONFIG_MBEDTLS_ECP_RESTARTABLE=n
+# 注意：不能禁用！禁用后 MBEDTLS_ECDSA_SIGN_ALT 会导致 ecdsa.c 中
+# mbedtls_ecdsa_sign_det_restartable 引用 mbedtls_ecdsa_sign 无法解析。
+# IRAM 溢出已通过 CONFIG_ESP_SYSTEM_ESP32_SRAM1_REGION_AS_IRAM=y 解决（+32KB）
+CONFIG_MBEDTLS_ECP_RESTARTABLE=y
 
 # mbedtls 配置：启用 ECDSA（解决 undefined reference to mbedtls_ecdsa_sign）
 CONFIG_MBEDTLS_ECDSA_C=y

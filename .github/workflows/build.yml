@@ -163,48 +163,15 @@ jobs:
           PATCH_EOF
           echo "Done patching modmachine.h"
 
-      - name: Patch mbedtls config to disable ECP_RESTARTABLE
+      - name: Clear ccache before build (mbedtls ECP_RESTARTABLE enabled)
         run: |
-          # Disable MBEDTLS_ECP_RESTARTABLE in mbedtls esp_config.h to fix
-          # undefined reference to mbedtls_ecdsa_sign/mbedtls_ecdsa_verify
-          # and reduce IRAM usage
-          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
-          if [ -f "$ESP_CONFIG" ]; then
-            echo "Patching mbedtls to disable ECP_RESTARTABLE..."
-            python3 << 'PATCH_EOF'
-          import re
-          # Patch 1: esp_config.h - disable MBEDTLS_ECP_RESTARTABLE macro
-          ESP_CONFIG = "/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
-          with open(ESP_CONFIG, 'r') as f:
-              content = f.read()
-          pattern = r'#ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE\s*\n\s*#define MBEDTLS_ECP_RESTARTABLE\s*\n\s*#endif'
-          replacement = '/* ECP_RESTARTABLE disabled */'
-          new_content, count = re.subn(pattern, replacement, content, flags=re.MULTILINE)
-          print(f'esp_config.h: Replaced {count} ECP_RESTARTABLE block(s)')
-          if count > 0:
-              with open(ESP_CONFIG, 'w') as f:
-                  f.write(new_content)
-          # Patch 2: Add a forced #undef after the header guard so that
-          # MBEDTLS_ECP_RESTARTABLE stays undefined regardless of CONFIG_* setting
-          with open(ESP_CONFIG, 'r') as f:
-              content = f.read()
-          insert_point = content.find('#define ESP_CONFIG_H')
-          if insert_point > 0:
-              line_end = content.find('\n', insert_point) + 1
-              content = content[:line_end] + '\n/* Force disable ECP_RESTARTABLE (CI patch) */\n#undef MBEDTLS_ECP_RESTARTABLE\n'
-              with open(ESP_CONFIG, 'w') as f:
-                  f.write(content)
-              print('esp_config.h: Added force #undef MBEDTLS_ECP_RESTARTABLE')
-          # Patch 3: Clear ccache to force recompilation of mbedtls
-          import subprocess
-          result = subprocess.run(['ccache', '-C'], capture_output=True, text=True)
-          print(f'ccache cleared: {result.stdout} {result.stderr}')
-          PATCH_EOF
-            echo "Done patching mbedtls"
-          else
-            echo "WARNING: $ESP_CONFIG not found"
-            find /opt/esp/idf/components/mbedtls -name "esp_config.h" 2>/dev/null
-          fi
+          # ECP_RESTARTABLE must stay ENABLED (CONFIG_MBEDTLS_ECP_RESTARTABLE=y in sdkconfig.defaults)
+          # because disabling it breaks mbedtls_ecdsa_sign_det_restartable which references
+          # mbedtls_ecdsa_sign that is only compiled when ECP_RESTARTABLE is enabled.
+          # IRAM overflow is solved via CONFIG_ESP_SYSTEM_ESP32_SRAM1_REGION_AS_IRAM=y (+32KB).
+          echo "ECP_RESTARTABLE left enabled. Clearing ccache to force full recompilation."
+          ccache -C || true
+          echo "ccache cleared."
 
       - name: Build firmware (ESP-IDF v5.3)
         run: |
