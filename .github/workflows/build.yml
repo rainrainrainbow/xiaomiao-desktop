@@ -172,12 +172,35 @@ jobs:
           if [ -f "$ESP_CONFIG" ]; then
             echo "Patching $ESP_CONFIG to disable MBEDTLS_ECP_RESTARTABLE..."
             grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
-            # Comment out BOTH the #ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE guard AND the #define
-            # so that MBEDTLS_ECP_RESTARTABLE stays undefined regardless of CONFIG_* setting
-            sed -i 's|^#ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE|// #ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
-            sed -i 's|^#define MBEDTLS_ECP_RESTARTABLE|// #define MBEDTLS_ECP_RESTARTABLE|' "$ESP_CONFIG"
-            echo "Disabled MBEDTLS_ECP_RESTARTABLE (both #ifdef and #define commented out)"
-            grep -n "ECP_RESTARTABLE" "$ESP_CONFIG" | head -5
+            # Strategy: comment out the ENTIRE #if/#endif block that enables MBEDTLS_ECP_RESTARTABLE,
+            # so that the macro stays undefined. We use a Python script for safe multi-line editing.
+            python3 << 'PATCH_EOF'
+          import re
+          ESP_CONFIG = "/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
+          with open(ESP_CONFIG, 'r') as f:
+              content = f.read()
+          # Find the #if/#elif/#else/#endif block surrounding MBEDTLS_ECP_RESTARTABLE definition
+          # The pattern in esp_config.h is roughly:
+          #   #ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE
+          #   #define MBEDTLS_ECP_RESTARTABLE
+          #   #endif
+          # We replace this entire block with a no-op.
+          pattern = r'#ifdef CONFIG_MBEDTLS_ECP_RESTARTABLE\s*\n\s*#define MBEDTLS_ECP_RESTARTABLE\s*\n\s*#endif'
+          replacement = '/* ECP_RESTARTABLE disabled to save IRAM and avoid ecdsa_sign/verify symbol conflicts */'
+          new_content, count = re.subn(pattern, replacement, content, flags=re.MULTILINE)
+          if count == 0:
+              print(f'WARNING: ECP_RESTARTABLE block pattern not found in {ESP_CONFIG}')
+          else:
+              print(f'Replaced {count} ECP_RESTARTABLE block(s)')
+              with open(ESP_CONFIG, 'w') as f:
+                  f.write(new_content)
+              # Verify
+              with open(ESP_CONFIG, 'r') as f:
+                  lines = f.readlines()
+              for i, line in enumerate(lines):
+                  if 'ECP_RESTARTABLE' in line:
+                      print(f'  Line {i+1}: {line.rstrip()}')
+          PATCH_EOF
             echo "Done patching mbedtls esp_config.h"
           else
             echo "WARNING: $ESP_CONFIG not found"
