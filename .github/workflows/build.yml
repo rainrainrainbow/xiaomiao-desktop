@@ -163,6 +163,27 @@ jobs:
           PATCH_EOF
           echo "Done patching modmachine.h"
 
+      - name: Patch ESP-IDF esp_config.h to disable hardware ECC ALT implementation
+        run: |
+          # Fix mbedtls ECP_RESTARTABLE conflict with hardware ECC ALT implementation
+          # Problem: check_config.h:195 reports "MBEDTLS_ECP_RESTARTABLE defined, but it cannot
+          # coexist with an alternative ECP implementation" because CONFIG_MBEDTLS_HARDWARE_ECC
+          # defines MBEDTLS_ECP_MUL_ALT and MBEDTLS_ECP_VERIFY_ALT.
+          # Even though sdkconfig.defaults sets CONFIG_MBEDTLS_HARDWARE_ECC=n, Kconfig dependencies
+          # may re-enable it. We directly patch esp_config.h to force-disable the ALT macros.
+          # Strategy: Replace "#ifdef CONFIG_MBEDTLS_HARDWARE_ECC" with "#if 0" so the entire
+          # hardware ECC block is skipped, and the #else branch (which #undef's ALT macros) runs.
+          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
+          if [ -f "$ESP_CONFIG" ]; then
+            echo "Patching $ESP_CONFIG to disable hardware ECC ALT implementation..."
+            sed -i 's/^#ifdef CONFIG_MBEDTLS_HARDWARE_ECC$/#if 0 \/* disabled: conflicts with ECP_RESTARTABLE *\//' "$ESP_CONFIG"
+            echo "Patched. Verifying:"
+            grep -n 'HARDWARE_ECC\|ECP_MUL_ALT\|ECP_VERIFY_ALT' "$ESP_CONFIG" | head -10
+          else
+            echo "ERROR: $ESP_CONFIG not found!"
+            exit 1
+          fi
+
       - name: Clear ccache before build (mbedtls ECP_RESTARTABLE enabled)
         run: |
           # ECP_RESTARTABLE must stay ENABLED (CONFIG_MBEDTLS_ECP_RESTARTABLE=y in sdkconfig.defaults)
