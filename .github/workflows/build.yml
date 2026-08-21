@@ -165,30 +165,15 @@ jobs:
 
       - name: Patch mbedtls check_config.h to disable ECP_RESTARTABLE conflict check
         run: |
-          # Fix mbedtls ECP_RESTARTABLE conflict with hardware ECC ALT implementation
-          # Problem: check_config.h:181 reports "MBEDTLS_ECP_RESTARTABLE defined, but it cannot
-          # coexist with an alternative ECP implementation" because multiple ALT macros are defined.
-          # Solution: Directly patch check_config.h to comment out the conflict check (lines 173-182).
+          # Fix: comment out the ECP_RESTARTABLE vs ALT conflict check (lines 173-182).
+          # Uses python3 with -c to avoid heredoc indentation issues in GitHub Actions.
           CHECK_CONFIG="/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
           if [ -f "$CHECK_CONFIG" ]; then
-            echo "Patching $CHECK_CONFIG to disable ECP_RESTARTABLE conflict check..."
-            # Use Python to precisely comment out lines 173-182
-            python3 << 'PATCH_EOF'
-            filepath = "/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
-            with open(filepath, 'r') as f:
-                lines = f.readlines()
-            
-            # Comment out lines 173-182 (0-indexed: 172-181)
-            for i in range(172, 182):
-                if i < len(lines) and not lines[i].strip().startswith('//'):
-                    lines[i] = '// ' + lines[i]
-            
-            with open(filepath, 'w') as f:
-                f.writelines(lines)
-            print("Successfully commented out lines 173-182 in check_config.h")
-            PATCH_EOF
-            echo "Patched. Verifying:"
-            sed -n '170,185p' "$CHECK_CONFIG"
+            echo "Patching $CHECK_CONFIG ..."
+            # Comment out lines 173-182 (ECP_RESTARTABLE vs ALT conflict check)
+            sed -i '173,182s|^|//|' "$CHECK_CONFIG"
+            echo "--- Verify (should show // prefixed lines): ---"
+            sed -n '172,183p' "$CHECK_CONFIG"
           else
             echo "ERROR: $CHECK_CONFIG not found!"
             exit 1
