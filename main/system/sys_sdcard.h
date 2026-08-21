@@ -8,11 +8,15 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "driver/gpio.h"
 
 /* ========== SD 卡挂载配置 ========== */
 #define SDCARD_MOUNT_POINT      "/sdcard"
 #define SDCARD_APPS_PATH        "/sdcard/apps"
 #define SDCARD_MAX_APPS         16
+
+/* SD 卡 CS 引脚（SPI 模式） */
+#define PIN_SD_CS               GPIO_NUM_22
 
 /* ========== 应用元数据结构 ========== */
 typedef struct {

@@ -9,10 +9,13 @@
  */
 
 #include "ui_framework.h"
+#include "app/app_manager.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+// FreeType 字体支持（统一中文字体入口）
+#include "fonts/lv_freetype_font.h"
 
 static const char *TAG = "UI_FW";
 
@@ -51,26 +54,30 @@ static const theme_colors_t s_themes[THEME_MAX] = {
         .sel_border = 0x5C4220, // 棕色选中边框
     },
     [THEME_LIGHT] = {
-        .bg = 0xF6D34A,         // 黄色背景（同色，不区分）
-        .text = 0x1B1713,
-        .text_dim = 0x5C4220,
-        .header_bg = 0x5C4220,
-        .border = 0x5C4220,
-        .sel_bg = 0x5C4220,
-        .sel_border = 0x5C4220,
+        .bg = 0xFFFFFF,         // 白色背景
+        .text = 0x1B1713,       // 黑色文字
+        .text_dim = 0x888888,   // 灰色次要文字
+        .header_bg = 0xF0F0F0,  // 浅灰状态栏/标题栏
+        .border = 0xCCCCCC,     // 浅灰边框
+        .sel_bg = 0xDDDDDD,     // 浅灰选中背景
+        .sel_border = 0xAAAAAA, // 灰色选中边框
     },
 };
 
 /* ========== UI全局状态 ========== */
 static ui_state_t s_ui_state = {
     .statusbar = NULL,
+    .brand_label = NULL,
     .time_label = NULL,
     .bat_label = NULL,
     .theme = THEME_DARK,
     .brightness = 75,
+    .volume = 50,
     .sound_on = true,
     .wifi_on = true,
     .layout = 0,
+    .font_size = 14,
+    .sleep_timeout = 60,
 };
 
 /* ========== v1 兼容辅助函数 ========== */
@@ -251,6 +258,28 @@ bool ui_stack_pop(void)
     
     if (s_stack_top >= 0) {
         stack_entry_v2_t *prev = &s_page_stack_v2[s_stack_top];
+        /*
+         * v1 页面兼容的生命周期修复：
+         *
+         * push 时对 v1 页面执行的是 init + activate（见 ui_stack_push）。
+         * 但 pop 回上一个 v1 页面时，只调用了 activate（DID_APPEAR），
+         * 没有重新执行 init（LOAD）。
+         *
+         * 问题后果：当上层应用在 activate 里执行 lv_obj_clean(scr) 清空屏幕后，
+         * 底层页面（如桌面）自己创建的 LVGL 对象已被销毁，成为悬空指针。
+         * 若该页面在 on_key 中继续访问这些对象（例如 desktop_page_on_key
+         * 里的 s_app_cells[]），就会访问已释放内存，引发 LoadProhibited 崩溃，
+         * 且屏幕上无法重建该页面的 UI（表现为"没有返回到桌面"）。
+         *
+         * 修复：pop 回 v1 页面时，恢复与 push 对称的生命周期——
+         * 先重新执行 init（重建 LVGL 对象），再 activate。
+         * v2 页面有 cached/should_cache 机制，走原有生命周期即可。
+         */
+        if (prev->callbacks_v1) {
+            if (prev->callbacks_v1->init) {
+                prev->callbacks_v1->init(prev->data);
+            }
+        }
         execute_lifecycle(PAGE_STATE_WILL_APPEAR, prev);
         execute_lifecycle(PAGE_STATE_DID_APPEAR, prev);
         prev->state = PAGE_STATE_ACTIVITY;
@@ -353,6 +382,18 @@ ui_state_t* ui_state_get(void)
 
 /* ========== 通用UI组件 ========== */
 
+/* 根据字体大小计算状态栏高度 */
+static lv_coord_t ui_statusbar_h(void)
+{
+    ui_state_t *state = ui_state_get();
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    lv_coord_t h = font_px + 2;
+    if (h < 12) h = 12;
+    return h;
+}
+
 lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
 {
     const theme_colors_t *colors = ui_theme_colors();
@@ -360,16 +401,25 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     lv_obj_t *bar = lv_obj_create(parent);
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, 0);
-    lv_obj_set_size(bar, LCD_H_RES, STATUS_H);
+    lv_obj_set_size(bar, LCD_H_RES, ui_statusbar_h());
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     
-    // 品牌名（英文，使用默认字体避免乱码）
+    // 品牌名/应用名（英文，使用默认字体避免乱码）
     lv_obj_t *brand = lv_label_create(bar);
-    lv_label_set_text(brand, "XiaoMiaoOS");
+    // 如果当前有应用在运行，显示应用名；否则显示品牌名
+    const char *app_name = app_manager_get_current_name();
+    if (app_name) {
+        lv_label_set_text(brand, app_name);
+    } else {
+        lv_label_set_text(brand, "XiaoMiaoOS");
+    }
     lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
+    lv_obj_set_width(brand, LCD_H_RES - 90);  /* 左侧品牌名区（避开中间时间+右侧电池） */
+    lv_label_set_long_mode(brand, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
+    s_ui_state.brand_label = brand;
     
     // 时间标签
     lv_obj_t *time = lv_label_create(bar);
@@ -408,6 +458,16 @@ void ui_statusbar_update_battery(void)
     // 由主循环调用，此处留空
 }
 
+void ui_statusbar_set_title(const char *title)
+{
+    if (!s_ui_state.brand_label) return;
+    if (title && title[0] != '\0') {
+        lv_label_set_text(s_ui_state.brand_label, title);
+    } else {
+        lv_label_set_text(s_ui_state.brand_label, "XiaoMiaoOS");
+    }
+}
+
 lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
 {
     const theme_colors_t *colors = ui_theme_colors();
@@ -440,11 +500,19 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
 lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
 {
     const theme_colors_t *colors = ui_theme_colors();
+    ui_state_t *state = ui_state_get();
+    
+    // 标题栏高度根据字体大小自适应
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+    lv_coord_t title_h = font_px + 2;  // 字体高度 + 2px padding
+    if (title_h < 14) title_h = 14;
     
     lv_obj_t *bar = lv_obj_create(parent);
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, y);
-    lv_obj_set_size(bar, LCD_H_RES, 14);
+    lv_obj_set_size(bar, LCD_H_RES, title_h);
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->header_bg), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -452,12 +520,25 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_t *lbl = lv_label_create(bar);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-    // 标题为中文，使用 CJK 字体
-    LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-    lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
+    // 标题为中文，使用统一中文字体（优先FreeType，回退内置），根据字体大小自适应
+    lv_obj_set_style_text_font(lbl, lv_font_cn_get(state->font_size), 0);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     
     return bar;
+}
+
+/* 获取标题栏应放置的Y坐标（状态栏高度，根据字体大小自适应） */
+lv_coord_t ui_titlebar_y(void)
+{
+    return ui_statusbar_h();
+}
+
+/* 获取内容区起始Y坐标（状态栏高度，根据字体大小自适应）
+ * v65 起应用不再显示标题栏，应用名只在状态栏左上角显示，
+ * 因此内容区直接从状态栏下方开始。 */
+lv_coord_t ui_content_y(void)
+{
+    return ui_statusbar_h();
 }
 
 void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected)

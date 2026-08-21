@@ -30,6 +30,11 @@ bool app_micropython_init(void);
 bool app_micropython_is_ready(void);
 
 /**
+ * @brief 反初始化 MicroPython 运行时，释放 heap 和资源
+ */
+void app_micropython_deinit(void);
+
+/**
  * @brief 执行一段 Python 源码字符串
  * @param source Python 源码
  * @param source_name 源码名称（用于错误报告），可为 NULL
@@ -60,6 +65,18 @@ const page_callbacks_t* app_micropython_get_callbacks(void);
  * @return 扫描到的应用数量
  */
 int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count);
+
+/* ========== Python 应用运行支持（v66：屏幕/按键/时间绑定） ========== */
+
+/**
+ * @brief 注册/管理 Python 应用的上屏刷新（main 循环周期调用）
+ *
+ * Python 应用在独立任务中运行，通过 xiaomiao 模块的 framebuffer 绘制画面。
+ * 当 Python 调用 show() 时，flush 回调只设置标志（不直接操作 LVGL，
+ * 因为 LVGL 必须在 main 任务上下文操作）。本函数由 main 循环每次迭代调用，
+ * 检测到脏标志后执行 canvas 无效化 + 强制刷新，实现线程安全上屏。
+ */
+void app_micropython_on_tick(void);
 
 #ifdef __cplusplus
 }

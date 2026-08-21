@@ -30,7 +30,7 @@ int sys_sdcard_init(void)
     host.slot = HSPI_HOST;  // 使用 HSPI
     
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = 22;  // GPIO22 作为 SD 卡 CS
+    slot_config.gpio_cs = PIN_SD_CS;  // GPIO22 作为 SD 卡 CS
     slot_config.host_id = host.slot;
 
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {

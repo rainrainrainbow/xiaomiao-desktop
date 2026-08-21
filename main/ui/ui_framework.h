@@ -22,12 +22,20 @@
 /* ========== 屏幕尺寸定义 ========== */
 #define LCD_H_RES           160
 #define LCD_V_RES           128
-#define STATUS_H            12   // 状态栏高度
+#define STATUS_H            12   // 状态栏高度（默认值，实际高度在ui_statusbar_create中根据字体自适应）
 #define DOCK_H              8    // 底部导航栏高度
 
 /* ========== 系统版本信息 ========== */
-#define XIAOMIAO_VERSION    "v61"
-#define XIAOMIAO_BUILD      "2026-08-14"
+/*
+ * 版本号默认值：构建时由 main/CMakeLists.txt 通过 target_compile_definitions
+ * 从 git describe --tags 注入（CI 自动覆盖）。本地无 git 或浅克隆时回退到此处默认值。
+ */
+#ifndef XIAOMIAO_VERSION
+#define XIAOMIAO_VERSION "v71"
+#endif
+#ifndef XIAOMIAO_BUILD
+#define XIAOMIAO_BUILD "2026-08-26"
+#endif
 
 /* ========== 页面类型 ========== */
 typedef enum {
@@ -36,7 +44,6 @@ typedef enum {
     PAGE_APP_LIST,          // 应用列表（全部应用）
     PAGE_APP_PLACEHOLDER,   // 应用占位页
     PAGE_APP_RUNNING,       // 运行中App全屏
-    PAGE_EDITOR,            // 积木编辑器
     PAGE_STORE,             // 应用商店
     PAGE_RECENTS,           // 最近任务
     PAGE_CUSTOM,            // 自定义应用页
@@ -246,6 +253,12 @@ const theme_colors_t* ui_theme_colors(void);
 lv_obj_t* ui_statusbar_create(lv_obj_t *parent);
 
 /**
+ * 设置状态栏左上角文字（应用名或品牌名）
+ * @param title 显示的文字（如"设置"、"贪吃蛇"），传 NULL 恢复为"XiaoMiaoOS"
+ */
+void ui_statusbar_set_title(const char *title);
+
+/**
  * 更新状态栏时间
  */
 void ui_statusbar_update_time(void);
@@ -274,6 +287,18 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx);
 lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text);
 
 /**
+ * 获取标题栏应放置的Y坐标（状态栏高度，根据字体大小自适应）
+ * @return 标题栏Y坐标
+ */
+lv_coord_t ui_titlebar_y(void);
+
+/**
+ * 获取内容区起始Y坐标（状态栏 + 标题栏高度，根据字体大小自适应）
+ * @return 内容区起始Y坐标
+ */
+lv_coord_t ui_content_y(void);
+
+/**
  * 设置桌面图标选中状态（棕色背景替代边框）
  * @param cell 图标容器对象
  * @param selected 是否选中
@@ -281,7 +306,9 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text);
 void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected);
 
 /* ========== 长按A键相关 ========== */
-#define LONG_PRESS_MS   360  // 模拟器长按时间（ms）
+/* 长按阈值统一使用 drv_button.h 中的定义 (500ms) */
+/* 此项目前为模拟器备用值，实际使用以 drv_button.h 为准 */
+#include "driver/drv_button.h"  // 引入 LONG_PRESS_MS 定义
 
 /* ========== 按键定义 ========== */
 typedef enum {
@@ -301,13 +328,18 @@ typedef enum {
  */
 typedef struct {
     lv_obj_t *statusbar;        // 状态栏
+    lv_obj_t *brand_label;      // 状态栏左上角品牌/应用名标签
     lv_obj_t *time_label;       // 时间标签
     lv_obj_t *bat_label;        // 电池标签
     theme_type_t theme;         // 当前主题
     int brightness;             // 亮度 (10-100)
+    int volume;                 // 音量 (0-100)
     bool sound_on;              // 声音开关
     bool wifi_on;               // WiFi开关
-    int layout;                 // 布局模式 (0=4应用, 1=2应用)
+    int layout;                 // 布局模式 (0=3列, 1=2列)
+    int font_size;              // 字体大小 (14/16/20/24)
+    int sleep_timeout;          // 屏幕超时秒数 (0=永不, 30/60/120/300)
+    int font_source;            // 字库来源 (0=FreeType/SD卡, 1=内置/英文)
 } ui_state_t;
 
 /**

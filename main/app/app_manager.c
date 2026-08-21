@@ -4,25 +4,30 @@
  */
 
 #include "app_manager.h"
+#include "app_builtin.h"
 #include "app_micropython.h"
+#include "bg_manager.h"
+#include "ui_framework.h"
+#include "lang/lang.h"
 #include "esp_log.h"
 #include <string.h>
 
 static const char *TAG = "APP_MGR";
 
 /* ========== 内置应用列表 ========== */
-#define MAX_BUILTIN_APPS 16
 static app_def_t s_builtin_apps[MAX_BUILTIN_APPS];
 static int s_builtin_count = 0;
 
 /* ========== MicroPython应用列表 ========== */
-#define MAX_PYTHON_APPS 16
 static app_def_t s_python_apps[MAX_PYTHON_APPS];
 static int s_python_count = 0;
 
 /* ========== 最近任务列表 ========== */
 static const app_def_t *s_recents[MAX_RECENTS];
 static int s_recents_count = 0;
+
+/* ========== 当前运行的应用 ========== */
+static const char *s_current_app_name = NULL;
 
 /* ========== 应用管理器初始化 ========== */
 void app_manager_init(void)
@@ -34,6 +39,7 @@ void app_manager_init(void)
     memset(s_python_apps, 0, sizeof(s_python_apps));
     memset(s_recents, 0, sizeof(s_recents));
     ESP_LOGI(TAG, "App manager initialized");
+    bg_manager_init();
 }
 
 /* ========== 注册内置应用 ========== */
@@ -64,12 +70,14 @@ const app_def_t* app_manager_get_micropython(int *count)
 /* ========== 扫描SD卡应用 ========== */
 int app_manager_scan_sdcard(void)
 {
-    // TODO: 实现SD卡扫描逻辑
-    // 扫描 /sdcard/apps/ 目录下的应用
+    // 扫描 /sdcard/apps/ 目录下的 MicroPython 应用
     ESP_LOGI(TAG, "Scanning SD card for MicroPython apps...");
     
-    // 暂时返回0，后续实现
-    return 0;
+    int count = app_micropython_scan("/sdcard/apps", s_python_apps, MAX_PYTHON_APPS);
+    s_python_count = count;
+    
+    ESP_LOGI(TAG, "SD card scan complete: found %d MicroPython apps", count);
+    return count;
 }
 
 /* ========== 启动应用 ========== */
@@ -82,25 +90,46 @@ void app_manager_launch(const app_def_t *app)
 
     ESP_LOGI(TAG, "Launching app: %s (type=%d)", app->name, app->type);
 
+    // 记录当前应用名（用于状态栏显示）
+    s_current_app_name = app->name;
+
+    // 更新状态栏左上角为当前应用名（使用本地化显示名）
+    ui_statusbar_set_title(app_builtin_get_display_name(app->name));
+
+    // 记录到后台管理器（标记为前台运行）
+    bg_manager_on_launch(app->name);
+
     // 记录到最近任务
     app_manager_add_recents(app);
 
     if (app->type == APP_TYPE_BUILTIN) {
-        // 内置应用：根据名称查找页面回调并推入页面栈
-        const page_callbacks_t *cbs = app_builtin_get_callbacks(app->name);
-        if (cbs) {
-            ui_stack_push(PAGE_APP_PLACEHOLDER, cbs, NULL);
-            ESP_LOGI(TAG, "Pushed builtin app: %s", app->name);
+        // 特殊处理："应用"图标 → 进入设置中的应用管理二级页面
+        if (strcmp(app->name, "应用") == 0) {
+            app_launch_app_manager();
+            ESP_LOGI(TAG, "Launched app manager via settings");
         } else {
-            ESP_LOGE(TAG, "No callbacks for builtin app: %s", app->name);
-        }
-        // 兼容旧的launch_cb接口
-        if (app->launch_cb) {
-            app->launch_cb();
+            // 其他内置应用：根据名称查找页面回调并推入页面栈
+            const page_callbacks_t *cbs = app_builtin_get_callbacks(app->name);
+            if (cbs) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, cbs, NULL);
+                ESP_LOGI(TAG, "Pushed builtin app: %s", app->name);
+            } else {
+                ESP_LOGE(TAG, "No callbacks for builtin app: %s", app->name);
+            }
+            // 注意：所有内置应用的 launch_cb 均为 NULL，该接口已废弃，暂保留以兼容外部扩展
+            if (app->launch_cb) {
+                app->launch_cb();
+            }
         }
     } else if (app->type == APP_TYPE_MICROPYTHON) {
-        // TODO: 启动MicroPython应用
-        ESP_LOGW(TAG, "MicroPython app launch not implemented yet");
+        // 启动MicroPython应用：推入Python页面，传入app数据
+        const page_callbacks_t *py_cbs = app_micropython_get_callbacks();
+        if (py_cbs) {
+            ui_stack_push(PAGE_APP_PLACEHOLDER, py_cbs, (void*)app);
+            ESP_LOGI(TAG, "Pushed MicroPython app: %s", app->name);
+        } else {
+            ESP_LOGE(TAG, "No callbacks for MicroPython app: %s", app->name);
+        }
     }
 }
 
@@ -137,17 +166,10 @@ void app_manager_add_recents(const app_def_t *app)
     }
 }
 
-const app_def_t* app_manager_get_recents(int *count)
+void app_manager_get_recents(int *count)
 {
     if (count) *count = s_recents_count;
-    // 返回最近任务对应的应用定义数组
-    // 注意：s_recents 是指针数组，这里返回的是指向数组的指针。
-    // 我们改为返回内置应用定义数组，调用方用索引访问。
-    // 实际上这里返回 NULL 时 count=0，调用方应通过 index 从 recents 获取。
-    if (s_recents_count > 0) {
-        return (const app_def_t*)s_recents[0];
-    }
-    return NULL;
+    /* 不再返回指针数组，调用方应通过 app_manager_get_recents_at(i) 获取具体条目 */
 }
 
 /* 获取最近任务的第 i 个应用指针 */
@@ -157,6 +179,79 @@ const app_def_t* app_manager_get_recents_at(int i)
         return s_recents[i];
     }
     return NULL;
+}
+
+/* ========== 获取当前应用名 ========== */
+const char* app_manager_get_current_name(void)
+{
+    return s_current_app_name;
+}
+
+void app_manager_clear_current(void)
+{
+    s_current_app_name = NULL;
+}
+
+/* ========== 应用安装阻止机制 ========== */
+
+/*
+ * 内置可信应用白名单。
+ * 这些应用ID是经过官方签名的可信应用，允许从SD卡安装。
+ * 格式：{"应用ID"}
+ * 空列表表示只允许签名应用，不允许任何未签名应用。
+ */
+static const char *s_trusted_app_ids[] = {
+    // 官方应用示例（实际使用时替换为真实应用ID）
+    // "com.xiaomiao.clock",
+    // "com.xiaomiao.weather",
+    // "com.xiaomiao.calculator",
+};
+#define TRUSTED_APP_COUNT (sizeof(s_trusted_app_ids) / sizeof(s_trusted_app_ids[0]))
+
+/* 检查应用ID是否在白名单中 */
+static bool app_is_in_whitelist(const char *app_id)
+{
+    if (!app_id || !app_id[0]) return false;
+    
+    for (int i = 0; i < (int)TRUSTED_APP_COUNT; i++) {
+        if (strcmp(app_id, s_trusted_app_ids[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+app_install_status_t app_check_install_permission(const char *app_id, const char *signature)
+{
+    // 模式1：白名单模式 — 如果应用ID在白名单中，直接允许
+    if (app_id && app_id[0] && app_is_in_whitelist(app_id)) {
+        return APP_INSTALL_OK;
+    }
+    
+    // 模式2：签名模式 — 如果有签名，允许安装
+    // （签名内容已在 app_micropython_scan 中验证）
+    if (signature && signature[0]) {
+        return APP_INSTALL_OK;
+    }
+    
+    // 模式3：无签名且不在白名单 — 阻止安装
+    ESP_LOGW(TAG, "App install blocked: id=%s, no signature and not in whitelist", 
+             app_id ? app_id : "(null)");
+    return APP_INSTALL_BLOCKED;
+}
+
+const char* app_install_status_desc(app_install_status_t status)
+{
+    switch (status) {
+        case APP_INSTALL_OK:
+            return lang_get(STR_INSTALL_OK);
+        case APP_INSTALL_BLOCKED:
+            return lang_get(STR_INSTALL_BLOCKED);
+        case APP_INSTALL_UNTRUSTED:
+            return lang_get(STR_INSTALL_UNTRUSTED);
+        default:
+            return lang_get(STR_INSTALL_UNKNOWN);
+    }
 }
 
 /* ========== 获取应用页面回调 ========== */

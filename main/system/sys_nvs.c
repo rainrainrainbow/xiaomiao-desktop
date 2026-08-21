@@ -4,6 +4,7 @@
  */
 
 #include "sys_nvs.h"
+#include "ui/ui_framework.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -36,23 +37,27 @@ int sys_nvs_init(void)
 }
 
 /* ========== 保存设置到NVS ========== */
-void sys_nvs_save_settings(int brightness, bool sound_on, int theme,
-                           bool wifi_on, int layout)
+void sys_nvs_save_settings(int brightness, int volume, bool sound_on, int theme,
+                           bool wifi_on, int layout, int font_size)
 {
     nvs_set_i32(s_nvs_handle, NVS_KEY_BRIGHTNESS, brightness);
+    nvs_set_i32(s_nvs_handle, NVS_KEY_VOLUME, volume);
     nvs_set_i32(s_nvs_handle, NVS_KEY_SOUND, sound_on ? 1 : 0);
     nvs_set_i32(s_nvs_handle, NVS_KEY_THEME, theme);
     nvs_set_i32(s_nvs_handle, NVS_KEY_WIFI, wifi_on ? 1 : 0);
     nvs_set_i32(s_nvs_handle, NVS_KEY_LAYOUT, layout);
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, font_size);
+    /* 从ui_state_t读取sleep_timeout并保存 */
+    nvs_set_i32(s_nvs_handle, NVS_KEY_SLEEP, ui_state_get()->sleep_timeout);
     nvs_commit(s_nvs_handle);
     
-    ESP_LOGI(TAG, "Settings saved: brightness=%d, sound=%d, theme=%d, wifi=%d, layout=%d",
-             brightness, sound_on, theme, wifi_on, layout);
+    ESP_LOGI(TAG, "Settings saved: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d, font_size=%d",
+             brightness, volume, sound_on, theme, wifi_on, layout, font_size);
 }
 
 /* ========== 从NVS加载设置 ========== */
-bool sys_nvs_load_settings(int *brightness, bool *sound_on, int *theme,
-                           bool *wifi_on, int *layout)
+bool sys_nvs_load_settings(int *brightness, int *volume, bool *sound_on, int *theme,
+                           bool *wifi_on, int *layout, int *font_size)
 {
     int32_t val;
     bool loaded = false;
@@ -60,6 +65,9 @@ bool sys_nvs_load_settings(int *brightness, bool *sound_on, int *theme,
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_BRIGHTNESS, &val) == ESP_OK) {
         *brightness = val;
         loaded = true;
+    }
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_VOLUME, &val) == ESP_OK) {
+        *volume = val;
     }
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_SOUND, &val) == ESP_OK) {
         *sound_on = (val != 0);
@@ -73,13 +81,178 @@ bool sys_nvs_load_settings(int *brightness, bool *sound_on, int *theme,
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_LAYOUT, &val) == ESP_OK) {
         *layout = val;
     }
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SIZE, &val) == ESP_OK) {
+        *font_size = val;
+    }
+    /* 加载sleep_timeout */
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_SLEEP, &val) == ESP_OK) {
+        ui_state_get()->sleep_timeout = val;
+    }
     
     if (loaded) {
-        ESP_LOGI(TAG, "Settings loaded: brightness=%d, sound=%d, theme=%d, wifi=%d, layout=%d",
-                 *brightness, *sound_on, *theme, *wifi_on, *layout);
+        ESP_LOGI(TAG, "Settings loaded: brightness=%d, volume=%d, sound=%d, theme=%d, wifi=%d, layout=%d, font_size=%d",
+                 *brightness, *volume, *sound_on, *theme, *wifi_on, *layout, *font_size);
     } else {
         ESP_LOGI(TAG, "No saved settings, using defaults");
     }
     
     return loaded;
+}
+
+/* ========== 音频输出设备类型存储 ========== */
+void sys_nvs_save_audio_output(int audio_out)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_AUDIO_OUT, audio_out);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Audio output saved: %d", audio_out);
+}
+
+int sys_nvs_load_audio_output(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_OUT, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Audio output loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Audio output not found, using default (0=auto)");
+    return 0;
+}
+
+/* ========== 音频自动选择模式存储 ========== */
+void sys_nvs_save_audio_auto(bool auto_mode)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_AUDIO_AUTO, auto_mode ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Audio auto mode saved: %d", auto_mode);
+}
+
+bool sys_nvs_load_audio_auto(void)
+{
+    int32_t val = 1;  // 默认自动模式
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_AUDIO_AUTO, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Audio auto mode loaded: %d", (int)val);
+        return (val != 0);
+    }
+    ESP_LOGI(TAG, "Audio auto mode not found, using default (true=auto)");
+    return true;
+}
+
+/* ========== 字库来源存储 ========== */
+void sys_nvs_save_font_source(int font_source)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_SOURCE, font_source);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Font source saved: %d", font_source);
+}
+
+int sys_nvs_load_font_source(void)
+{
+    int32_t val = 0;  // 默认 FreeType
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SOURCE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Font source loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Font source not found, using default (0=FreeType)");
+    return 0;
+}
+
+/* ========== 语言存储 ========== */
+void sys_nvs_save_language(int lang)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_LANGUAGE, lang);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Language saved: %d", lang);
+}
+
+int sys_nvs_load_language(void)
+{
+    int32_t val = 0;  // 默认中文
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_LANGUAGE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Language loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Language not found, using default (0=中文)");
+    return 0;
+}
+
+/* ========== 字体文件路径索引存储 ========== */
+void sys_nvs_save_font_path(int path_idx)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_FONT_PATH, path_idx);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Font path index saved: %d", path_idx);
+}
+
+int sys_nvs_load_font_path(void)
+{
+    int32_t val = 0;  // 默认自动
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_PATH, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Font path index loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Font path index not found, using default (0=auto)");
+    return 0;
+}
+
+/* ========== 音量存储 ========== */
+void sys_nvs_save_volume(int volume)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_VOLUME, volume);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Volume saved: %d", volume);
+}
+
+/* ========== 音乐设置存储 ========== */
+void sys_nvs_save_music_eq(int enabled)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_EQ, enabled ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music EQ saved: %d", enabled ? 1 : 0);
+}
+
+int sys_nvs_load_music_eq(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_EQ, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music EQ loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music EQ not found, using default (0=off)");
+    return 0;
+}
+
+void sys_nvs_save_music_lrc(int enabled)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_LRC, enabled ? 1 : 0);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music LRC saved: %d", enabled ? 1 : 0);
+}
+
+int sys_nvs_load_music_lrc(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_LRC, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music LRC loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music LRC not found, using default (0=off)");
+    return 0;
+}
+
+void sys_nvs_save_music_mode(int mode)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_MUSIC_MODE, mode);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "Music mode saved: %d", mode);
+}
+
+int sys_nvs_load_music_mode(void)
+{
+    int32_t val = 0;
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_MUSIC_MODE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "Music mode loaded: %d", (int)val);
+        return (int)val;
+    }
+    ESP_LOGI(TAG, "Music mode not found, using default (0=single)");
+    return 0;
 }

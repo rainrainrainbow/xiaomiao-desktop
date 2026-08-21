@@ -9,7 +9,16 @@
 #include "driver/gpio.h"
 
 /* ========== 背光引脚定义 ========== */
-#define PIN_LCD_BL     GPIO_NUM_0      /* Backlight PWM */
+/* 
+ * 注意：GPIO_NUM_0 (GPIO0) 是 ESP32 的启动模式选择引脚。
+ * 用作背光 PWM 输出时，需确保背光电路在启动时不影响 GPIO0 电平，
+ * 否则可能导致 ESP32 进入下载模式而非正常启动。
+ * 如果硬件允许，建议迁移到非启动关键引脚（如 GPIO15）。
+ */
+#define PIN_LCD_BL     GPIO_NUM_0      /* Backlight PWM（⚠ GPIO0 是启动引脚） */
+
+/* ========== 蜂鸣器引脚定义（LEDC PWM） ========== */
+#define PIN_BUZZER     GPIO_NUM_14     /* 蜂鸣器 PWM 引脚 */
 
 #define LEDC_TIMER          LEDC_TIMER_0
 #define LEDC_CHANNEL        LEDC_CHANNEL_0
