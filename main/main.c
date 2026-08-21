@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/param.h>
 #include <unistd.h>
 #include <time.h>
@@ -30,26 +31,51 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_netif.h"
+#include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "sdkconfig.h"
-#include "return_to_loader.h"
+#include "return_to_loader.h"  // 来自 components/return_to_loader
 
 // UI框架
 #include "ui/ui_framework.h"
 #include "ui/event_bus.h"  // 事件总线
+#include "ui/ui_keyboard.h"  // 虚拟键盘
 
 // 应用管理
 #include "app/app_manager.h"
+#include "app/app_builtin.h"
+#include "app/app_micropython.h"
+#include "app/bg_manager.h"
 
 // 驱动层
 #include "driver/drv_button.h"
 #include "driver/drv_battery.h"
 #include "driver/drv_backlight.h"
+#include "driver/drv_buzzer.h"
+#include "driver/drv_audio_output.h"
 
 // 系统服务
 #include "system/sys_nvs.h"
+
+// 新架构：Poincaré MicroPython 运行时（启动时在 PSRAM 任务中预初始化，避免 main 任务栈溢出）
+#include "poincare/runtime.h"
+
+// 新架构：Ion SD 卡驱动（用于扫描 MicroPython 应用）
+#include "ion/sdcard.h"
+
+// 中文字体管理（统一中文字体获取入口，使用内置字体）
+#include "fonts/lv_freetype_font.h"
+
+// 多语言框架
+#include "lang/lang.h"
+
+// retro-core 分区挂载（FAT存储空间，用于字库/图标/音乐）
+#include "esp_partition.h"
+#include "esp_vfs_fat.h"
+#include "wear_levelling.h"
 
 static const char *TAG = "MAIN";
 
@@ -107,9 +133,24 @@ static void st7735_delay(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
 
 static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
 {
-    uint16_t line[LCD_H_RES * 8];
+    /* 使用 PSRAM 堆分配代替栈分配（main任务栈仅8KB，栈上2560字节缓冲区风险高） */
+    uint16_t *line = heap_caps_malloc(LCD_H_RES * 8 * sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (!line) {
+        ESP_LOGE(TAG, "Failed to allocate clear_black buffer, using stack fallback");
+        uint16_t line_stack[LCD_H_RES * 8];
+        memset(line_stack, 0, sizeof(line_stack));
+        const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
+        st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
+        for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
+            const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
+            const uint8_t raset[] = {(uint8_t)(y>>8), (uint8_t)(y&0xFF), (uint8_t)(y2>>8), (uint8_t)(y2&0xFF)};
+            st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
+            st7735_tx(io, ST7735_RAMWR, line_stack, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
+        }
+        return;
+    }
+    memset(line, 0, LCD_H_RES * 8 * sizeof(uint16_t));
     const uint8_t caset[] = {0x00, 0x00, 0x00, (uint8_t)(LCD_H_RES - 1)};
-    memset(line, 0, sizeof(line));
     st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
     for (uint16_t y = 0; y < LCD_V_RES; y += 8) {
         const uint16_t y2 = MIN((uint16_t)(y + 7), (uint16_t)(LCD_V_RES - 1));
@@ -117,6 +158,7 @@ static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
         st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
         st7735_tx(io, ST7735_RAMWR, line, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
     }
+    free(line);
 }
 
 static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
@@ -127,14 +169,19 @@ static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
     st7735_tx(io, ST7735_CASET, caset, sizeof(caset));
     st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
     
-    // 填充整屏纯色（分块发送避免大缓冲）
-    uint16_t buf[LCD_H_RES * 16];
+    /* 使用 PSRAM 堆分配代替栈分配（5KB+栈缓冲区对8KB main任务栈风险高） */
+    uint16_t *buf = heap_caps_malloc(LCD_H_RES * 16 * sizeof(uint16_t), MALLOC_CAP_DMA);
+    if (!buf) {
+        ESP_LOGW(TAG, "Splash buf alloc failed, skipping splash");
+        return;
+    }
     for (int i = 0; i < LCD_H_RES * 16; i++) buf[i] = color;
     
     for (int y = 0; y < LCD_V_RES; y += 16) {
         int h = (y + 16 <= LCD_V_RES) ? 16 : (LCD_V_RES - y);
         st7735_tx(io, ST7735_RAMWR, buf, LCD_H_RES * h * sizeof(uint16_t));
     }
+    free(buf);
 }
 
 static void st7735_init(esp_lcd_panel_io_handle_t io)
@@ -185,7 +232,7 @@ static esp_lcd_panel_io_handle_t lcd_init(void)
         .miso_io_num = PIN_LCD_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_H_RES * LCD_V_RES * 2
+        .max_transfer_sz = 8 * 1024  // 8KB 最大传输，与显示缓存一致，减少DMA压力
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &bus, SPI_DMA_CH_AUTO));
     
@@ -237,12 +284,16 @@ static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 {
     lv_display_t *d = lv_display_create(LCD_H_RES, LCD_V_RES);
     lv_color_format_t cf = LV_COLOR_FORMAT_RGB565_SWAPPED;
-    uint32_t stride = lv_draw_buf_width_to_stride(LCD_H_RES, cf);
-    size_t sz = stride * LCD_V_RES;
+    /* 屏幕缓存使用8KB单缓冲（部分刷新模式），释放DMA内存给WiFi驱动 */
+    /* 之前2×16KB=32KB DMA内存占用过高，导致WiFi驱动初始化时DMA分配失败 */
+    size_t sz = 8 * 1024;
     void *b1 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
-    void *b2 = heap_caps_aligned_alloc(64, sz, MALLOC_CAP_DMA);
+    if (!b1) {
+        ESP_LOGE(TAG, "Failed to allocate display buffer (size=%d)!", sz);
+        return d;  /* 返回创建但无缓冲的display，LVGL会报错但不会崩溃 */
+    }
     lv_display_set_color_format(d, cf);
-    lv_display_set_buffers(d, b1, b2, sz, LV_DISPLAY_RENDER_MODE_FULL);
+    lv_display_set_buffers(d, b1, NULL, sz, LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_user_data(d, io);
     lv_display_set_flush_cb(d, flush_cb);
     return d;
@@ -291,28 +342,61 @@ static void desktop_page_init(void *data)
     lv_obj_set_style_bg_color(scr, lv_color_hex(colors->bg), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-    // 创建状态栏
+    // 回到桌面时清除当前应用名（状态栏显示"XiaoMiaoOS"）
+    // 必须在 ui_statusbar_create 之前清除，因为 create 中会读取 app_manager_get_current_name()
+    app_manager_clear_current();
     ui_statusbar_create(scr);
 
-    // 模拟器风格：3列×2行网格，gap:2px，padding:3px 4px
-    int cols = 3;
-    int rows = 2;
-    int app_count = cols * rows;  // 6 个/页
+    // 布局模式：0=6应用/页（3列×2行），1=2应用/页（2列×1行）
+    // 从设置读取布局，让设置应用中的"布局"选项真正生效
+    int cols, rows;
+    if (state->layout == 1) {
+        cols = 2;
+        rows = 1;
+    } else {
+        cols = 3;
+        rows = 2;
+    }
+    int app_count = cols * rows;
 
-    lv_coord_t grid_top = 14;  // STATUS_H(12) + 2
+    // 根据字体大小自适应布局
+    // 字体越大，状态栏/标题栏越高，网格间距越大
+    int font_px = state->font_size;
+    if (font_px < 14) font_px = 14;
+    if (font_px > 24) font_px = 24;
+
+    // 状态栏高度：字体大小 + 2px padding
+    lv_coord_t status_h = font_px + 2;
+    if (status_h < 12) status_h = 12;  // 最小12px
+
+    // 网格顶部：状态栏高度 + 2px间距
+    lv_coord_t grid_top = status_h + 2;
     lv_coord_t grid_bottom = LCD_V_RES - DOCK_H;  // 128 - 8 = 120
-    lv_coord_t grid_h = grid_bottom - grid_top;    // 106
-    // 模拟器：padding: 3px 4px, gap: 2px
-    lv_coord_t pad_x = 4;
-    lv_coord_t pad_y = 3;
-    lv_coord_t gap = 2;
+    lv_coord_t grid_h = grid_bottom - grid_top;
+
+    // 间距根据字体大小自适应缩放
+    // 基础值：font=14px时 pad_x=4, pad_y=3, gap=2
+    // 字体每增大1px，间距增加0.5px（取整）
+    lv_coord_t pad_x = 4 + (font_px - 14) / 2;
+    lv_coord_t pad_y = 3 + (font_px - 14) / 2;
+    lv_coord_t gap = 2 + (font_px - 14) / 4;
+    if (pad_x > 8) pad_x = 8;
+    if (pad_y > 6) pad_y = 6;
+    if (gap > 4) gap = 4;
+
     lv_coord_t cell_w = (LCD_H_RES - 2 * pad_x - (cols - 1) * gap) / cols;
     lv_coord_t cell_h = (grid_h - 2 * pad_y - (rows - 1) * gap) / rows;
 
     // 更新总页数
     int builtin_count;
     const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
-    s_desktop_total_pages = (builtin_count + app_count - 1) / app_count;
+    
+    // 合并内置应用和MicroPython应用
+    int py_count = 0;
+    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+    int total_apps = builtin_count + py_count;
+    
+    s_desktop_total_pages = (total_apps + app_count - 1) / app_count;
     if (s_desktop_total_pages < 1) s_desktop_total_pages = 1;
     if (s_desktop_page >= s_desktop_total_pages) s_desktop_page = s_desktop_total_pages - 1;
     if (s_desktop_selected >= app_count) s_desktop_selected = 0;
@@ -320,8 +404,15 @@ static void desktop_page_init(void *data)
     int start_idx = s_desktop_page * app_count;
     for (int i = 0; i < app_count; i++) {
         int global_idx = start_idx + i;
-        if (global_idx >= builtin_count) break;
-        const app_def_t *app = &builtin_apps[global_idx];
+        if (global_idx >= total_apps) break;
+        
+        // 先显示内置应用，再显示MicroPython应用
+        const app_def_t *app = NULL;
+        if (global_idx < builtin_count) {
+            app = &builtin_apps[global_idx];
+        } else {
+            app = &py_apps[global_idx - builtin_count];
+        }
         int row = i / cols;
         int col = i % cols;
 
@@ -344,17 +435,20 @@ static void desktop_page_init(void *data)
         lv_obj_t *icon = lv_label_create(cell);
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
-        // 使用 LVGL 内置较大字体——montserrat_20 或 16（如果可用）
+        // 图标字体根据字体大小自适应
+        // 注意：LVGL内置Montserrat只有14px可用，所以图标固定用14px
+        // 但cell的flex布局会自适应大小
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
 
         // 名称标签（模拟器：font-size:7px, color:var(--black)）
-        // 应用名为中文，使用 CJK 14px 字体（LVGL 9.5 无更小 CJK 字体）
+        // 应用名为中文，使用统一中文字体（优先FreeType，回退内置）
+        // 字体大小根据设置自适应：14px→14px, 16px→14px, 20px→16px, 24px→20px
         lv_obj_t *name = lv_label_create(cell);
-        lv_label_set_text(name, app->name);
+        lv_label_set_text(name, app_builtin_get_display_name(app->name));
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(name, &lv_font_xiaomiao_cn_14, 0);
+        int name_font_size = (font_px <= 14) ? 14 : (font_px <= 16) ? 14 : (font_px <= 20) ? 16 : 20;
+        lv_obj_set_style_text_font(name, lv_font_cn_get(name_font_size), 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
 
         s_app_cells[i] = cell;
@@ -391,15 +485,28 @@ static bool desktop_page_on_key(int key)
     }
 
     ui_state_t *state = ui_state_get();
-    const int cols = 3;
-    const int rows = 2;
-    const int app_count = cols * rows;  // 6 个/页
+    // 与 desktop_page_init 保持一致的布局
+    int cols, rows;
+    if (state->layout == 1) {
+        cols = 2;
+        rows = 1;
+    } else {
+        cols = 3;
+        rows = 2;
+    }
+    const int app_count = cols * rows;
     int builtin_count;
-    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
-    const theme_colors_t *colors = ui_theme_colors();
+    app_manager_get_builtin(&builtin_count);
 
-    // 取消当前高亮
-    if (s_app_cells[s_desktop_selected]) {
+    /*
+     * 防御性保护：
+     * 在极端情况下（例如页面切换生命周期存在遗漏），s_app_cells[] 中的指针
+     * 可能指向已被 LVGL 销毁的对象（悬空指针）。lv_obj_is_valid() 会校验
+     * 对象是否仍位于 LVGL 对象池中，避免对已释放内存解引用导致
+     * LoadProhibited 崩溃（曾出现 EXCVADDR=0xfffffffb）。
+     */
+    if (s_app_cells[s_desktop_selected] &&
+        lv_obj_is_valid(s_app_cells[s_desktop_selected])) {
         ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], false);
     }
 
@@ -434,8 +541,19 @@ static bool desktop_page_on_key(int key)
     } else if (key == KEY_A) {
         // 启动应用
         int global_idx = s_desktop_page * app_count + s_desktop_selected;
-        if (global_idx < builtin_count) {
-            const app_def_t *app = &builtin_apps[global_idx];
+        int builtin_count;
+        const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+        int py_count = 0;
+        const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+        int total_apps = builtin_count + py_count;
+        
+        if (global_idx < total_apps) {
+            const app_def_t *app = NULL;
+            if (global_idx < builtin_count) {
+                app = &builtin_apps[global_idx];
+            } else {
+                app = &py_apps[global_idx - builtin_count];
+            }
             app_manager_launch(app);
             return true;
         }
@@ -446,7 +564,8 @@ static bool desktop_page_on_key(int key)
     if (s_desktop_selected < 0) s_desktop_selected = 0;
 
     // 高亮新选中项（模拟器：棕色背景）
-    if (s_app_cells[s_desktop_selected]) {
+    if (s_app_cells[s_desktop_selected] &&
+        lv_obj_is_valid(s_app_cells[s_desktop_selected])) {
         ui_desktop_cell_set_selected(s_app_cells[s_desktop_selected], true);
     }
 
@@ -468,50 +587,116 @@ static void recents_page_init(void *data)
 
     // 状态栏
     ui_statusbar_create(scr);
-    // 标题栏（中文，CJK 字体）
-    ui_titlebar_create(scr, 14, "最近任务");
+    ui_statusbar_set_title(lang_get(STR_RECENTS));
 
+    int bg_count = bg_manager_get_count();
     int rec_count = 0;
     app_manager_get_recents(&rec_count);
-    if (rec_count > 0) {
-        lv_obj_t *list = lv_obj_create(scr);
-        lv_obj_remove_style_all(list);
-        lv_obj_set_pos(list, 0, 26);
-        lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - 26 - DOCK_H);
-        lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
 
-        int max_show = (rec_count < 6) ? rec_count : 6;
-        int item_h = 14;
-        for (int i = 0; i < max_show; i++) {
-            lv_obj_t *row = lv_obj_create(list);
-            lv_obj_remove_style_all(row);
-            lv_obj_set_pos(row, 0, i * item_h);
-            lv_obj_set_size(row, LCD_H_RES, item_h);
-            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
-            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    // 优先显示后台运行中的应用，再显示历史记录
+    int total_show = (bg_count > rec_count) ? bg_count : rec_count;
+    if (total_show < 1) total_show = 1;
 
-            const app_def_t *app = app_manager_get_recents_at(i);
-            if (!app) break;
-            lv_obj_t *lbl = lv_label_create(row);
-            char buf[40];
-            snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app->name);
-            lv_label_set_text(lbl, buf);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-            // 应用名为中文，使用 CJK 字体
-            LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-            lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
-            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_pos(list, 0, ui_content_y());
+    lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui_state_t *st = ui_state_get();
+    int item_h = st->font_size + 2;
+    if (item_h < 14) item_h = 14;
+    // 计算可见行数
+    int vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / item_h;
+    if (vis_rows < 1) vis_rows = 1;
+
+    int row = 0;
+
+    // 先显示后台运行中的应用
+    for (int i = 0; i < bg_count && row < vis_rows; i++) {
+        const char *app_name = bg_manager_get_name(i);
+        if (!app_name) continue;
+        bg_state_t state = bg_manager_get_state(i);
+
+        lv_obj_t *row_obj = lv_obj_create(list);
+        lv_obj_remove_style_all(row_obj);
+        lv_obj_set_pos(row_obj, 0, row * item_h);
+        lv_obj_set_size(row_obj, LCD_H_RES, item_h);
+        if (row == s_recents_sel) {
+            lv_obj_set_style_bg_color(row_obj, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_TRANSP, 0);
         }
-        s_recents_obj = list;
-    } else {
-        lv_obj_t *lbl = lv_label_create(scr);
-        lv_label_set_text(lbl, "暂无最近任务");
-        lv_obj_set_style_text_color(lbl, lv_color_hex(0x1B1713), 0);
-        LV_FONT_DECLARE(lv_font_xiaomiao_cn_14);
-        lv_obj_set_style_text_font(lbl, &lv_font_xiaomiao_cn_14, 0);
-        lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row_obj);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s", app_name);
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 70);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+
+        // 状态标签
+        lv_obj_t *status_lbl = lv_label_create(row_obj);
+        if (state == BG_STATE_FOREGROUND) {
+            lv_label_set_text(status_lbl, lang_get(STR_CURRENT));
+        } else {
+            lv_label_set_text(status_lbl, lang_get(STR_BACKGROUND));
+        }
+        lv_obj_set_style_text_color(status_lbl, lv_color_hex(
+            state == BG_STATE_FOREGROUND ? 0x22C55E : colors->text_dim), 0);
+        lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
+
+        row++;
     }
 
+    // 再显示历史记录（还未显示的）
+    for (int i = 0; i < rec_count && row < vis_rows; i++) {
+        const app_def_t *app = app_manager_get_recents_at(i);
+        if (!app) break;
+
+        // 跳过已在后台列表中显示的
+        if (bg_manager_is_running(app->name)) continue;
+
+        lv_obj_t *row_obj = lv_obj_create(list);
+        lv_obj_remove_style_all(row_obj);
+        lv_obj_set_pos(row_obj, 0, row * item_h);
+        lv_obj_set_size(row_obj, LCD_H_RES, item_h);
+        if (row == s_recents_sel) {
+            lv_obj_set_style_bg_color(row_obj, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row_obj, LV_OPA_TRANSP, 0);
+        }
+        lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row_obj);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app_builtin_get_display_name(app->name));
+        lv_label_set_text(lbl, buf);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
+        lv_obj_set_width(lbl, LCD_H_RES - 70);
+        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        row++;
+    }
+
+    if (row == 0) {
+        // 没有内容
+        lv_obj_t *empty_lbl = lv_label_create(scr);
+        lv_label_set_text(empty_lbl, lang_get(STR_RECENTS_EMPTY));
+        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
+        lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
+    }
+
+    s_recents_obj = list;
     s_recents_sel = 0;
     ui_dock_create(scr, 1, 0);
 }
@@ -529,42 +714,216 @@ static bool recents_page_on_key(int key)
         return true;
     }
     if (key == KEY_A) {
+        // 获取当前选中项对应的应用
+        int bg_count = bg_manager_get_count();
         int rec_count = 0;
         app_manager_get_recents(&rec_count);
-        if (rec_count > 0 && s_recents_sel < rec_count) {
-            const app_def_t *app = app_manager_get_recents_at(s_recents_sel);
-            if (app) {
-                app_manager_launch(app);
-                return true;
+
+        // 计算总项目数
+        int total_items = 0;
+        // 后台运行的应用
+        for (int i = 0; i < bg_count; i++) {
+            const char *name = bg_manager_get_name(i);
+            if (name) total_items++;
+        }
+        // 历史记录中未在后台运行的
+        for (int i = 0; i < rec_count; i++) {
+            const app_def_t *app = app_manager_get_recents_at(i);
+            if (app && !bg_manager_is_running(app->name)) total_items++;
+        }
+
+        if (total_items > 0 && s_recents_sel < total_items) {
+            // 查找选中项在后台列表中的索引
+            int idx = s_recents_sel;
+            // 先查后台运行的应用
+            for (int i = 0; i < bg_count; i++) {
+                const char *name = bg_manager_get_name(i);
+                if (!name) continue;
+                if (idx == 0) {
+                    // 重新启动该应用
+                    // 找到对应的 app_def_t
+                    int builtin_count;
+                    const app_def_t *builtin_apps = app_manager_get_builtin(&builtin_count);
+                    int py_count = 0;
+                    const app_def_t *py_apps = app_manager_get_micropython(&py_count);
+
+                    for (int j = 0; j < builtin_count; j++) {
+                        if (strcmp(builtin_apps[j].name, name) == 0) {
+                            app_manager_launch(&builtin_apps[j]);
+                            return true;
+                        }
+                    }
+                    for (int j = 0; j < py_count; j++) {
+                        if (strcmp(py_apps[j].name, name) == 0) {
+                            app_manager_launch(&py_apps[j]);
+                            return true;
+                        }
+                    }
+                    break;
+                }
+                idx--;
+            }
+            // 再查历史记录
+            for (int i = 0; i < rec_count; i++) {
+                const app_def_t *app = app_manager_get_recents_at(i);
+                if (!app) break;
+                if (bg_manager_is_running(app->name)) continue;
+                if (idx == 0) {
+                    app_manager_launch(app);
+                    return true;
+                }
+                idx--;
             }
         }
         return true;
     }
     if (key == KEY_UP || key == KEY_DOWN) {
+        // 计算总项目数
+        int bg_count = bg_manager_get_count();
+        int total_items = 0;
+        for (int i = 0; i < bg_count; i++) {
+            if (bg_manager_get_name(i)) total_items++;
+        }
         int rec_count = 0;
         app_manager_get_recents(&rec_count);
-        if (rec_count <= 0) return true;
-        // 简单高亮切换
-        if (key == KEY_DOWN) s_recents_sel = (s_recents_sel + 1) % rec_count;
-        else s_recents_sel = (s_recents_sel - 1 + rec_count) % rec_count;
+        for (int i = 0; i < rec_count; i++) {
+            const app_def_t *app = app_manager_get_recents_at(i);
+            if (!app) break;
+            if (!bg_manager_is_running(app->name)) total_items++;
+        }
+
+        if (total_items <= 0) return true;
+        if (key == KEY_DOWN) s_recents_sel = (s_recents_sel + 1) % total_items;
+        else s_recents_sel = (s_recents_sel - 1 + total_items) % total_items;
+
+        // 重建页面以更新高亮
+        recents_page_init(NULL);
         return true;
     }
     return true;
 }
 
-/* ========== UI 初始化任务（独立任务，栈在 PSRAM，避免 main 任务栈溢出） ========== */
+/* ========== MicroPython 运行时初始化任务（独立任务，PSRAM 栈，避免 main 任务栈溢出） ========== */
 
-// 静态任务控制块和栈（在 PSRAM 分配）
-#define UI_TASK_STACK_SIZE   (64 * 1024)   // 64KB 栈，在 PSRAM
-static StaticTask_t s_ui_task_tcb;
-static StackType_t *s_ui_task_stack = NULL;
+/*
+ * MicroPython 运行时初始化（mp_init + gc_init + machine_init + machine_pins_init）
+ * 需要大量栈空间（>16KB），而 main 任务栈只有 16KB 内部 DRAM，
+ * 在 main 任务中初始化 MicroPython 会栈溢出导致 StoreProhibited 崩溃。
+ * 
+ * 使用 xTaskCreateStatic + heap_caps_malloc 从 PSRAM 手动分配栈：
+ * 1. 先在 PSRAM 中分配栈空间（64KB）
+ * 2. 如果 PSRAM 分配失败，回退到内部 DRAM 分配（32KB）
+ * 3. 使用 xTaskCreateStatic 绑定栈和 TCB
+ * 4. 任务完成后保持空闲循环，避免栈被释放
+ * 
+ * 注意：xTaskCreate 动态分配（依赖 CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST）
+ * 在真机上可能因 PSRAM 碎片化或配置问题回退到 DRAM，导致 64KB 栈在 DRAM 中不稳定。
+ * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
+ */
+#define UI_TASK_STACK_SIZE   (32 * 1024)   // 32KB 栈，优先从 PSRAM 分配（64KB在真机上分配失败）
+/* (UI_TASK_STACK_DRAM, s_ui_task_tcb, s_ui_task_stack removed - no longer needed) */
 
 static void ui_init_task(void *arg)
 {
-    ESP_LOGI(TAG, "UI init task started");
+    ESP_LOGI(TAG, "UI init task started (stack=%p)", 
+             (void*)arg);
+    
+    /*
+     * 提前初始化 MicroPython 运行时（在 PSRAM 64KB 栈中执行）。
+     * 后续 main 任务中 poincare_runtime_init 因幂等性（s_initialized=true）直接返回。
+     */
+    if (!poincare_runtime_init(0)) {
+        ESP_LOGE(TAG, "Failed to pre-init MicroPython runtime");
+    } else {
+        ESP_LOGI(TAG, "MicroPython runtime pre-initialized successfully");
+    }
+    
+    // 挂载 retro-core FAT 分区（用于存放系统字库、图标、内置音乐等）
+    // 分区表：retro-core, data, fat, 0x2C0000, 0x140000 (1.25MB)
+    ESP_LOGI(TAG, "Mounting retro-core partition at /flash...");
+    const esp_partition_t *retro_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_FAT, "retro-core");
+    // 如果精确子类型匹配失败，回退到按标签名模糊查找
+    if (!retro_part) {
+        ESP_LOGW(TAG, "retro-core not found with SUBTYPE_DATA_FAT, trying SUBTYPE_ANY...");
+        retro_part = esp_partition_find_first(
+            ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "retro-core");
+    }
+    if (retro_part) {
+        ESP_LOGI(TAG, "retro-core partition found: offset=0x%08X, size=%lu KB",
+                 (unsigned int)retro_part->address,
+                 (unsigned long)(retro_part->size / 1024));
+        
+        // 配置 FAT 挂载
+        static wl_handle_t s_wl_handle = WL_INVALID_HANDLE;
+        esp_vfs_fat_mount_config_t mount_cfg = {
+            .format_if_mount_failed = true,
+            .max_files = 8,
+            .allocation_unit_size = CONFIG_WL_SECTOR_SIZE,
+        };
+        esp_err_t ret = esp_vfs_fat_spiflash_mount_rw_wl("/flash", "retro-core",
+                                                          &mount_cfg, &s_wl_handle);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "retro-core partition mounted at /flash");
+        } else {
+            ESP_LOGW(TAG, "Failed to mount retro-core: %s", esp_err_to_name(ret));
+        }
+    } else {
+        ESP_LOGW(TAG, "retro-core partition not found!");
+    }
     
     // 推入桌面页面
     ui_stack_push(PAGE_DESKTOP, &s_desktop_callbacks, NULL);
+    
+    // 尝试初始化 SD 卡并扫描 MicroPython 应用
+    // 注意：SD 卡与 LCD 共享 SPI2 总线，需要确保 LCD 已初始化完毕
+    ESP_LOGI(TAG, "Initializing SD card and scanning MicroPython apps...");
+    bool sdcard_ok = ion_sdcard_init("/sdcard");
+    if (sdcard_ok) {
+        int app_count = app_manager_scan_sdcard();
+        ESP_LOGI(TAG, "SD card ready, found %d MicroPython apps", app_count);
+    }
+    
+    // 根据字库来源设置初始化字体
+    ui_state_t *state = ui_state_get();
+    if (state->font_source == 0) {
+        /* FreeType 模式：优先加载用户自定义字体（NVS 中的路径索引） */
+        int font_path_idx = sys_nvs_load_font_path();
+        bool font_loaded = false;
+        if (font_path_idx > 0) {
+            /* 用户选择了某个字体文件（1=扫描列表第1个, ...），扫描并加载对应路径 */
+            char paths[16][128];
+            int n = lv_freetype_font_scan(paths, 16);
+            if (font_path_idx - 1 < n) {
+                if (lv_freetype_font_load_path(paths[font_path_idx - 1]) == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font loaded from user-selected path: %s",
+                             paths[font_path_idx - 1]);
+                    font_loaded = true;
+                }
+            }
+        }
+        if (!font_loaded) {
+            /* 回退到默认路径 */
+            if (sdcard_ok) {
+                if (lv_freetype_font_init() == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font engine initialized from SD card");
+                } else {
+                    ESP_LOGW(TAG, "FreeType font init failed, falling back to English UI");
+                }
+            } else {
+                /* SD卡不可用时，尝试从其他路径加载字体 */
+                if (lv_freetype_font_init() == LV_RESULT_OK) {
+                    ESP_LOGI(TAG, "FreeType font engine initialized (fallback path)");
+                } else {
+                    ESP_LOGW(TAG, "FreeType font init failed (no SD card), falling back to English UI");
+                }
+            }
+        }
+    } else {
+        /* 内置模式：不加载 FreeType 字体。
+         * 语言由用户选择（lang_get 在 FreeType 未就绪时会自动降级英文） */
+        ESP_LOGI(TAG, "Font source set to built-in, FreeType not loaded");
+    }
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
     
@@ -584,10 +943,16 @@ void app_main(void)
     // 初始化系统服务
     sys_nvs_init();
     
+    // 初始化网络接口（WiFi用，只需一次）
+    esp_netif_init();
+    esp_event_loop_create_default();
+    
     // 重要：先初始化按键，再初始化电池（因为GPIO34共享）
     drv_button_init();
     drv_backlight_init();
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
+    drv_buzzer_init();   // 初始化蜂鸣器（GPIO14，LEDC PWM）
+    audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
     
     // 启动按键任务（独立任务，5ms扫描周期）
     xTaskCreate(drv_button_task, "btn_task", 2048, NULL, 10, NULL);
@@ -595,8 +960,13 @@ void app_main(void)
     
     // 加载保存的设置
     ui_state_t *state = ui_state_get();
-    sys_nvs_load_settings(&state->brightness, &state->sound_on, 
-                          (int*)&state->theme, &state->wifi_on, &state->layout);
+    sys_nvs_load_settings(&state->brightness, &state->volume, &state->sound_on, 
+                      (int*)&state->theme, &state->wifi_on, &state->layout, &state->font_size);
+    state->font_source = sys_nvs_load_font_source();
+    // 加载用户选择的语言（0=中文, 1=English），持久化后重启生效
+    int saved_lang = sys_nvs_load_language();
+    if (saved_lang == LANG_EN) lang_set(LANG_EN);
+    else lang_set(LANG_ZH);
     
     // 应用设置
     drv_backlight_set_brightness(state->brightness);
@@ -650,27 +1020,37 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（栈在 PSRAM，64KB，避免 main 任务栈溢出）
-    s_ui_task_stack = heap_caps_malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t), 
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!s_ui_task_stack) {
-        ESP_LOGE(TAG, "Failed to allocate UI task stack from PSRAM!");
-        s_ui_task_stack = malloc(UI_TASK_STACK_SIZE * sizeof(StackType_t));
-    }
-    TaskHandle_t ui_task_handle = xTaskCreateStatic(
-        ui_init_task, "ui_init", UI_TASK_STACK_SIZE,
-        NULL, 5, s_ui_task_stack, &s_ui_task_tcb);
-    if (ui_task_handle) {
-        ESP_LOGI(TAG, "ui_init_task created successfully (PSRAM stack=%p)", s_ui_task_stack);
+    // 创建 UI 初始化任务（使用 xTaskCreate，FreeRTOS 自动从 PSRAM 分配栈）
+    // CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST=y 时：
+    // 1. FreeRTOS 自动优先从 PSRAM 分配栈（64KB）
+    // 2. 如果 PSRAM 分配失败，自动回退到内部 DRAM
+    // 3. 任务完成后保持空闲循环，避免栈被释放
+    TaskHandle_t ui_task_handle = NULL;
+    BaseType_t ret = xTaskCreate(
+        ui_init_task, "ui_init", UI_TASK_STACK_SIZE / sizeof(StackType_t),
+        NULL, 5, &ui_task_handle);
+    if (ret == pdPASS) {
+        ESP_LOGI(TAG, "ui_init_task created via xTaskCreate (stack_size=%d)", 
+                 UI_TASK_STACK_SIZE);
     } else {
-        ESP_LOGE(TAG, "Failed to create ui_init_task statically");
+        ESP_LOGE(TAG, "xTaskCreate failed for ui_init_task (ret=%d)", ret);
     }
     
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
     
+    // 屏幕超时状态
+    static bool s_screen_sleeping = false;
+    static uint32_t s_last_activity = 0;
+    
     // 主循环 - 从事件队列获取按键
     while (true) {
         lv_timer_handler();
+        
+        // 音频后端热插拔检测（蓝牙A2DP设备连接/断开时自动切换）
+        audio_output_poll();
+        
+        // Python 应用帧刷新（canvas 承接 framebuffer 的脏标志消费）
+        app_micropython_on_tick();
         
         // 从队列获取按键事件（非阻塞）
         btn_event_t btn_evt;
@@ -680,15 +1060,37 @@ void app_main(void)
             ESP_LOGI(TAG, "KEY EVENT: idx=%d long=%d (UP=0,DOWN=1,LEFT=2,RIGHT=3,A=4,B=5)", 
                      btn_event, is_long);
             
+            // 如果屏幕处于休眠状态，按键唤醒屏幕
+            if (s_screen_sleeping) {
+                s_screen_sleeping = false;
+                drv_backlight_set_brightness(state->brightness);
+                lcd_display_on();
+                s_last_activity = lv_tick_get();
+                ESP_LOGI(TAG, "Screen woken up by key press");
+                continue;
+            }
+            
+            // 记录按键活动时间（重置超时计时器）
+            s_last_activity = lv_tick_get();
+            
             // 全局处理：长按B → 进入最近任务页面
             if (is_long && btn_event == BTN_IDX_B) {
+                // 挂起当前前台应用到后台
+                bg_manager_suspend_current();
                 ui_stack_push(PAGE_RECENTS, &s_recents_callbacks, NULL);
                 continue;
             }
             
-            // 全局处理：长按A → 返回桌面主页（使用 v59 新 API）
+            // 全局处理：长按A → 返回桌面主页（挂起当前应用到后台）
             if (is_long && btn_event == BTN_IDX_A) {
+                bg_manager_suspend_current();
                 ui_stack_back_home();
+                continue;
+            }
+            
+            // 虚拟键盘拦截：键盘显示时，所有按键转发给键盘处理
+            if (ui_keyboard_is_visible()) {
+                ui_keyboard_on_key(btn_event);
                 continue;
             }
             
@@ -697,16 +1099,29 @@ void app_main(void)
             if (cbs && cbs->on_key) {
                 bool handled = cbs->on_key(btn_event);
                 if (!handled) {
-                    // 全局兜底：B键=返回上一级（仅当栈深>1时，避免弹出桌面导致崩溃）
+                    // 全局兜底：B键=返回上一级（挂起当前应用到后台）
                     if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
+                        bg_manager_suspend_current();
                         ui_stack_pop();
                     }
                 }
             } else {
-                // 无回调时的兜底：B键=返回（仅当栈深>1时）
+                // 无回调时的兜底：B键=返回（挂起当前应用到后台）
                 if (btn_event == BTN_IDX_B && ui_stack_depth() > 1) {
+                    bg_manager_suspend_current();
                     ui_stack_pop();
                 }
+            }
+        }
+        
+        // 屏幕超时检测（每100ms检查一次）
+        if (!s_screen_sleeping && state->sleep_timeout > 0) {
+            uint32_t elapsed = lv_tick_elaps(s_last_activity);
+            if (elapsed > (uint32_t)state->sleep_timeout * 1000) {
+                s_screen_sleeping = true;
+                drv_backlight_set_brightness(0);  // 关闭背光
+                ESP_LOGI(TAG, "Screen sleep: timeout=%ds elapsed=%lums", 
+                         state->sleep_timeout, (unsigned long)elapsed);
             }
         }
         
