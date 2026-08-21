@@ -1,3 +1,6 @@
+#ifndef MPCONFIGBOARD_H
+#define MPCONFIGBOARD_H
+
 // 小喵掌机 MicroPython 板级配置
 // XiaoMiao Desktop Board Configuration for MicroPython
 
@@ -13,8 +16,10 @@
 #define MICROPY_PY_BLUETOOTH                (0)
 #define MICROPY_PY_ESPNOW                   (0)
 
-// 启用 FAT 文件系统支持
-#define MICROPY_VFS_FAT                     (1)
+// 禁用 FAT 文件系统支持（使用 ESP-IDF 自带的 fatfs，避免链接冲突）
+// MicroPython 的 fatfs 与 ESP-IDF 的 fatfs 都定义了 f_mount、f_open 等符号，
+// 同时链接会导致 multiple definition 错误。
+#define MICROPY_VFS_FAT                     (0)
 
 // 禁用 ULP（超低功耗）协处理器
 #define MICROPY_PY_MACHINE_ULP              (0)
@@ -80,3 +85,19 @@
 #ifndef MICROPY_ESP_IDF_ENTRY
 #define MICROPY_ESP_IDF_ENTRY xiaomiao_mp_entry
 #endif
+
+// ============================================================
+// 强制覆盖：以下宏在 mpconfigport.h 中可能被重新定义为 (1)，
+// 但这些模块需要被禁用以避免链接器错误。
+// 我们使用 #undef + #define 确保这些值生效。
+// 注意：这些必须在 mpconfigport.h 的 #include 之后被处理，
+// 但由于 mpconfigport.h 会在包含本文件后继续处理，本文件
+// 末尾的 #undef+#define 可能仍会被覆盖。因此我们使用
+// 预处理指令技巧：通过 #include 重新定义。
+// ============================================================
+
+// 实际上，这些宏必须在 mpconfigport.h 中的 #define 之后生效。
+// 让 build.yml 中的编译器 -D 标志覆盖它们是最可靠的方案。
+// 请参考 build.yml 中的 EXTRA_CFLAGS 设置。
+
+#endif // MPCONFIGBOARD_H
