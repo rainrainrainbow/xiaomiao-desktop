@@ -12,8 +12,9 @@
 /* ========== 电池ADC定义 ========== */
 #define BAT_ADC_UNIT        ADC_UNIT_1
 #define BAT_ADC_CHANNEL     ADC_CHANNEL_6
-#define BAT_VDIV_R1         9100    // 上拉电阻 9.1k
-#define BAT_VDIV_R2         2400    // 下拉电阻 2.4k
+#define BAT_VDIV_R1         3300    // 上拉电阻 3.3kΩ（经校准：Vbat = Vadc * 1.33）
+#define BAT_VDIV_R2         10000   // 下拉电阻 10kΩ
+#define BAT_DIODE_DROP      0.30f   // 防反接二极管压降（K23典型值0.3V）
 #define BAT_ADC_ATTEN       ADC_ATTEN_DB_12
 #define BAT_ADC_BITWIDTH    ADC_BITWIDTH_12
 #define BAT_MIN_VALID_V     2.5f
