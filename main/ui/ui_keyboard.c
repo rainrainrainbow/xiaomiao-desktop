@@ -6,6 +6,7 @@
 #include "ui_keyboard.h"
 #include "ui_framework.h"
 #include "lang/lang.h"
+#include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
 #include <string.h>
 #include <stdlib.h>
