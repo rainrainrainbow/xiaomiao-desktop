@@ -163,28 +163,34 @@ jobs:
           PATCH_EOF
           echo "Done patching modmachine.h"
 
-      - name: Patch ESP-IDF esp_config.h to disable hardware ECC ALT implementation
+      - name: Patch mbedtls check_config.h to disable ECP_RESTARTABLE conflict check
         run: |
           # Fix mbedtls ECP_RESTARTABLE conflict with hardware ECC ALT implementation
-          # Problem: check_config.h:195 reports "MBEDTLS_ECP_RESTARTABLE defined, but it cannot
-          # coexist with an alternative ECP implementation" because CONFIG_MBEDTLS_HARDWARE_ECC
-          # defines MBEDTLS_ECP_MUL_ALT and MBEDTLS_ECP_VERIFY_ALT.
-          # Even though sdkconfig.defaults sets CONFIG_MBEDTLS_HARDWARE_ECC=n, Kconfig dependencies
-          # may re-enable it. We directly patch esp_config.h to force-disable the ALT macros.
-          # Strategy: Replace "#ifdef CONFIG_MBEDTLS_HARDWARE_ECC" with "#if 0" so the entire
-          # hardware ECC block is skipped, and the #else branch (which #undef's ALT macros) runs.
-          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
-          if [ -f "$ESP_CONFIG" ]; then
-            echo "Patching $ESP_CONFIG to disable hardware ECC ALT implementation..."
-            # Use sed without $ anchor to match even if there are trailing spaces
-            sed -i 's/^#ifdef CONFIG_MBEDTLS_HARDWARE_ECC.*/#if 0 \/* disabled: conflicts with ECP_RESTARTABLE *\//' "$ESP_CONFIG"
-            echo "Patched. Verifying (should show '#if 0' instead of '#ifdef CONFIG_MBEDTLS_HARDWARE_ECC'):"
-            grep -n 'HARDWARE_ECC\|if 0.*disabled' "$ESP_CONFIG" | head -5
-            echo ""
-            echo "Checking if ALT macros are still defined (should NOT see #define MBEDTLS_ECP_MUL_ALT):"
-            grep -n '#define MBEDTLS_ECP_MUL_ALT\|#define MBEDTLS_ECP_VERIFY_ALT' "$ESP_CONFIG" | head -5 || echo "  (none found - good!)"
+          # Problem: check_config.h:181 reports "MBEDTLS_ECP_RESTARTABLE defined, but it cannot
+          # coexist with an alternative ECP implementation" because multiple ALT macros are defined.
+          # Solution: Directly patch check_config.h to comment out the conflict check (lines 173-182).
+          CHECK_CONFIG="/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
+          if [ -f "$CHECK_CONFIG" ]; then
+            echo "Patching $CHECK_CONFIG to disable ECP_RESTARTABLE conflict check..."
+            # Use Python to precisely comment out lines 173-182
+            python3 << 'PATCH_EOF'
+            filepath = "/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
+            with open(filepath, 'r') as f:
+                lines = f.readlines()
+            
+            # Comment out lines 173-182 (0-indexed: 172-181)
+            for i in range(172, 182):
+                if i < len(lines) and not lines[i].strip().startswith('//'):
+                    lines[i] = '// ' + lines[i]
+            
+            with open(filepath, 'w') as f:
+                f.writelines(lines)
+            print("Successfully commented out lines 173-182 in check_config.h")
+            PATCH_EOF
+            echo "Patched. Verifying:"
+            sed -n '170,185p' "$CHECK_CONFIG"
           else
-            echo "ERROR: $ESP_CONFIG not found!"
+            echo "ERROR: $CHECK_CONFIG not found!"
             exit 1
           fi
 
