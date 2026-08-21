@@ -170,10 +170,23 @@ jobs:
           CHECK_CONFIG="/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
           if [ -f "$CHECK_CONFIG" ]; then
             echo "Patching $CHECK_CONFIG ..."
-            # Comment out lines 173-182 (ECP_RESTARTABLE vs ALT conflict check)
-            sed -i '173,182s|^|//|' "$CHECK_CONFIG"
-            echo "--- Verify (should show // prefixed lines): ---"
-            sed -n '172,183p' "$CHECK_CONFIG"
+            python3 << 'PATCH_EOF'
+          import re, sys
+          filepath = "/opt/esp/idf/components/mbedtls/mbedtls/include/mbedtls/check_config.h"
+          with open(filepath) as f:
+              content = f.read()
+          # Remove ECP_RESTARTABLE vs ALT conflict check block entirely
+          pattern = r"#if defined\(MBEDTLS_ECP_RESTARTABLE\)\s*&&.*?#endif"
+          new_content, n = re.subn(pattern, "", content, count=1, flags=re.DOTALL)
+          if n == 0:
+              print("WARNING: pattern not matched!")
+              sys.exit(1)
+          with open(filepath, "w") as f:
+              f.write(new_content)
+          print(f"Removed {n} conflict-check block(s)")
+          PATCH_EOF
+            echo "--- Verify: ---"
+            grep -c "alternative ECP implementation" "$CHECK_CONFIG" || echo "conflict check removed OK"
           else
             echo "ERROR: $CHECK_CONFIG not found!"
             exit 1
