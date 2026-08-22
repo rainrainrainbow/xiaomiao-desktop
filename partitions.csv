@@ -1,15 +1,13 @@
 # Xiaomiao ROM Loader partition table (must match xiaomiao-loader!)
 # Flash: 4MB QIO 80MHz, partition table at 0x8000
 #
-# factory      - Loader firmware (persistent, never overwritten by OTA)
-# launcher     - ROM slot 0 (single-app ROM, or retro-go launcher) - subtype=ota_0
-# retro-core   - 用作存储空间 (fat/数据分区) - 原为 ota_1
-# otadata      - Boot selection
-
-# Name,       Type, SubType, Offset,   Size,     Flags
-nvs,          data, nvs,     0xA000,   0x5000,
-phy_init,     data, phy,     0xF000,   0x1000,
-factory,      app,  factory, 0x10000,  0x8E000,
-otadata,      data, ota,     0x9E000,  0x2000,
-launcher,     app,  ota_0,   0xA0000,  0x240000,
-retro-core,   data, fat,     0x2E0000, 0x120000,
+# factory               - Loader firmware (persistent, never overwritten by OTA)
+# launcher              - OTA slot 0 (single-app ROM, or retro-go launcher)
+# retro-core            - FAT storage for retro-core content
+#
+nvs,      data, nvs,     0x9000,   0x5000,
+phy_init, data, phy,     0xE000,   0x1000,
+factory,  app,  factory, 0x10000,  0x1AE000,
+otadata,  data, ota,     0x1BE000, 0x2000,
+launcher, app,  ota_0,   0x1C0000, 0x220000,
+retro-core, data, fat,   0x3E0000, 0x20000,

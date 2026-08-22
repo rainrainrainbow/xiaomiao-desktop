@@ -181,6 +181,15 @@ typedef enum {
     STR_IRAM,
     STR_LANGUAGE_ZH,
     STR_LANGUAGE_EN,
+    // OTA
+    STR_OTA_IDLE,
+    STR_OTA_CHECKING,
+    STR_OTA_DOWNLOADING,
+    STR_OTA_READY,
+    STR_OTA_ERROR,
+    STR_OTA_LATEST_VERSION,
+    STR_OTA_REBOOT_HINT,
+    STR_OTA_RETRY_HINT,
     // 总数
     STR_COUNT
 } str_id_t;

@@ -1,4 +1,5 @@
 dependencies:
   lvgl/lvgl: "^9.5.0"
   esp_lvgl_port: "*"
-  espressif/freetype: "^2.14.3"
+  espressif/freetype: "^2.13.0"
+  espressif/cjson: "*"
