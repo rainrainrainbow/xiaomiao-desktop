@@ -4,6 +4,7 @@ idf_component_register(
         "lang/lang.c"
         "ui/ui_framework.c"
         "ui/event_bus.c"
+        "ui/ui_keyboard.c"
         "app/app_manager.c"
         "app/app_builtin.c"
         "app/app_settings.c"
@@ -19,24 +20,22 @@ idf_component_register(
         "app/app_settings_datetime.c"
         "app/app_settings_audio.c"
         "app/app_list.c"
-        # "app/app_editor.c" 已删除（改为MicroPython应用）
         "app/app_store.c"
         "app/app_music.c"
         "app/app_filemgr.c"
-        # "app/app_midplayer.c" 已删除
         "app/app_micropython.c"
+        "app/app_ota.c"
         "app/bg_manager.c"
         "driver/drv_button.c"
         "driver/drv_backlight.c"
         "driver/drv_battery.c"
         "driver/drv_buzzer.c"
         "driver/drv_audio_output.c"
-    "driver/drv_audio_i2s.c"
-    "driver/drv_audio_bt_a2dp.c"
-    "driver/drv_audio_decoder.c"
-    "driver/drv_lrc.c"
+        "driver/drv_audio_i2s.c"
+        "driver/drv_audio_bt_a2dp.c"
+        "driver/drv_audio_decoder.c"
+        "driver/drv_lrc.c"
         "system/sys_nvs.c"
-        # "return_to_loader.c" 已删除 — 统一使用 components/return_to_loader
         "fonts/lv_freetype_font.c"
         "../ion/display.c"
         "../ion/button.c"
@@ -61,5 +60,5 @@ idf_component_register(
         "../components/micropython/micropython/shared"
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling esp_driver_i2s bt esp_coex freetype return_to_loader
+    REQUIRES esp_driver_gpio esp_driver_spi esp_driver_ledc esp_driver_i2s esp_driver_adc esp_driver_gptimer cjson esp_http_client esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling bt esp_coex freetype return_to_loader
 )

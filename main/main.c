@@ -42,6 +42,7 @@
 // UI框架
 #include "ui/ui_framework.h"
 #include "ui/event_bus.h"  // 事件总线
+#include "ui/ui_keyboard.h"  // 虚拟键盘
 
 // 应用管理
 #include "app/app_manager.h"
@@ -1084,6 +1085,12 @@ void app_main(void)
             if (is_long && btn_event == BTN_IDX_A) {
                 bg_manager_suspend_current();
                 ui_stack_back_home();
+                continue;
+            }
+            
+            // 虚拟键盘拦截：键盘显示时，所有按键转发给键盘处理
+            if (ui_keyboard_is_visible()) {
+                ui_keyboard_on_key(btn_event);
                 continue;
             }
             

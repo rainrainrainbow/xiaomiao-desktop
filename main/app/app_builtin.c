@@ -114,6 +114,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "布局设置") == 0) return &g_layout_settings_callbacks;
     if (strcmp(app_name, "屏幕超时") == 0) return &g_sleep_settings_callbacks;
     if (strcmp(app_name, "日期时间") == 0) return &g_datetime_settings_callbacks;
+    if (strcmp(app_name, "OTA更新") == 0) return &g_ota_callbacks;
     return NULL;
 }
 

@@ -154,6 +154,15 @@ static const char *s_zh[STR_COUNT] = {
     [STR_WIFI_PASSWORD]    = "密码",
     [STR_WIFI_CHANNEL]     = "频道",
     [STR_WIFI_SCAN_HINT]   = "A=扫描",
+    // OTA
+    [STR_OTA_IDLE]         = "OTA更新",
+    [STR_OTA_CHECKING]     = "检查更新...",
+    [STR_OTA_DOWNLOADING]  = "下载固件...",
+    [STR_OTA_READY]        = "固件就绪",
+    [STR_OTA_ERROR]        = "更新失败",
+    [STR_OTA_LATEST_VERSION] = "最新版本",
+    [STR_OTA_REBOOT_HINT]  = "A=重启刷写",
+    [STR_OTA_RETRY_HINT]   = "A=重试",
 };
 
 /* ========== 英文翻译表 ========== */
@@ -316,6 +325,15 @@ static const char *s_en[STR_COUNT] = {
     [STR_WIFI_PASSWORD]    = "Password",
     [STR_WIFI_CHANNEL]     = "Channel",
     [STR_WIFI_SCAN_HINT]   = "A=Scan",
+    // OTA
+    [STR_OTA_IDLE]         = "OTA Update",
+    [STR_OTA_CHECKING]     = "Checking...",
+    [STR_OTA_DOWNLOADING]  = "Downloading...",
+    [STR_OTA_READY]        = "Firmware Ready",
+    [STR_OTA_ERROR]        = "Update Failed",
+    [STR_OTA_LATEST_VERSION] = "Latest Version",
+    [STR_OTA_REBOOT_HINT]  = "A=Reboot to Flash",
+    [STR_OTA_RETRY_HINT]   = "A=Retry",
 };
 
 static lang_id_t s_current_lang = LANG_ZH;

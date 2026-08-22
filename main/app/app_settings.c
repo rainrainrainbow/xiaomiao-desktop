@@ -29,7 +29,7 @@ static const char *TAG = "APP_SETTINGS";
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
 
-/* 设置项：17项，分组显示 */
+/* 设置项：18项，分组显示 */
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示 → 二级页面  (deprecated, use lang_get)
     "主题",       // 1
@@ -43,18 +43,19 @@ static const char *s_settings_items[] = {
     "音频输出",   // 9
     "屏幕超时",   // 10
     "日期时间",   // 11
-    "应用管理",   // 12
-    "关于系统",   // 13
-    "恢复默认",   // 14
-    "保存并退出", // 15
-    "返回Loader", // 16
+    "OTA更新",    // 12
+    "应用管理",   // 13
+    "关于系统",   // 14
+    "恢复默认",   // 15
+    "保存并退出", // 16
+    "返回Loader", // 17
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[17] = {0};
+static lv_obj_t *s_settings_labels[18] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -239,7 +240,7 @@ static void settings_init(void *data)
 static void settings_activate(void)
 {
     ESP_LOGI(TAG, "Settings app activate");
-    /* 重新构建可见行（因为从二级页面返回时可能主题/状态已变） */
+    ui_statusbar_set_title(lang_get(STR_SETTINGS));
     settings_rebuild_visible();
 }
 
@@ -368,14 +369,21 @@ static bool settings_on_key(int key)
             }
             break;
         case 12:
+            /* OTA更新 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_ota_callbacks, NULL);
+                return true;
+            }
+            break;
+        case 13:
             /* 应用管理 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
             return true;
-        case 13:
+        case 14:
             /* 关于系统 → 二级页面 */
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
-        case 14:
+        case 15:
             /* 恢复默认 */
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
@@ -385,14 +393,14 @@ static bool settings_on_key(int key)
             ESP_LOGI(TAG, "Settings reset to defaults");
             settings_rebuild_visible();
             return true;
-        case 15:
+        case 16:
             /* 保存并退出 */
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
             sys_nvs_save_font_source(st->font_source);
             ui_stack_pop();
             return true;
-        case 16:
+        case 17:
             /* 返回Loader（重启进入下载模式） */
             ESP_LOGI(TAG, "Returning to loader (download mode)...");
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,

@@ -13,6 +13,7 @@
  */
 #include "app_builtin.h"
 #include "ui_framework.h"
+#include "ui_keyboard.h"
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
@@ -206,6 +207,44 @@ static void wifi_scan(void)
 }
 
 /* ========== WiFi连接/断开 ========== */
+static int s_pending_connect_idx = -1;  /* 等待密码输入的网络索引 */
+
+/* 密码输入回调 */
+static void wifi_password_callback(const char *password, void *user_data)
+{
+    int idx = (int)(intptr_t)user_data;
+    if (idx < 0 || idx >= s_network_count) return;
+    
+    s_wifi_state = WIFI_STATE_CONNECTING;
+    s_connected_idx = -1;
+    
+    wifi_config_t wifi_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    strncpy((char*)wifi_config.sta.ssid, s_networks[idx].ssid, WIFI_SSID_MAX);
+    strncpy((char*)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+    
+    esp_err_t ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi set config failed: %s", esp_err_to_name(ret));
+        s_wifi_state = WIFI_STATE_IDLE;
+        return;
+    }
+    
+    ret = esp_wifi_connect();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi connect failed: %s", esp_err_to_name(ret));
+        s_wifi_state = WIFI_STATE_IDLE;
+        return;
+    }
+    
+    s_connected_idx = idx;
+    s_wifi_state = WIFI_STATE_CONNECTED;
+    ESP_LOGI(TAG, "Connecting to: %s with password", s_networks[idx].ssid);
+}
+
 static void wifi_connect(int idx)
 {
     if (idx < 0 || idx >= s_network_count) return;
@@ -213,35 +252,53 @@ static void wifi_connect(int idx)
     if (s_wifi_state == WIFI_STATE_OFF) return;
     ui_state_t *st = ui_state_get();
     if (!st->wifi_on) return;
-
+    
+    /* 检查是否需要密码 */
+    if (s_networks[idx].auth_mode > 0) {
+        /* 加密网络：弹出虚拟键盘输入密码 */
+        s_pending_connect_idx = idx;
+        
+        kb_config_t kb_config = {
+            .title = "WiFi Password",
+            .placeholder = "Enter password...",
+            .max_length = 64,
+            .password_mode = true,
+            .on_confirm = wifi_password_callback,
+            .on_cancel = NULL,
+            .user_data = (void*)(intptr_t)idx
+        };
+        ui_keyboard_show(&kb_config);
+        return;
+    }
+    
+    /* 开放网络：直接连接 */
     s_wifi_state = WIFI_STATE_CONNECTING;
     s_connected_idx = -1;
-
+    
     wifi_config_t wifi_config = {
         .sta = {
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            .threshold.authmode = WIFI_AUTH_OPEN,
         },
     };
     strncpy((char*)wifi_config.sta.ssid, s_networks[idx].ssid, WIFI_SSID_MAX);
-    /* 密码为空（开放网络）或后续通过输入框获取 */
-
+    
     esp_err_t ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "WiFi set config failed: %s", esp_err_to_name(ret));
         s_wifi_state = WIFI_STATE_IDLE;
         return;
     }
-
+    
     ret = esp_wifi_connect();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "WiFi connect failed: %s", esp_err_to_name(ret));
         s_wifi_state = WIFI_STATE_IDLE;
         return;
     }
-
+    
     s_connected_idx = idx;
     s_wifi_state = WIFI_STATE_CONNECTED;
-    ESP_LOGI(TAG, "Connecting to: %s", s_networks[idx].ssid);
+    ESP_LOGI(TAG, "Connecting to open network: %s", s_networks[idx].ssid);
 }
 
 static void wifi_disconnect(void)
