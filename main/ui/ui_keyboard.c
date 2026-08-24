@@ -272,6 +272,13 @@ void ui_keyboard_show(const kb_config_t *config)
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(12), 0);
             lv_obj_center(lbl);
             
+            /* OK按钮特殊样式：绿色背景，更醒目 */
+            if (r == KB_ROWS - 1 && c == KB_COLS - 1) {
+                lv_obj_set_style_bg_color(cell, lv_color_hex(0x22C55E), 0);
+                lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+                lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0);
+            }
+            
             s_kb_grid[r][c] = cell;
         }
     }
