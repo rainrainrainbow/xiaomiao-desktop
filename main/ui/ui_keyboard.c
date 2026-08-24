@@ -19,7 +19,7 @@ static const char *kb_chars_lower[] = {
     "a", "s", "d", "f", "g", "h", "j",
     "z", "x", "c", "v", "b", "n", "m",
     "1", "2", "3", "4", "5", "6", "7",
-    "8", "9", "0", " ", ".", ",", "?"
+    "8", "9", "0", " ", ".", ",", "OK"
 };
 
 static const char *kb_chars_upper[] = {
@@ -27,7 +27,7 @@ static const char *kb_chars_upper[] = {
     "A", "S", "D", "F", "G", "H", "J",
     "Z", "X", "C", "V", "B", "N", "M",
     "1", "2", "3", "4", "5", "6", "7",
-    "8", "9", "0", " ", ".", ",", "?"
+    "8", "9", "0", " ", ".", ",", "OK"
 };
 
 static const char *kb_chars_number[] = {
@@ -35,7 +35,7 @@ static const char *kb_chars_number[] = {
     "8", "9", "0", "-", "_", "=", "+",
     "!", "@", "#", "$", "%", "^", "&",
     "*", "(", ")", "[", "]", "{", "}",
-    "|", "\\", "/", ":", ";", "\"", "'"
+    "|", "\\", "/", ":", ";", "\"", "OK"
 };
 
 static const char *kb_chars_symbol[] = {
@@ -43,7 +43,7 @@ static const char *kb_chars_symbol[] = {
     "®", "™", "€", "£", "¥", "¢", "§",
     "±", "×", "÷", "≈", "≠", "≤", "≥",
     "∞", "∑", "∏", "√", "∫", "∂", "∆",
-    "←", "→", "↑", "↓", "↔", "↕", "↩"
+    "←", "→", "↑", "↓", "↔", "↕", "OK"
 };
 
 /* ========== 布局常量 ========== */
@@ -360,7 +360,15 @@ bool ui_keyboard_on_key(int key)
             s_kb_mode = (kb_mode_t)((s_kb_mode + 1) % KB_MODE_MAX);
             kb_refresh_grid();
             kb_refresh_mode();
-        } else {
+            return true;
+        }
+        /* 第五行最后一列=OK确认按钮 */
+        if (s_kb_row == KB_ROWS - 1 && s_kb_col == KB_COLS - 1) {
+            kb_confirm();
+            return true;
+        }
+        /* 其他格子：输入字符 */
+        {
             const char *ch = kb_get_char(s_kb_row, s_kb_col);
             if (ch) {
                 kb_append_char(ch);

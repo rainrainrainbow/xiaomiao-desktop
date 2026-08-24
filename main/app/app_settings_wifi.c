@@ -83,6 +83,10 @@ static int s_wifi_vis_rows = 6;
 static int s_wifi_row_h = 14;
 static int s_wifi_total = 0;
 
+/* ========== 前向声明 ========== */
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data);
+
 /* ========== WiFi驱动初始化 ========== */
 static void wifi_driver_init(void)
 {
@@ -118,6 +122,11 @@ static void wifi_driver_init(void)
         ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
         return;
     }
+
+    /* 注册WiFi事件处理 */
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    /* IP_EVENT_STA_LOST_IP 在部分ESP-IDF版本中不存在，跳过注册 */
 
     s_wifi_initialized = true;
     s_wifi_state = WIFI_STATE_IDLE;
@@ -240,8 +249,8 @@ static void wifi_password_callback(const char *password, void *user_data)
         return;
     }
     
-    s_connected_idx = idx;
-    s_wifi_state = WIFI_STATE_CONNECTED;
+    /* 注意：连接是异步的，WIFI_STATE_CONNECTING 状态会保持到 WiFi 事件回调更新 */
+    s_pending_connect_idx = idx;
     ESP_LOGI(TAG, "Connecting to: %s with password", s_networks[idx].ssid);
 }
 
@@ -296,8 +305,8 @@ static void wifi_connect(int idx)
         return;
     }
     
-    s_connected_idx = idx;
-    s_wifi_state = WIFI_STATE_CONNECTED;
+    /* 注意：连接是异步的，WIFI_STATE_CONNECTING 状态会保持到 WiFi 事件回调更新 */
+    s_pending_connect_idx = idx;
     ESP_LOGI(TAG, "Connecting to open network: %s", s_networks[idx].ssid);
 }
 
@@ -308,6 +317,62 @@ static void wifi_disconnect(void)
         s_connected_idx = -1;
         s_wifi_state = WIFI_STATE_IDLE;
         ESP_LOGI(TAG, "WiFi disconnected");
+    }
+}
+
+/* ========== WiFi事件处理 ========== */
+/* 注意：WiFi事件是异步的，连接成功后需要更新UI状态 */
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data)
+{
+    if (event_base == WIFI_EVENT) {
+        switch (event_id) {
+        case WIFI_EVENT_STA_CONNECTED:
+            ESP_LOGI(TAG, "WiFi connected to AP");
+            s_wifi_state = WIFI_STATE_CONNECTED;
+            /* 重建UI以显示连接状态 */
+            if (s_wifi_list) {
+                wifi_rebuild_visible();
+            }
+            break;
+            
+        case WIFI_EVENT_STA_DISCONNECTED:
+            ESP_LOGI(TAG, "WiFi disconnected from AP");
+            if (s_wifi_state == WIFI_STATE_CONNECTED || s_wifi_state == WIFI_STATE_CONNECTING) {
+                s_wifi_state = WIFI_STATE_IDLE;
+                s_connected_idx = -1;
+                if (s_wifi_list) {
+                    wifi_rebuild_visible();
+                }
+            }
+            break;
+            
+        case WIFI_EVENT_SCAN_DONE:
+            ESP_LOGI(TAG, "WiFi scan done (async)");
+            break;
+            
+        default:
+            break;
+        }
+    } else if (event_base == IP_EVENT) {
+        switch (event_id) {
+        case IP_EVENT_STA_GOT_IP: {
+            ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+            /* 连接成功，更新状态 */
+            if (s_pending_connect_idx >= 0) {
+                s_connected_idx = s_pending_connect_idx;
+                s_pending_connect_idx = -1;
+            }
+            s_wifi_state = WIFI_STATE_CONNECTED;
+            if (s_wifi_list) {
+                wifi_rebuild_visible();
+            }
+            break;
+        }
+        default:
+            break;
+        }
     }
 }
 
@@ -569,6 +634,9 @@ static void wifi_settings_init(void *data)
 static void wifi_settings_destroy(void)
 {
     ESP_LOGI(TAG, "WiFi settings destroy");
+    /* 取消注册事件处理 */
+    esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
+    esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler);
     s_wifi_list = NULL;
     s_wifi_switch = NULL;
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
