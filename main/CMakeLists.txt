@@ -37,6 +37,8 @@ idf_component_register(
     "driver/drv_audio_bt_a2dp.c"
     "driver/drv_audio_decoder.c"
     "driver/drv_lrc.c"
+    "driver/drv_led_strip.c"
+    "driver/drv_mic_lmd2718.c"
         "system/sys_nvs.c"
         # "return_to_loader.c" 已删除 — 统一使用 components/return_to_loader
         "fonts/lv_freetype_font.c"

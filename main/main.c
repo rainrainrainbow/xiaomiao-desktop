@@ -56,6 +56,8 @@
 #include "driver/drv_backlight.h"
 #include "driver/drv_buzzer.h"
 #include "driver/drv_audio_output.h"
+#include "driver/drv_led_strip.h"      // WS2812B LED（与蜂鸣器复用GPIO14）
+#include "driver/drv_mic_lmd2718.h"    // LMD2718 数字麦克风
 
 // 系统服务
 #include "system/sys_nvs.h"
@@ -951,7 +953,9 @@ void app_main(void)
     drv_button_init();
     drv_backlight_init();
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
-    drv_buzzer_init();   // 初始化蜂鸣器（GPIO14，LEDC PWM）
+    drv_buzzer_init();   // 初始化蜂鸣器（GPIO14，LEDC PWM，与WS2812B复用）
+    drv_led_strip_init(); // 初始化 WS2812B LED（GPIO14，RMT，与蜂鸣器复用）
+    drv_mic_init();      // 初始化 LMD2718 数字麦克风（GPIO21 DATA, GPIO15 CLK）
     audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
     
     // 启动按键任务（独立任务，5ms扫描周期）

@@ -5,8 +5,8 @@
  * 使用ESP-IDF v5.3新I2S驱动（driver/i2s_std.h）驱动外部DAC芯片。
  * 支持标准Philips I2S格式，16/24/32位，单声道/立体声，8k~96kHz。
  *
- * 引脚：BCK=GPIO26, WS=GPIO25, DOUT=GPIO33
- * 适配：CS43131, ES7134LV, MAX98357, PCM5102, UDA1334ATS
+ * 引脚（v71硬件）：BCK=GPIO25, LRCLK=GPIO32, DOUT=GPIO33
+ * 适配：NS4168, CS43131, ES7134LV, MAX98357, PCM5102, UDA1334ATS
  */
 #include "drv_audio_i2s.h"
 #include "esp_log.h"

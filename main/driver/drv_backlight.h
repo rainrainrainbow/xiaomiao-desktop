@@ -17,8 +17,8 @@
  */
 #define PIN_LCD_BL     GPIO_NUM_0      /* Backlight PWM（⚠ GPIO0 是启动引脚） */
 
-/* ========== 蜂鸣器引脚定义（LEDC PWM） ========== */
-#define PIN_BUZZER     GPIO_NUM_14     /* 蜂鸣器 PWM 引脚 */
+/* ========== 蜂鸣器引脚定义（LEDC PWM，与 WS2812B LED 复用） ========== */
+#define PIN_BUZZER     GPIO_NUM_14     /* 蜂鸣器 PWM 引脚（与 WS2812B 复用，不能同时使用） */
 
 #define LEDC_TIMER          LEDC_TIMER_0
 #define LEDC_CHANNEL        LEDC_CHANNEL_0

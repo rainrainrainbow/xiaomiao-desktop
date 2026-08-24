@@ -3,16 +3,17 @@
  * @brief I2S DAC音频后端 - 通过I2S接口驱动外部DAC芯片
  *
  * 支持的DAC芯片（硬件无关，I2S标准信号）：
+ * - NS4168 (数字功放，v71硬件)
  * - CS43131 (立创·hificat)
  * - ES7134LV / ES7148 / ES7243
  * - MAX98357 (I2S数字功放)
  * - PCM5102 / PCM5122
  * - UDA1334ATS
  *
- * 引脚连接（默认，可在配置中修改）：
- * - BCK (位时钟) = GPIO26
- * - WS  (字选择) = GPIO25  
- * - DOUT (数据)  = GPIO33
+ * 引脚连接（v71硬件，NS4168数字功放）：
+ * - BCLK (位时钟) = GPIO25
+ * - LRCLK (字选择) = GPIO32
+ * - SDA (数据)  = GPIO33
  * - MCLK (主时钟) = 未使用（DAC内部PLL或外部晶振）
  *
  * ESP32 I2S0 控制器：
@@ -31,10 +32,10 @@
 extern "C" {
 #endif
 
-/* ========== I2S引脚配置 ========== */
-#define I2S_BCK_PIN     GPIO_NUM_26     /* I2S位时钟 (Bit Clock) */
-#define I2S_WS_PIN      GPIO_NUM_25     /* I2S字选择/帧同步 (Word Select / LRCLK) */
-#define I2S_DOUT_PIN    GPIO_NUM_33     /* I2S串行数据输出 (Data Out) */
+/* ========== I2S引脚配置（v71硬件：NS4168数字功放） ========== */
+#define I2S_BCK_PIN     GPIO_NUM_25     /* I2S位时钟 (Bit Clock) — NS4168 BCLK */
+#define I2S_WS_PIN      GPIO_NUM_32     /* I2S字选择/帧同步 (Word Select / LRCLK) — NS4168 LRCLK */
+#define I2S_DOUT_PIN    GPIO_NUM_33     /* I2S串行数据输出 (Data Out) — NS4168 SDA */
 
 /* ========== I2S后端实例 ========== */
 
