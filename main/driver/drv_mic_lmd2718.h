@@ -37,6 +37,11 @@ extern "C" {
 esp_err_t drv_mic_init(void);
 
 /**
+ * @brief 反初始化，释放 I2S 通道
+ */
+esp_err_t drv_mic_deinit(void);
+
+/**
  * @brief 开始录音
  *
  * 启动 I2S 连续读取，数据通过回调函数返回。

@@ -40,7 +40,7 @@ static rmt_encoder_handle_t s_led_encoder = NULL;
 static led_rgb_t s_led_buffer[LED_STRIP_COUNT];
 static uint8_t s_brightness = 128;  /* 默认50%亮度 */
 static bool s_initialized = false;
-static bool s_breathing = false;
+static volatile bool s_breathing = false;
 
 /* ========== RMT 编码器 ========== */
 /* 使用 ESP-IDF 内置的 bytes_encoder + copy_encoder 组合 */

@@ -86,6 +86,26 @@ esp_err_t drv_mic_init(void)
     return ESP_OK;
 }
 
+esp_err_t drv_mic_deinit(void)
+{
+    if (!s_initialized) {
+        return ESP_OK;
+    }
+
+    if (s_recording) {
+        drv_mic_stop();
+    }
+
+    if (s_mic_rx_handle) {
+        i2s_del_channel(s_mic_rx_handle);
+        s_mic_rx_handle = NULL;
+    }
+
+    s_initialized = false;
+    ESP_LOGI(TAG, "LMD2718 digital mic deinitialized");
+    return ESP_OK;
+}
+
 esp_err_t drv_mic_start(void)
 {
     if (!s_initialized || !s_mic_rx_handle) {

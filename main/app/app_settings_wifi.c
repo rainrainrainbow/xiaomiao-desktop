@@ -330,6 +330,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_STA_CONNECTED:
             ESP_LOGI(TAG, "WiFi connected to AP");
             s_wifi_state = WIFI_STATE_CONNECTED;
+            /* 设置连接索引（如果 pending 中有记录） */
+            if (s_pending_connect_idx >= 0) {
+                s_connected_idx = s_pending_connect_idx;
+            }
             /* 重建UI以显示连接状态 */
             if (s_wifi_list) {
                 wifi_rebuild_visible();
