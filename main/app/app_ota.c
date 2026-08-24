@@ -311,6 +311,8 @@ static void ota_refresh(void)
 }
 
 /* 页面初始化 */
+static lv_timer_t *s_ota_timer = NULL;
+
 static void ota_init(void *data)
 {
     ESP_LOGI(TAG, "OTA app init");
@@ -350,6 +352,9 @@ static void ota_init(void *data)
     lv_obj_set_style_text_align(s_action_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(s_action_label, lv_color_hex(colors->text_dim), 0);
     
+    /* 创建定时器定期刷新UI（500ms间隔，更新进度条和状态） */
+    s_ota_timer = lv_timer_create(ota_timer_cb, 500, NULL);
+    
     /* 启动OTA检查 */
     ota_start();
 }
@@ -358,6 +363,11 @@ static void ota_init(void *data)
 static void ota_destroy(void)
 {
     ESP_LOGI(TAG, "OTA app destroy");
+    /* 销毁定时器 */
+    if (s_ota_timer) {
+        lv_timer_del(s_ota_timer);
+        s_ota_timer = NULL;
+    }
     s_ota_list = NULL;
     s_status_label = NULL;
     s_progress_bar = NULL;
