@@ -13,6 +13,7 @@
  */
 #include "drv_led_strip.h"
 #include "driver/rmt_tx.h"
+#include "driver/rmt_encoder.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
