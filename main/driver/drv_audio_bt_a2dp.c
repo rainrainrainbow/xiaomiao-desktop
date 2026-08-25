@@ -160,7 +160,7 @@ static void bt_avrc_controller_callback(esp_avrc_ct_cb_event_t event, esp_avrc_c
         ESP_LOGI(TAG, "AVRCP change notify event: %d", param->change_ntf.event_id);
         if (param->change_ntf.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
             /* 对端音量变化，更新本地缓存 */
-            s_avrc_volume = param->change_ntf.param.volume;
+            s_avrc_volume = param->change_ntf.event_parameter.volume;
             ESP_LOGI(TAG, "AVRCP volume changed by peer: %d (0x%02x)", 
                      s_avrc_volume, s_avrc_volume);
         }
@@ -186,7 +186,7 @@ static void bt_avrc_controller_callback(esp_avrc_ct_cb_event_t event, esp_avrc_c
     
     case ESP_AVRC_CT_SET_ABSOLUTE_VOLUME_RSP_EVT: {
         /* 设置绝对音量响应 */
-        uint8_t vol = param->set_volume.volume;
+        uint8_t vol = param->set_volume_rsp.volume;
         ESP_LOGI(TAG, "AVRCP set absolute volume response: %d (0x%02x)", vol, vol);
         s_avrc_volume = vol;
         break;
