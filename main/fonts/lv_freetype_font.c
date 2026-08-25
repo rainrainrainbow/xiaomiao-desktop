@@ -20,7 +20,12 @@ static const char *TAG = "FONT";
 
 /* 字体文件路径 - 支持多种大小写变体
  * 优先使用子集化字体（~260KB，适合 ESP32 资源受限环境），
- * 回退到完整版字体（8.3MB）。子集化字体由 CI 自动构建放入 retro-core 分区。 */
+ * 回退到完整版字体（8.3MB）。子集化字体由 CI 自动构建放入 retro-core 分区。
+ *
+ * 自动搜索策略：
+ * 1. 先扫描 /sdcard/Fonts 和 /sdcard/fonts 目录，使用找到的第一个 .ttf/.otf
+ * 2. 回退到 /flash/Fonts（retro-core 分区）
+ * 3. 最后尝试硬编码路径（兼容旧版 SD 卡布局） */
 #define FONT_PATH_SDCARD_1   "/sdcard/Fonts/NotoSansSC-Regular.subset.otf"
 #define FONT_PATH_SDCARD_2   "/sdcard/fonts/NotoSansSC-Regular.subset.otf"
 #define FONT_PATH_SDCARD_3   "/sdcard/Fonts/NotoSansSC-Regular.otf"
@@ -52,22 +57,57 @@ static const char* try_open_font(const char *path)
     return NULL;
 }
 
-/* 查找字体文件 - 尝试多个路径 */
+/* 扫描目录中第一个可用字体，返回路径（静态缓冲）或NULL */
+static const char* scan_first_font(const char *dir_path)
+{
+    static char s_buf[128];
+    DIR *dir = opendir(dir_path);
+    if (!dir) return NULL;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) continue;
+        if (strcasecmp(ext, ".ttf") != 0 && strcasecmp(ext, ".otf") != 0) continue;
+
+        size_t dlen = strlen(dir_path);
+        if (dlen >= 100) dlen = 100;
+        memcpy(s_buf, dir_path, dlen);
+        s_buf[dlen] = '/';
+        strncpy(s_buf + dlen + 1, entry->d_name, 127 - dlen - 1);
+        s_buf[127] = '\0';
+
+        closedir(dir);
+        ESP_LOGI(TAG, "Auto-detected font: %s", s_buf);
+        return s_buf;
+    }
+    closedir(dir);
+    return NULL;
+}
+
+/* 查找字体文件 - 自动扫描 + 硬编码路径回退 */
 static const char* find_font_file(void)
 {
     const char *path;
-    
-    /* 优先从 SD 卡加载（尝试多种大小写） */
+
+    /* 1. 自动扫描 SD 卡 Fonts 目录 */
+    if ((path = scan_first_font("/sdcard/Fonts")) != NULL) return path;
+    if ((path = scan_first_font("/sdcard/fonts")) != NULL) return path;
+
+    /* 2. 自动扫描 flash 备份目录 */
+    if ((path = scan_first_font("/flash/Fonts")) != NULL) return path;
+    if ((path = scan_first_font("/flash/fonts")) != NULL) return path;
+
+    /* 3. 回退到硬编码路径（兼容旧版 SD 卡布局） */
     if ((path = try_open_font(FONT_PATH_SDCARD_1)) != NULL) return path;
     if ((path = try_open_font(FONT_PATH_SDCARD_2)) != NULL) return path;
     if ((path = try_open_font(FONT_PATH_SDCARD_3)) != NULL) return path;
     if ((path = try_open_font(FONT_PATH_SDCARD_4)) != NULL) return path;
     if ((path = try_open_font(FONT_PATH_SDCARD_5)) != NULL) return path;
-    
-    /* 回退到 retro-core 分区 */
     if ((path = try_open_font(FONT_PATH_FLASH_1)) != NULL) return path;
     if ((path = try_open_font(FONT_PATH_FLASH_2)) != NULL) return path;
-    
+
     return NULL;
 }
 
@@ -94,21 +134,26 @@ lv_result_t lv_freetype_font_init(void)
         return LV_RESULT_OK;
     }
 
-    /* 查找字体文件 */
+    /* 查找字体文件（自动扫描 + 硬编码回退） */
     const char *font_path = find_font_file();
     if (!font_path) {
         ESP_LOGE(TAG, "Font file not found! Tried paths:");
         ESP_LOGE(TAG, "  SD: %s, %s, %s", FONT_PATH_SDCARD_1, FONT_PATH_SDCARD_2, FONT_PATH_SDCARD_3);
         ESP_LOGE(TAG, "  Flash: %s, %s", FONT_PATH_FLASH_1, FONT_PATH_FLASH_2);
-        ESP_LOGE(TAG, "Please put font file at: /sdcard/Fonts/NotoSansSC-Regular.otf");
+        ESP_LOGE(TAG, "Please put a .ttf/.otf font file at: /sdcard/Fonts/");
         return LV_RESULT_INVALID;
     }
 
-    /* 初始化 FreeType 引擎 */
+    /* 初始化 FreeType 引擎，失败时尝试 uninit + 重试一次 */
     lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
     if (res != LV_RESULT_OK) {
-        ESP_LOGE(TAG, "lv_freetype_init failed");
-        return LV_RESULT_INVALID;
+        ESP_LOGW(TAG, "lv_freetype_init failed, retrying after uninit...");
+        lv_freetype_uninit();
+        res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
+        if (res != LV_RESULT_OK) {
+            ESP_LOGE(TAG, "lv_freetype_init still failed after retry");
+            return LV_RESULT_INVALID;
+        }
     }
 
     /* 创建各尺寸字体 */
@@ -234,11 +279,16 @@ lv_result_t lv_freetype_font_load_path(const char *path)
     }
     fclose(f);
 
-    /* 若引擎未初始化，先初始化 */
+    /* 若引擎未初始化，先初始化（失败时重试一次） */
     if (!s_initialized) {
         lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
         if (res != LV_RESULT_OK) {
-            ESP_LOGE(TAG, "lv_freetype_init failed");
+            ESP_LOGW(TAG, "lv_freetype_init failed, retrying...");
+            lv_freetype_uninit();
+            res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
+        }
+        if (res != LV_RESULT_OK) {
+            ESP_LOGE(TAG, "lv_freetype_init still failed");
             return LV_RESULT_INVALID;
         }
         s_initialized = true;
