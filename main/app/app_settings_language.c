@@ -157,10 +157,9 @@ static bool lang_settings_on_key(int key)
             if (new_lang != cur) {
                 lang_set(new_lang);
                 sys_nvs_save_language(new_lang);
-                lang_refresh_checkboxes();
-                lang_refresh_label(LANG_OPTION_COUNT);
-                /* 切换语言后重新构建页面所有标签 */
-                lang_rebuild_visible();
+                /* 切换语言后返回桌面触发全 UI 重建，立即生效 */
+                ui_stack_back_home();
+                return true;
             }
         }
         return true;

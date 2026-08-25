@@ -260,6 +260,8 @@ static bool font_src_settings_on_key(int key)
                 sys_nvs_save_font_path(0);
                 sys_nvs_save_font_source(1); /* 立即持久化内置模式，重启后生效 */
                 st->font_source = 1;
+                /* 卸载 FreeType 字体，回退到内置 Montserrat 字体 */
+                lv_freetype_font_deinit();
                 ESP_LOGI(TAG, "Font changed to built-in (English)");
                 /* 返回桌面触发全 UI 重建，立即生效 */
                 ui_stack_back_home();

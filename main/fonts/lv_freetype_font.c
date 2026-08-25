@@ -265,6 +265,25 @@ int lv_freetype_font_scan(char paths[][128], int max_paths)
     return count;
 }
 
+/* ========== 卸载字体 ========== */
+
+void lv_freetype_font_deinit(void)
+{
+    if (!s_initialized) return;
+
+    /* 清空所有字体句柄，后续 lv_font_cn_*() 将回退到 Montserrat */
+    s_font_14 = NULL;
+    s_font_16 = NULL;
+    s_font_20 = NULL;
+    s_font_24 = NULL;
+    s_initialized = false;
+
+    /* 关闭 FreeType 引擎（释放所有缓存字形） */
+    lv_freetype_uninit();
+
+    ESP_LOGI(TAG, "FreeType font engine deinitialized, UI will use built-in Montserrat");
+}
+
 /* ========== 从指定路径加载字体 ========== */
 
 lv_result_t lv_freetype_font_load_path(const char *path)
