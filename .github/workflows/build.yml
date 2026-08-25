@@ -245,6 +245,12 @@ jobs:
             echo "Contents of managed_components:"
             find managed_components -name "esp.cmake" 2>/dev/null || echo "  (no esp.cmake found)"
           fi
+          # Undefine MBEDTLS_ECDSA_SIGN_ALT and MBEDTLS_ECDSA_VERIFY_ALT
+          # ESP-IDF's esp_config.h uses #ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN
+          # which is true even when =n (defined as string "n").
+          # This causes MBEDTLS_ECDSA_SIGN_ALT to be defined, which hides
+          # mbedtls_ecdsa_sign_restartable declaration in ecdsa.h.
+          export EXTRA_CFLAGS="$EXTRA_CFLAGS -UMBEDTLS_ECDSA_SIGN_ALT -UMBEDTLS_ECDSA_VERIFY_ALT"
           idf.py build -DCMAKE_C_FLAGS="$EXTRA_CFLAGS $CMAKE_C_FLAGS"
 
           # Generate merged binary compatible with xiaomiao-loader
