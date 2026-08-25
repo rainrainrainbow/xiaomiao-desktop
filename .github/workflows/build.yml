@@ -194,11 +194,12 @@ jobs:
 
       - name: Clear ccache before build (mbedtls ECP_RESTARTABLE enabled)
         run: |
-          # ECP_RESTARTABLE must stay ENABLED (CONFIG_MBEDTLS_ECP_RESTARTABLE=y in sdkconfig.defaults)
-          # because disabling it breaks mbedtls_ecdsa_sign_det_restartable which references
-          # mbedtls_ecdsa_sign that is only compiled when ECP_RESTARTABLE is enabled.
+          # ECP_RESTARTABLE must stay ENABLED in sdkconfig.defaults
+          # because mbedtls_ecdsa_sign is only compiled when ECP_RESTARTABLE is enabled.
+          # ECDSA_DETERMINISTIC is disabled so psa_crypto.c can call
+          # mbedtls_ecdsa_sign_restartable (non-deterministic version).
           # IRAM overflow is solved via CONFIG_ESP_SYSTEM_ESP32_SRAM1_REGION_AS_IRAM=y (+32KB).
-          echo "ECP_RESTARTABLE left enabled. Clearing ccache to force full recompilation."
+          echo "ECP_RESTARTABLE enabled. Clearing ccache to force full recompilation."
           ccache -C || true
           echo "ccache cleared."
 

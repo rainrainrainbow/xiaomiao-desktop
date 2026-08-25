@@ -107,15 +107,13 @@ CONFIG_ESP_NETIF_L2_TUNNEL=n
 # 禁用ESP-TLS debug
 CONFIG_ESP_TLS_USE_DS_PERIPHERAL=n
 # mbedtls ECP 重启功能（可恢复签名）
-# 已禁用硬件ECC(CONFIG_MBEDTLS_HARDWARE_ECC=n)和ATCA(CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN=n)，
-# 因此 MBEDTLS_ECDSA_SIGN_ALT/VERIFY_ALT 不会被定义，不会产生 ALT 冲突。
-# 关键：当 ECP_RESTARTABLE 启用时，psa_crypto.c 会调用非确定性的
-#   mbedtls_ecdsa_sign_restartable / mbedtls_ecdsa_verify_restartable，
-# 但 MBEDTLS_ECDSA_DETERMINISTIC(默认y)启用时 ecdsa.c 只编译确定性的
-#   mbedtls_ecdsa_sign_det_restartable，导致 implicit declaration 编译错误。
-# 因此这里禁用 ECP_RESTARTABLE，让 psa_crypto 走 mbedtls_ecdsa_sign 分支，
-# 同时还能节省 IRAM。
-# CONFIG_MBEDTLS_ECP_RESTARTABLE is not set
+# 必须启用！因为 mbedtls_ecdsa_sign 函数只在 ECP_RESTARTABLE 启用时编译。
+# 禁用 ECP_RESTARTABLE 会导致 mbedtls_ecdsa_sign_det_restartable 调用
+# mbedtls_ecdsa_sign 时链接失败（undefined reference）。
+# 同时禁用 ECDSA_DETERMINISTIC，让 ecdsa.c 编译非确定性版本
+# (mbedtls_ecdsa_sign_restartable)，供 psa_crypto.c 调用。
+CONFIG_MBEDTLS_ECP_RESTARTABLE=y
+CONFIG_MBEDTLS_ECDSA_DETERMINISTIC=n
 
 # mbedtls 配置：启用 ECDSA（解决 undefined reference to mbedtls_ecdsa_sign）
 CONFIG_MBEDTLS_ECDSA_C=y
