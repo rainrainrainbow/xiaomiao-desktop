@@ -28,6 +28,7 @@ idf_component_register(
         "app/app_micropython.c"
         "app/bg_manager.c"
         "app/app_ota.c"
+        "app/app_led.c"
         "driver/drv_button.c"
         "driver/drv_backlight.c"
         "driver/drv_battery.c"

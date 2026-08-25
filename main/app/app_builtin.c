@@ -64,6 +64,13 @@ static const app_def_t s_builtin_app_defs[] = {
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
+    {
+        .name = "灯效",
+        .icon_text = LV_SYMBOL_EDIT,
+        .icon_color = 0xF59E0B,
+        .type = APP_TYPE_BUILTIN,
+        .launch_cb = NULL,
+    },
 };
 
 #define BUILTIN_APP_COUNT (sizeof(s_builtin_app_defs) / sizeof(s_builtin_app_defs[0]))
@@ -81,6 +88,7 @@ const char* app_builtin_get_display_name(const char *internal_name)
     if (strcmp(internal_name, "音乐") == 0) return lang_get(STR_APP_MUSIC);
     if (strcmp(internal_name, "Python") == 0) return lang_get(STR_APP_PYTHON);
     if (strcmp(internal_name, "文件") == 0) return lang_get(STR_APP_FILES);
+    if (strcmp(internal_name, "灯效") == 0) return "灯效";
     if (strcmp(internal_name, "应用") == 0) return lang_get(STR_APP_APPS);
     return internal_name; /* 回退到原始名称 */
 }
@@ -104,6 +112,7 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     if (strcmp(app_name, "Python") == 0) return app_micropython_get_callbacks();
     if (strcmp(app_name, "文件") == 0) return &g_filemgr_callbacks;
     /* MID播放器已删除 */
+    if (strcmp(app_name, "灯效") == 0) return &g_led_callbacks;
     if (strcmp(app_name, "WiFi设置") == 0) return &g_wifi_settings_callbacks;
     if (strcmp(app_name, "字体设置") == 0) return &g_font_settings_callbacks;
     if (strcmp(app_name, "字库选择") == 0) return &g_font_source_settings_callbacks;
