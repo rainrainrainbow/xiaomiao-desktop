@@ -95,51 +95,64 @@ static void ota_check_latest_version(void)
     }
     
     esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        if (status_code == 200) {
-            /* 读取响应内容（限制最大读取 sizeof(response_buffer)-1 字节） */
-            int read_len = esp_http_client_read_response(client, response_buffer, sizeof(response_buffer) - 1);
-            if (read_len > 0) {
-                response_buffer[read_len] = '\0';  /* 确保字符串终止 */
-                /* 解析JSON */
-                cJSON *root = cJSON_Parse(response_buffer);
-                if (root != NULL) {
-                    cJSON *tag_name = cJSON_GetObjectItem(root, "tag_name");
-                    if (cJSON_IsString(tag_name)) {
-                        strncpy(s_latest_version, tag_name->valuestring, sizeof(s_latest_version) - 1);
-                        ESP_LOGI(TAG, "Latest version: %s", s_latest_version);
-                        
-                        /* 查找固件下载链接 */
-                        cJSON *assets = cJSON_GetObjectItem(root, "assets");
-                        if (cJSON_IsArray(assets)) {
-                            cJSON *asset = NULL;
-                            cJSON_ArrayForEach(asset, assets) {
-                                cJSON *name = cJSON_GetObjectItem(asset, "name");
-                                if (cJSON_IsString(name) && strcmp(name->valuestring, FIRMWARE_FILENAME) == 0) {
-                                    cJSON *url = cJSON_GetObjectItem(asset, "browser_download_url");
-                                    if (cJSON_IsString(url)) {
-                                        strncpy(s_download_url, url->valuestring, sizeof(s_download_url) - 1);
-                                        ESP_LOGI(TAG, "Download URL: %s", s_download_url);
-                                        s_ota_state = OTA_STATE_DOWNLOADING;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
+        s_ota_state = OTA_STATE_ERROR;
+        esp_http_client_cleanup(client);
+        return;
+    }
+    
+    int status_code = esp_http_client_get_status_code(client);
+    if (status_code != 200) {
+        ESP_LOGE(TAG, "HTTP request failed with status %d", status_code);
+        s_ota_state = OTA_STATE_ERROR;
+        esp_http_client_cleanup(client);
+        return;
+    }
+    
+    /* 读取响应内容（限制最大读取 sizeof(response_buffer)-1 字节） */
+    int read_len = esp_http_client_read_response(client, response_buffer, sizeof(response_buffer) - 1);
+    if (read_len <= 0) {
+        ESP_LOGE(TAG, "Failed to read response");
+        s_ota_state = OTA_STATE_ERROR;
+        esp_http_client_cleanup(client);
+        return;
+    }
+    response_buffer[read_len] = '\0';  /* 确保字符串终止 */
+    
+    /* 解析JSON */
+    cJSON *root = cJSON_Parse(response_buffer);
+    if (root == NULL) {
+        ESP_LOGE(TAG, "Failed to parse JSON response");
+        s_ota_state = OTA_STATE_ERROR;
+        esp_http_client_cleanup(client);
+        return;
+    }
+    
+    cJSON *tag_name = cJSON_GetObjectItem(root, "tag_name");
+    if (cJSON_IsString(tag_name)) {
+        strncpy(s_latest_version, tag_name->valuestring, sizeof(s_latest_version) - 1);
+        ESP_LOGI(TAG, "Latest version: %s", s_latest_version);
+        
+        /* 查找固件下载链接 */
+        cJSON *assets = cJSON_GetObjectItem(root, "assets");
+        if (cJSON_IsArray(assets)) {
+            cJSON *asset = NULL;
+            cJSON_ArrayForEach(asset, assets) {
+                cJSON *name = cJSON_GetObjectItem(asset, "name");
+                if (cJSON_IsString(name) && strcmp(name->valuestring, FIRMWARE_FILENAME) == 0) {
+                    cJSON *url = cJSON_GetObjectItem(asset, "browser_download_url");
+                    if (cJSON_IsString(url)) {
+                        strncpy(s_download_url, url->valuestring, sizeof(s_download_url) - 1);
+                        ESP_LOGI(TAG, "Download URL: %s", s_download_url);
+                        s_ota_state = OTA_STATE_DOWNLOADING;
                     }
-                    cJSON_Delete(root);
+                    break;
                 }
             }
         }
-    } else {
-        ESP_LOGE(TAG, "HTTP request failed with status %d", status_code);
-        s_ota_state = OTA_STATE_ERROR;
     }
-} else {
-    ESP_LOGE(TAG, "HTTP perform failed: %s", esp_err_to_name(err));
-    s_ota_state = OTA_STATE_ERROR;
-}
+    cJSON_Delete(root);
     
     esp_http_client_cleanup(client);
 }
