@@ -388,6 +388,9 @@ static bool settings_on_key(int key)
             st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
             st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
             st->sleep_timeout = 60; st->font_source = 0;
+            /* 清空用户选择的字体路径并立即持久化，确保重启后恢复默认字体 */
+            sys_nvs_save_font_path(0);
+            sys_nvs_save_font_source(0);
             drv_backlight_set_brightness(st->brightness);
             ui_theme_set(st->theme);
             ESP_LOGI(TAG, "Settings reset to defaults");

@@ -244,37 +244,32 @@ lv_result_t lv_freetype_font_load_path(const char *path)
         s_initialized = true;
     }
 
-    /* 销毁旧字体（若已加载） */
-    if (s_font_14) {
-        lv_freetype_font_delete(s_font_14);
-        s_font_14 = NULL;
-    }
-    if (s_font_16) {
-        lv_freetype_font_delete(s_font_16);
-        s_font_16 = NULL;
-    }
-    if (s_font_20) {
-        lv_freetype_font_delete(s_font_20);
-        s_font_20 = NULL;
-    }
-    if (s_font_24) {
-        lv_freetype_font_delete(s_font_24);
-        s_font_24 = NULL;
-    }
-
-    /* 创建各尺寸字体 */
-    s_font_14 = create_freetype_font(path, 14);
-    s_font_16 = create_freetype_font(path, 16);
-    s_font_20 = create_freetype_font(path, 20);
-    s_font_24 = create_freetype_font(path, 24);
-
-    /* 至少 14px 字体必须成功 */
-    if (!s_font_14) {
+    /* 先创建新字体（全部成功后再原子替换，失败时保留旧字体，避免系统字体瘫痪） */
+    lv_font_t *new_14 = create_freetype_font(path, 14);
+    if (!new_14) {
         ESP_LOGE(TAG, "Failed to create 14px FreeType font from %s", path);
-        /* 标记为未初始化，下一次 init 会重试 */
-        s_initialized = false;
         return LV_RESULT_INVALID;
     }
+    lv_font_t *new_16 = create_freetype_font(path, 16);
+    lv_font_t *new_20 = create_freetype_font(path, 20);
+    lv_font_t *new_24 = create_freetype_font(path, 24);
+    if (!new_16) new_16 = new_14;
+    if (!new_20) new_20 = new_16;
+    if (!new_24) new_24 = new_20;
+
+    /*
+     * 原子替换全局字体指针。
+     *
+     * 注意：不立即 lv_freetype_font_delete 旧字体对象！
+     * 因为已创建的界面（桌面、设置页等）的 label 仍引用旧字体指针，
+     * 删除会导致悬空指针/崩溃。旧字体对象保留（少量内存泄漏可接受，
+     * 本设备有 8MB PSRAM；用户切换字体频率低），由调用方随后触发
+     * 全 UI 重建（ui_stack_back_home），新页面将使用新字体。
+     */
+    s_font_14 = new_14;
+    s_font_16 = new_16;
+    s_font_20 = new_20;
+    s_font_24 = new_24;
 
     ESP_LOGI(TAG, "Font reloaded from: %s (%dpx/%dpx/%dpx/%dpx)", path, 14, 16, 20, 24);
     return LV_RESULT_OK;
