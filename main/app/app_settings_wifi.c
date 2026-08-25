@@ -86,6 +86,7 @@ static int s_wifi_total = 0;
 /* ========== 前向声明 ========== */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data);
+static void wifi_rebuild_visible(void);
 
 /* ========== WiFi驱动初始化 ========== */
 static void wifi_driver_init(void)
