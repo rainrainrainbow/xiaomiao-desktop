@@ -74,6 +74,15 @@ int lv_freetype_font_scan(char paths[][128], int max_paths);
  */
 void lv_freetype_font_deinit(void);
 
+/**
+ * @brief 从指定路径加载 FreeType 字体
+ * 若字体引擎尚未初始化，则自动初始化；
+ * 销毁旧字体（若已加载），从新路径加载各尺寸字体。
+ * @param path 字体文件完整路径（如 /sdcard/Fonts/MyFont.ttf）
+ * @return LV_RESULT_OK 成功，LV_RESULT_INVALID 失败
+ */
+lv_result_t lv_freetype_font_load_path(const char *path);
+
 #ifdef __cplusplus
 }
 #endif
