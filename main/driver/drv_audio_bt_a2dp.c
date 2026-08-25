@@ -30,6 +30,9 @@ static const char *TAG = "BT_A2DP";
 static bool s_bt_initialized = false;
 static bool s_a2dp_connected = false;
 static bool s_a2dp_sink_started = false;
+static bool s_avrc_connected = false;
+static uint8_t s_avrc_volume = 50;  /* 当前AVRCP音量 (0-0x7f) */
+static uint8_t s_avrc_tl = 0;       /* AVRCP事务标签 */
 static char s_peer_name[32] = {0};
 
 /* ========== 蓝牙GAP回调 ========== */
@@ -131,9 +134,17 @@ static void bt_a2dp_sink_callback(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *
 static void bt_avrc_controller_callback(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param)
 {
     switch (event) {
-    case ESP_AVRC_CT_CONNECTION_STATE_EVT:
-        ESP_LOGI(TAG, "AVRCP connection state: %d", param->conn_stat.connected);
+    case ESP_AVRC_CT_CONNECTION_STATE_EVT: {
+        bool connected = param->conn_stat.connected;
+        s_avrc_connected = connected;
+        ESP_LOGI(TAG, "AVRCP connection state: %d", connected);
+        
+        if (connected) {
+            /* 获取对端设备支持的AVRCP通知事件能力 */
+            esp_avrc_ct_send_get_rn_capabilities_cmd(++s_avrc_tl);
+        }
         break;
+    }
     
     case ESP_AVRC_CT_PASSTHROUGH_RSP_EVT:
         ESP_LOGD(TAG, "AVRCP passthrough response received");
@@ -143,6 +154,44 @@ static void bt_avrc_controller_callback(esp_avrc_ct_cb_event_t event, esp_avrc_c
         ESP_LOGI(TAG, "AVRCP metadata response");
         /* 可以在这里处理歌曲信息 */
         break;
+    
+    case ESP_AVRC_CT_CHANGE_NOTIFY_EVT: {
+        /* 对端设备通知状态变化（如音量变化） */
+        ESP_LOGI(TAG, "AVRCP change notify event: %d", param->change_ntfy.event_id);
+        if (param->change_ntfy.event_id == ESP_AVRC_RN_VOLUME_CHANGE) {
+            /* 对端音量变化，更新本地缓存 */
+            s_avrc_volume = param->change_ntfy.event_parameter.volume;
+            ESP_LOGI(TAG, "AVRCP volume changed by peer: %d (0x%02x)", 
+                     s_avrc_volume, s_avrc_volume);
+        }
+        break;
+    }
+    
+    case ESP_AVRC_CT_REMOTE_FEATURES_EVT: {
+        /* 获取对端设备支持的特性 */
+        ESP_LOGI(TAG, "AVRCP remote features: 0x%lx", 
+                 (unsigned long)param->rmt_feats.features);
+        /* 注册音量变化通知 */
+        esp_avrc_ct_send_register_notification_cmd(
+            ++s_avrc_tl, ESP_AVRC_RN_VOLUME_CHANGE, 0);
+        break;
+    }
+    
+    case ESP_AVRC_CT_GET_RN_CAPABILITIES_RSP_EVT: {
+        /* 获取对端通知能力响应 */
+        ESP_LOGI(TAG, "AVRCP remote notification capabilities received");
+        /* 请求对端设备特性 */
+        /* 特性会自动通过 REMOTE_FEATURES_EVT 上报 */
+        break;
+    }
+    
+    case ESP_AVRC_CT_SET_ABSOLUTE_VOLUME_RSP_EVT: {
+        /* 设置绝对音量响应 */
+        uint8_t vol = param->set_volume.volume;
+        ESP_LOGI(TAG, "AVRCP set absolute volume response: %d (0x%02x)", vol, vol);
+        s_avrc_volume = vol;
+        break;
+    }
     
     default:
         ESP_LOGD(TAG, "AVRCP event: %d", event);
@@ -310,20 +359,31 @@ static void bt_a2dp_backend_flush(void)
 
 static esp_err_t bt_a2dp_backend_set_volume(uint8_t vol)
 {
-    /* A2DP Sink的音量控制需要发送AVRCP命令到手机端 */
-    /* 这里简化处理，实际可以通过AVRCP Absolute Volume或Relative Volume命令 */
-    ESP_LOGD(TAG, "A2DP set volume: %d", vol);
+    /* 将 0-100 音量映射到 AVRCP 绝对音量范围 0-0x7f */
+    uint8_t avrc_vol = (vol * 0x7f) / 100;
+    if (avrc_vol > 0x7f) avrc_vol = 0x7f;
     
-    /* TODO: 实现AVRCP音量控制命令 */
-    /* esp_avrc_ct_send_set_absolute_volume_cmd(vol / 127); */
+    ESP_LOGD(TAG, "A2DP set volume: %d (0x%02x)", vol, avrc_vol);
+    
+    /* 更新本地缓存 */
+    s_avrc_volume = avrc_vol;
+    
+    /* 通过AVRCP发送绝对音量命令到手机端 */
+    if (s_avrc_connected) {
+        esp_err_t err = esp_avrc_ct_send_set_absolute_volume_cmd(++s_avrc_tl, avrc_vol);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "AVRCP set absolute volume failed: %s", esp_err_to_name(err));
+        }
+        return err;
+    }
     
     return ESP_OK;
 }
 
 static uint8_t bt_a2dp_backend_get_volume(void)
 {
-    /* 返回当前音量（简化实现） */
-    return 50;
+    /* 将 AVRCP 绝对音量 (0-0x7f) 映射回 0-100 */
+    return (s_avrc_volume * 100) / 0x7f;
 }
 
 static bool bt_a2dp_backend_is_available(void)
