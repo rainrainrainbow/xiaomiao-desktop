@@ -35,4 +35,5 @@ __pycache__/
 *.d
 
 # IDF Component Manager
-managed_components/
+managed_components/sdkconfig
+sdkconfig.old

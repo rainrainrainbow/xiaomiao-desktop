@@ -252,6 +252,9 @@ jobs:
             -DMICROPY_PY_MACHINE_SOFTI2C=0 \
             -Wno-maybe-uninitialized"
 
+          # Delete stale sdkconfig (committed in git with ATCA_HW_ECDSA_SIGN=y)
+          # so reconfigure cleanly regenerates from sdkconfig.defaults
+          rm -f sdkconfig
           # Resolve and build
           idf.py reconfigure
           # Patch LVGL's esp.cmake after reconfigure (managed_components are downloaded)
