@@ -273,7 +273,7 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
             max_samples = remaining;
         }
 
-        uint8_t *u8_buf = (uint8_t *)heap_caps_malloc(max_samples, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        uint8_t *u8_buf = (uint8_t *)heap_caps_malloc(max_samples, MALLOC_CAP_SPIRAM);
         if (!u8_buf) {
             ESP_LOGE(TAG, "Failed to allocate 8-bit buffer (%zu bytes)", max_samples);
             return ESP_ERR_NO_MEM;

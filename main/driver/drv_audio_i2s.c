@@ -217,7 +217,7 @@ static esp_err_t i2s_backend_write(const void *data, size_t len)
 
     if (gain < 1.0f - 0.001f) {
         /* 需要应用音量调整，复制数据到临时缓冲区 */
-        void *vol_buf = heap_caps_malloc(len, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        void *vol_buf = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
         if (!vol_buf) {
             ESP_LOGW(TAG, "Volume buffer alloc failed (%zu bytes), writing raw", len);
             size_t bytes_written = 0;
