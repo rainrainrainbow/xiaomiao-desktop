@@ -48,8 +48,9 @@ static volatile bool s_breathing = false;
 typedef struct {
     rmt_encoder_t base;
     rmt_encoder_t *bytes_encoder;
-    rmt_encoder_t *copy_encoder;
     int state;
+    size_t cur_pixel;   /* 当前处理的像素索引 */
+    size_t cur_byte;    /* 当前处理的字节索引 (0=G, 1=R, 2=B) */
 } led_encoder_t;
 
 static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channel,
@@ -58,46 +59,62 @@ static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channe
 {
     led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-    rmt_encode_state_t state = RMT_ENCODING_RESET;
     size_t encoded_size = 0;
 
-    /* 编码 RGB 数据为 RMT 符号 */
     const led_rgb_t *pixels = (const led_rgb_t *)primary_data;
     int num_pixels = data_size / sizeof(led_rgb_t);
 
+    if (num_pixels <= 0) {
+        *ret_state = RMT_ENCODING_COMPLETE;
+        return 0;
+    }
+
     switch (led_enc->state) {
-    case 0: /* 发送像素数据 */
-        for (int i = 0; i < num_pixels; i++) {
-            /* WS2812B 使用 GRB 顺序，先发 G 再 R 再 B */
+    case 0: /* 发送像素数据 (GRB 顺序) */
+        while (led_enc->cur_pixel < (size_t)num_pixels) {
+            /* 计算带亮度调整的 GRB 值 */
             uint8_t grb[3] = {
-                (uint8_t)(pixels[i].g * s_brightness / 255),
-                (uint8_t)(pixels[i].r * s_brightness / 255),
-                (uint8_t)(pixels[i].b * s_brightness / 255),
+                (uint8_t)(pixels[led_enc->cur_pixel].g * s_brightness / 255),
+                (uint8_t)(pixels[led_enc->cur_pixel].r * s_brightness / 255),
+                (uint8_t)(pixels[led_enc->cur_pixel].b * s_brightness / 255),
             };
-            for (int j = 0; j < 3; j++) {
-                size_t size = led_enc->bytes_encoder->encode(
-                    led_enc->bytes_encoder, channel, &grb[j], 1, &session_state);
-                encoded_size += size;
-                if (session_state & RMT_ENCODING_COMPLETE) {
-                    break;
-                }
+
+            /* 编码当前字节 */
+            size_t size = led_enc->bytes_encoder->encode(
+                led_enc->bytes_encoder, channel, &grb[led_enc->cur_byte], 1, &session_state);
+            encoded_size += size;
+
+            /* 移动到下一个字节/像素 */
+            led_enc->cur_byte++;
+            if (led_enc->cur_byte >= 3) {
+                led_enc->cur_byte = 0;
+                led_enc->cur_pixel++;
+            }
+
+            /* 如果本次编码未完成，返回让 RMT 继续请求数据 */
+            if (!(session_state & RMT_ENCODING_COMPLETE)) {
+                *ret_state = RMT_ENCODING_INCOMPLETE;
+                return encoded_size;
             }
         }
-        if (encoded_size == 0) {
-            state |= RMT_ENCODING_COMPLETE;
-        }
+        /* 所有像素发送完毕，进入复位阶段 */
         led_enc->state = 1;
-        break;
-    case 1: /* 发送复位信号 */
-        state |= RMT_ENCODING_COMPLETE;
+        led_enc->cur_pixel = 0;
+        led_enc->cur_byte = 0;
+        /* fall through */
+
+    case 1: /* 发送复位信号 (>50us 低电平) */
+        /* WS2812B 复位信号：至少 50us 的低电平 */
+        /* 这里不需要额外编码，RMT 在传输完成后会自动保持 eot_level=0 */
         led_enc->state = 0;
+        *ret_state = RMT_ENCODING_COMPLETE;
         break;
+
     default:
-        state |= RMT_ENCODING_ERROR;
+        *ret_state = RMT_ENCODING_ERROR;
         break;
     }
 
-    *ret_state = state;
     return encoded_size;
 }
 
@@ -106,9 +123,6 @@ static esp_err_t rmt_del_led_encoder(rmt_encoder_t *encoder)
     led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
     if (led_enc->bytes_encoder) {
         rmt_del_encoder(led_enc->bytes_encoder);
-    }
-    if (led_enc->copy_encoder) {
-        rmt_del_encoder(led_enc->copy_encoder);
     }
     free(led_enc);
     return ESP_OK;
@@ -120,10 +134,9 @@ static esp_err_t rmt_led_encoder_reset(rmt_encoder_t *encoder)
     if (led_enc->bytes_encoder) {
         rmt_encoder_reset(led_enc->bytes_encoder);
     }
-    if (led_enc->copy_encoder) {
-        rmt_encoder_reset(led_enc->copy_encoder);
-    }
     led_enc->state = 0;
+    led_enc->cur_pixel = 0;
+    led_enc->cur_byte = 0;
     return ESP_OK;
 }
 

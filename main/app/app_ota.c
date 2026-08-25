@@ -28,6 +28,7 @@ typedef enum {
     OTA_STATE_CHECKING,
     OTA_STATE_DOWNLOADING,
     OTA_STATE_READY,
+    OTA_STATE_FLASHING,
     OTA_STATE_ERROR
 } ota_state_t;
 
@@ -230,6 +231,137 @@ static void ota_download_firmware(void)
     }
 }
 
+/* 从SD卡刷写固件到OTA分区 */
+static void ota_flash_from_sdcard(void)
+{
+    ESP_LOGI(TAG, "Flashing firmware from SD card...");
+    
+    FILE *fp = fopen(FIRMWARE_PATH, "rb");
+    if (fp == NULL) {
+        ESP_LOGE(TAG, "Failed to open firmware file: %s", FIRMWARE_PATH);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    /* 获取文件大小 */
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    if (file_size <= 0) {
+        ESP_LOGE(TAG, "Invalid firmware file size: %ld", file_size);
+        fclose(fp);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Firmware size: %ld bytes", file_size);
+    
+    /* 获取launcher(ota_0)分区 */
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP,
+        ESP_PARTITION_SUBTYPE_APP_OTA_0,
+        "launcher"
+    );
+    
+    if (partition == NULL) {
+        ESP_LOGE(TAG, "Failed to find launcher partition");
+        fclose(fp);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Target partition: %s (offset=0x%lx, size=%lu)", 
+             partition->label, (unsigned long)partition->address, (unsigned long)partition->size);
+    
+    /* 验证固件大小是否适合分区 */
+    if ((size_t)file_size > partition->size) {
+        ESP_LOGE(TAG, "Firmware too large for partition: %ld > %lu", file_size, (unsigned long)partition->size);
+        fclose(fp);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    /* 开始OTA更新 */
+    esp_ota_handle_t update_handle = 0;
+    esp_err_t err = esp_ota_begin(partition, file_size, &update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
+        fclose(fp);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    /* 分配读取缓冲区 */
+    uint8_t *buf = malloc(4096);
+    if (!buf) {
+        ESP_LOGE(TAG, "Failed to allocate flash buffer");
+        esp_ota_abort(update_handle);
+        fclose(fp);
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    /* 分块读取并写入 */
+    int total_written = 0;
+    while (1) {
+        size_t read_len = fread(buf, 1, 4096, fp);
+        if (read_len == 0) break;
+        
+        err = esp_ota_write(update_handle, buf, read_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
+            free(buf);
+            esp_ota_abort(update_handle);
+            fclose(fp);
+            s_ota_state = OTA_STATE_ERROR;
+            return;
+        }
+        
+        total_written += read_len;
+        
+        /* 更新进度 */
+        if (file_size > 0) {
+            s_download_progress = (total_written * 100) / file_size;
+            if (s_download_progress > 100) s_download_progress = 100;
+        }
+        
+        /* 每10%打印一次日志 */
+        static int last_log_progress = -1;
+        if (s_download_progress >= last_log_progress + 10) {
+            ESP_LOGI(TAG, "Flash progress: %d%% (%d/%ld KB)", 
+                     s_download_progress, total_written / 1024, file_size / 1024);
+            last_log_progress = s_download_progress;
+        }
+    }
+    
+    free(buf);
+    fclose(fp);
+    
+    /* 完成OTA更新 */
+    err = esp_ota_end(update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end failed: %s", esp_err_to_name(err));
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    /* 设置启动分区 */
+    err = esp_ota_set_boot_partition(partition);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+    
+    ESP_LOGI(TAG, "OTA flash complete! New boot partition: %s", partition->label);
+    ESP_LOGI(TAG, "Rebooting in 2 seconds...");
+    
+    /* 延迟2秒后重启 */
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+}
+
 /* OTA任务 */
 static void ota_task(void *pvParameters)
 {
@@ -285,6 +417,9 @@ static void ota_refresh(void)
             break;
         case OTA_STATE_READY:
             status_text = lang_get(STR_OTA_READY);
+            break;
+        case OTA_STATE_FLASHING:
+            status_text = "Flashing...";
             break;
         case OTA_STATE_ERROR:
             status_text = lang_get(STR_OTA_ERROR);
@@ -399,8 +534,11 @@ static bool ota_on_key(int key)
             /* 重新开始OTA */
             ota_start();
         } else if (s_ota_state == OTA_STATE_READY) {
-            /* 提示重启 */
-            ESP_LOGI(TAG, "Firmware ready, please reboot to loader to flash");
+            /* 开始刷写固件 */
+            ESP_LOGI(TAG, "Starting firmware flash from SD card...");
+            s_ota_state = OTA_STATE_FLASHING;
+            s_download_progress = 0;
+            ota_flash_from_sdcard();
         }
         return true;
     }
