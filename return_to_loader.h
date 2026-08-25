@@ -19,6 +19,9 @@
  * flashed directly to factory via esptool), this function is a no-op.
  */
 
+#ifndef RETURN_TO_LOADER_H
+#define RETURN_TO_LOADER_H
+
 #pragma once
 
 #include "esp_ota_ops.h"
@@ -34,3 +37,5 @@ static inline void return_to_loader_setup(void)
     if (fac)
         esp_ota_set_boot_partition(fac);
 }
+
+#endif /* RETURN_TO_LOADER_H */
