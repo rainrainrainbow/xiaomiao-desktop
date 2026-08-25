@@ -44,7 +44,7 @@ static bool s_initialized = false;
 static volatile bool s_breathing = false;
 
 /* ========== RMT 编码器 ========== */
-/* 使用 ESP-IDF 内置的 bytes_encoder + copy_encoder 组合 */
+/* 使用 ESP-IDF 内置的 bytes_encoder */
 typedef struct {
     rmt_encoder_t base;
     rmt_encoder_t *bytes_encoder;
@@ -53,39 +53,57 @@ typedef struct {
 } led_encoder_t;
 
 static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channel,
-                             const void *data, size_t data_size,
+                             const void *primary_data, size_t data_size,
                              rmt_encode_state_t *ret_state)
 {
-    led_encoder_t *led_enc = (led_encoder_t *)encoder;
+    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
     rmt_encode_state_t session_state = RMT_ENCODING_RESET;
+    rmt_encode_state_t state = RMT_ENCODING_RESET;
     size_t encoded_size = 0;
 
     /* 编码 RGB 数据为 RMT 符号 */
-    led_rgb_t *pixels = (led_rgb_t *)data;
+    const led_rgb_t *pixels = (const led_rgb_t *)primary_data;
     int num_pixels = data_size / sizeof(led_rgb_t);
 
-    /* 为每个像素构建 24 位 GRB 数据 */
-    for (int i = 0; i < num_pixels; i++) {
-        /* WS2812B 使用 GRB 顺序，先发 G 再 R 再 B */
-        uint8_t grb[3] = {
-            pixels[i].g * s_brightness / 255,
-            pixels[i].r * s_brightness / 255,
-            pixels[i].b * s_brightness / 255,
-        };
-        for (int j = 0; j < 3; j++) {
-            /* 使用 bytes_encoder 编码每个字节 */
-            encoded_size += led_enc->bytes_encoder->encode(
-                led_enc->bytes_encoder, channel, &grb[j], 1, &session_state);
+    switch (led_enc->state) {
+    case 0: /* 发送像素数据 */
+        for (int i = 0; i < num_pixels; i++) {
+            /* WS2812B 使用 GRB 顺序，先发 G 再 R 再 B */
+            uint8_t grb[3] = {
+                (uint8_t)(pixels[i].g * s_brightness / 255),
+                (uint8_t)(pixels[i].r * s_brightness / 255),
+                (uint8_t)(pixels[i].b * s_brightness / 255),
+            };
+            for (int j = 0; j < 3; j++) {
+                size_t size = led_enc->bytes_encoder->encode(
+                    led_enc->bytes_encoder, channel, &grb[j], 1, &session_state);
+                encoded_size += size;
+                if (session_state & RMT_ENCODING_COMPLETE) {
+                    break;
+                }
+            }
         }
+        if (encoded_size == 0) {
+            state |= RMT_ENCODING_COMPLETE;
+        }
+        led_enc->state = 1;
+        break;
+    case 1: /* 发送复位信号 */
+        state |= RMT_ENCODING_COMPLETE;
+        led_enc->state = 0;
+        break;
+    default:
+        state |= RMT_ENCODING_ERROR;
+        break;
     }
 
-    *ret_state = session_state;
+    *ret_state = state;
     return encoded_size;
 }
 
 static esp_err_t rmt_del_led_encoder(rmt_encoder_t *encoder)
 {
-    led_encoder_t *led_enc = (led_encoder_t *)encoder;
+    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
     if (led_enc->bytes_encoder) {
         rmt_del_encoder(led_enc->bytes_encoder);
     }
@@ -98,13 +116,14 @@ static esp_err_t rmt_del_led_encoder(rmt_encoder_t *encoder)
 
 static esp_err_t rmt_led_encoder_reset(rmt_encoder_t *encoder)
 {
-    led_encoder_t *led_enc = (led_encoder_t *)encoder;
+    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
     if (led_enc->bytes_encoder) {
         rmt_encoder_reset(led_enc->bytes_encoder);
     }
     if (led_enc->copy_encoder) {
         rmt_encoder_reset(led_enc->copy_encoder);
     }
+    led_enc->state = 0;
     return ESP_OK;
 }
 
