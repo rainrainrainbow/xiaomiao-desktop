@@ -292,39 +292,10 @@ jobs:
             0x8000 build/partition_table/partition-table.bin \
             0x10000 build/xiaomiao-desktop.bin
 
-      - name: Build retro-core partition with subsetted font
-        run: |
-          echo "=== Building retro-core FAT partition image ==="
-          # Source ESP-IDF environment (provides correct python3 + pip)
-          . /opt/esp/idf/export.sh
-          # Install needed tools
-          apt-get update -qq
-          apt-get install -y -qq mtools dosfstools 2>&1 | tail -5
-          pip install fonttools brotli 2>&1 | tail -5
-          # Run the build script (downloads NotoSansSC, subsets to project chars,
-          # creates FAT12 retro-core.img, skip merge_bin since we do it manually below)
-          python3 scripts/build_retro_core.py --skip-merge 2>&1
-
-      - name: Generate full firmware binary (with retro-core)
-        run: |
-          echo "=== Generating full firmware binary (with retro-core partition) ==="
-          . /opt/esp/idf/export.sh
-          python3 -m esptool --chip esp32 merge_bin \
-            --flash_mode qio \
-            --flash_freq 80m \
-            --flash_size 4MB \
-            --output xiaomiao-desktop-full.bin \
-            0x1000 build/bootloader/bootloader.bin \
-            0x8000 build/partition_table/partition-table.bin \
-            0x10000 build/xiaomiao-desktop.bin \
-            0x2E0000 retro-core.img
-
       - name: Show build artifacts
         run: |
           ls -lh build/
-          ls -lh retro-core.img
           ls -lh xiaomiao-desktop-merged.bin
-          ls -lh xiaomiao-desktop-full.bin
           echo "--- Build Summary ---"
           python3 << 'EOF'
           import os
@@ -332,7 +303,7 @@ jobs:
           if os.path.exists(elf):
               size = os.path.getsize(elf)
               print(f'Firmware ELF: {size // 1024} KB')
-          for f in ['retro-core.img', 'xiaomiao-desktop-merged.bin', 'xiaomiao-desktop-full.bin']:
+          for f in ['xiaomiao-desktop-merged.bin']:
               if os.path.exists(f):
                   size = os.path.getsize(f)
                   print(f'{f}: {size // 1024} KB ({size} bytes)')
@@ -519,8 +490,6 @@ jobs:
             build/${{ env.PROJECT_NAME }}.elf
             build/${{ env.PROJECT_NAME }}.map
             xiaomiao-desktop-merged.bin
-            xiaomiao-desktop-full.bin
-            retro-core.img
             build/flash_args
             build/ota_data_initial.bin
             build/config/sdkconfig.json
@@ -682,8 +651,6 @@ jobs:
           prerelease: false
           files: |
             ./artifacts/xiaomiao-desktop-merged.bin
-            ./artifacts/xiaomiao-desktop-full.bin
-            ./artifacts/retro-core.img
             ./artifacts/bootloader.bin
             ./artifacts/partition-table.bin
             ./artifacts/${{ env.PROJECT_NAME }}.bin

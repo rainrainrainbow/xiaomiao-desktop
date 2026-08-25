@@ -2,14 +2,15 @@
 # Flash: 4MB QIO 80MHz, partition table at 0x8000
 #
 # factory      - Loader firmware (persistent, never overwritten by OTA)
-# launcher     - ROM slot 0 (single-app ROM, or retro-go launcher) - subtype=ota_0
-# retro-core   - 用作存储空间 (fat/数据分区) - 原为 ota_1
+# launcher     - OTA slot (合并后的单个大 ota_0 分区，覆盖原 launcher + retro-core 空间)
 # otadata      - Boot selection
+#
+# 说明：原 launcher (ota_0, 0x240000) 与 retro-core (原 ota_1/fat, 0x120000)
+#       已合并为单个 ota_0 (0x360000 = 3.375MB)，固件空间充足。
 
 # Name,       Type, SubType, Offset,   Size,     Flags
 nvs,          data, nvs,     0xA000,   0x5000,
 phy_init,     data, phy,     0xF000,   0x1000,
 factory,      app,  factory, 0x10000,  0x8E000,
 otadata,      data, ota,     0x9E000,  0x2000,
-launcher,     app,  ota_0,   0xA0000,  0x240000,
-retro-core,   data, fat,     0x2E0000, 0x120000,
+launcher,     app,  ota_0,   0xA0000,  0x360000,
