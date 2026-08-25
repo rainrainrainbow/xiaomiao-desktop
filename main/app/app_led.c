@@ -17,6 +17,8 @@
 #include "esp_log.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <math.h>
 
