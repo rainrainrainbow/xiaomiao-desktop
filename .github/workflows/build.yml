@@ -192,7 +192,7 @@ jobs:
             exit 1
           fi
 
-- name: Patch esp_config.h to undef MBEDTLS_ECDSA_SIGN_ALT when ATCA disabled
+      - name: Patch esp_config.h to undef MBEDTLS_ECDSA_SIGN_ALT when ATCA disabled
         run: |
           # ESP-IDF's esp_config.h uses #ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN
           # which is true even when =n (defined as string "n").
