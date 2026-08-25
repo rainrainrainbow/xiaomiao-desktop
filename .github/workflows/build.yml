@@ -199,19 +199,22 @@ jobs:
           # This causes MBEDTLS_ECDSA_SIGN_ALT to be defined, hiding
           # mbedtls_ecdsa_sign_restartable declaration in ecdsa.h.
           # Fix: replace #ifdef with #if so =n evaluates to false.
-          ESP_CONFIG="/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
-          if [ -f "$ESP_CONFIG" ]; then
-            echo "Patching $ESP_CONFIG ..."
-            sed -i 's/^#ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN$/#if CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN/' "$ESP_CONFIG"
-            sed -i 's/^#ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_VERIFY$/#if CONFIG_MBEDTLS_ATCA_HW_ECDSA_VERIFY/' "$ESP_CONFIG"
-            # Also patch HARDWARE_ECC section
-            sed -i 's/^#ifdef CONFIG_MBEDTLS_HARDWARE_ECC$/#if CONFIG_MBEDTLS_HARDWARE_ECC/' "$ESP_CONFIG"
-            echo "Patched successfully."
-            grep -n 'CONFIG_MBEDTLS_ATCA_HW_ECDSA\\|CONFIG_MBEDTLS_HARDWARE_ECC' "$ESP_CONFIG" | head -10
-          else
-            echo "ERROR: $ESP_CONFIG not found!"
-            exit 1
-          fi
+          python3 << 'PATCH_EOF'
+          import re
+          filepath = "/opt/esp/idf/components/mbedtls/port/include/mbedtls/esp_config.h"
+          with open(filepath, 'r') as f:
+              content = f.read()
+          content = content.replace('#ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN', '#if CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN')
+          content = content.replace('#ifdef CONFIG_MBEDTLS_ATCA_HW_ECDSA_VERIFY', '#if CONFIG_MBEDTLS_ATCA_HW_ECDSA_VERIFY')
+          content = content.replace('#ifdef CONFIG_MBEDTLS_HARDWARE_ECC', '#if CONFIG_MBEDTLS_HARDWARE_ECC')
+          with open(filepath, 'w') as f:
+              f.write(content)
+          print("Patched successfully.")
+          # Verify
+          for line in open(filepath):
+              if 'CONFIG_MBEDTLS_ATCA_HW_ECDSA_SIGN' in line or 'CONFIG_MBEDTLS_HARDWARE_ECC' in line:
+                  print(line.rstrip())
+          PATCH_EOF
 
       - name: Clear ccache before build (mbedtls ECP_RESTARTABLE enabled)
         run: |
