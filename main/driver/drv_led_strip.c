@@ -93,7 +93,7 @@ static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channe
 
             /* 如果本次编码未完成，返回让 RMT 继续请求数据 */
             if (!(session_state & RMT_ENCODING_COMPLETE)) {
-                *ret_state = RMT_ENCODING_INCOMPLETE;
+                *ret_state = RMT_ENCODING_RESET;
                 return encoded_size;
             }
         }
@@ -111,7 +111,7 @@ static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channe
         break;
 
     default:
-        *ret_state = RMT_ENCODING_ERROR;
+        *ret_state = RMT_ENCODING_RESET;
         break;
     }
 
