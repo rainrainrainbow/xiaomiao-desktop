@@ -31,6 +31,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "crash_screen.h"
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "freertos/FreeRTOS.h"
@@ -997,6 +998,9 @@ void app_main(void)
     
     // 初始化LCD
     esp_lcd_panel_io_handle_t io = lcd_init();
+    
+    // 注册崩溃蓝屏 LCD IO（供 panic handler 使用）
+    crash_screen_set_lcd_io(io);
     
     // 启动画面：直接填充蓝色确认LCD工作正常
     lcd_show_splash(io, 0x001F);  // 蓝色纯色
