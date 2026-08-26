@@ -182,6 +182,12 @@ static const char *s_zh[STR_COUNT] = {
     [STR_LED_COLOR_WHITE]  = "白",
     [STR_LED_COLOR_SEP]    = "─── 颜色 ───",
     [STR_LED_BRIGHTNESS]   = "亮度",
+    [STR_STATUS_READY]         = "就绪",
+    [STR_STATUS_NOT_READY]     = "未就绪",
+    [STR_FONT_ENGINE_FREETYPE] = "FreeType",
+    [STR_FONT_ENGINE_BUILTIN]  = "内置",
+    [STR_MEM_MIN_FREE]         = "最低空闲",
+    [STR_MEM_MAX_BLOCK]        = "最大块",
 };
 
 /* ========== 英文翻译表 ========== */
@@ -372,6 +378,12 @@ static const char *s_en[STR_COUNT] = {
     [STR_LED_COLOR_WHITE]  = "White",
     [STR_LED_COLOR_SEP]    = "─── Colors ───",
     [STR_LED_BRIGHTNESS]   = "Brightness",
+    [STR_STATUS_READY]         = "Ready",
+    [STR_STATUS_NOT_READY]     = "Not Ready",
+    [STR_FONT_ENGINE_FREETYPE] = "FreeType",
+    [STR_FONT_ENGINE_BUILTIN]  = "Built-in",
+    [STR_MEM_MIN_FREE]         = "Min Free",
+    [STR_MEM_MAX_BLOCK]        = "Max Block",
 };
 
 static lang_id_t s_current_lang = LANG_ZH;

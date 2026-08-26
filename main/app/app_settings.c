@@ -83,7 +83,7 @@ static void settings_refresh_label(int idx)
     }
     case 6: {
         snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT_SOURCE),
-                 st->font_source == 0 ? "FreeType" : lang_get(STR_FONT_SOURCE_BUILTIN));
+                 st->font_source == 0 ? lang_get(STR_FONT_ENGINE_FREETYPE) : lang_get(STR_FONT_SOURCE_BUILTIN));
         break;
     }
     case 7: {
@@ -137,6 +137,11 @@ static void settings_rebuild_visible(void)
     for (int i = 0; i < vis_rows && (s_settings_scroll + i) < SETTINGS_ITEM_COUNT; i++) {
         int idx = s_settings_scroll + i;
         lv_obj_t *row = lv_obj_create(s_settings_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_settings_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_settings_row_h);
@@ -148,6 +153,11 @@ static void settings_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! idx=%d mem free=%lu", idx,
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         /* 设置页面的字体根据 font_size 自适应 */
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
@@ -160,6 +170,11 @@ static void settings_rebuild_visible(void)
         /* 第8行（声音开关）：添加LVGL开关组件 */
         if (idx == 8) {
             lv_obj_t *sw = lv_switch_create(row);
+            if (!sw) {
+                ESP_LOGE(TAG, "lv_switch_create(sw) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_obj_remove_style_all(sw);
             /* 开关背景 */
             lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
@@ -227,6 +242,11 @@ static void settings_init(void *data)
     lv_coord_t list_y = ui_content_y();
     
     s_settings_list = lv_obj_create(scr);
+    if (!s_settings_list) {
+        ESP_LOGE(TAG, "lv_obj_create(settings_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_settings_list);
     lv_obj_set_pos(s_settings_list, 0, list_y);
     lv_obj_set_size(s_settings_list, LCD_H_RES, LCD_V_RES - list_y - DOCK_H);
@@ -476,12 +496,22 @@ static void about_rebuild_visible(void)
     for (int i = 0; i < vis && (s_about_scroll + i) < s_about_total; i++) {
         int idx = s_about_scroll + i;
         lv_obj_t *row = lv_obj_create(s_about_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(about_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_about_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_about_row_h);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(about_lbl) failed! idx=%d mem free=%lu", idx,
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         /* 关于页面的字体根据 font_size 自适应 */
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
@@ -498,9 +528,9 @@ static void about_rebuild_visible(void)
             case 3: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_CHIP), "ESP32-WROVER-B"); break;
             case 4: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SCREEN), "ST7735 160x128"); break;
             case 5: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_PYTHON),
-                             poincare_runtime_is_ready() ? "Ready" : "Not Ready"); break;
+                             poincare_runtime_is_ready() ? lang_get(STR_STATUS_READY) : lang_get(STR_STATUS_NOT_READY)); break;
             case 6: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT_ENGINE),
-                             lv_freetype_font_is_ready() ? "FreeType" : "Built-in"); break;
+                             lv_freetype_font_is_ready() ? lang_get(STR_FONT_ENGINE_FREETYPE) : lang_get(STR_FONT_ENGINE_BUILTIN)); break;
             case 7: {
                 float vbat = drv_battery_get_voltage();
                 if (vbat >= BAT_MIN_VALID_V) {
@@ -518,10 +548,12 @@ static void about_rebuild_visible(void)
                 size_t used_dram = total_dram - free_dram;
                 size_t minfree_dram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
                 size_t lrg_dram = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
-                snprintf(buf, sizeof(buf), "DRAM %lu/%luK 低%lu 大%lu",
+                snprintf(buf, sizeof(buf), "DRAM %lu/%luK %s:%lu %s:%lu",
                          (unsigned long)(used_dram / 1024),
                          (unsigned long)(total_dram / 1024),
+                         lang_get(STR_MEM_MIN_FREE),
                          (unsigned long)(minfree_dram / 1024),
+                         lang_get(STR_MEM_MAX_BLOCK),
                          (unsigned long)(lrg_dram / 1024));
                 break;
             }
@@ -533,11 +565,13 @@ static void about_rebuild_visible(void)
                     size_t used_psram = total_psram - free_psram;
                     size_t minfree_psram = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
                     size_t lrg_psram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
-                    snprintf(buf, sizeof(buf), "%s %lu/%luK 低%lu 大%lu",
+                    snprintf(buf, sizeof(buf), "%s %lu/%luK %s:%lu %s:%lu",
                              lang_get(STR_PSRAM),
                              (unsigned long)(used_psram / 1024),
                              (unsigned long)(total_psram / 1024),
+                             lang_get(STR_MEM_MIN_FREE),
                              (unsigned long)(minfree_psram / 1024),
+                             lang_get(STR_MEM_MAX_BLOCK),
                              (unsigned long)(lrg_psram / 1024));
                 } else {
                     snprintf(buf, sizeof(buf), "%s N/A", lang_get(STR_PSRAM));
@@ -551,11 +585,13 @@ static void about_rebuild_visible(void)
                 size_t used_iram = total_iram - free_iram;
                 size_t minfree_iram = heap_caps_get_minimum_free_size(MALLOC_CAP_EXEC);
                 size_t lrg_iram = heap_caps_get_largest_free_block(MALLOC_CAP_EXEC);
-                snprintf(buf, sizeof(buf), "%s %lu/%luK 低%lu 大%lu",
+                snprintf(buf, sizeof(buf), "%s %lu/%luK %s:%lu %s:%lu",
                          lang_get(STR_IRAM),
                          (unsigned long)(used_iram / 1024),
                          (unsigned long)(total_iram / 1024),
+                         lang_get(STR_MEM_MIN_FREE),
                          (unsigned long)(minfree_iram / 1024),
+                         lang_get(STR_MEM_MAX_BLOCK),
                          (unsigned long)(lrg_iram / 1024));
                 break;
             }
@@ -565,10 +601,11 @@ static void about_rebuild_visible(void)
                 size_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
                 size_t lrg8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
                 size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
-                snprintf(buf, sizeof(buf), "%s %lu/%luK 大%lu DMA%lu",
+                snprintf(buf, sizeof(buf), "%s %lu/%luK %s:%lu DMA%lu",
                          lang_get(STR_MEMORY),
                          (unsigned long)(free8 / 1024),
                          (unsigned long)(total8 / 1024),
+                         lang_get(STR_MEM_MAX_BLOCK),
                          (unsigned long)(lrg8 / 1024),
                          (unsigned long)(free_dma / 1024));
                 break;
@@ -638,6 +675,11 @@ static void about_init(void *data)
     lv_coord_t list_y = ui_content_y();
 
     s_about_obj = lv_obj_create(scr);
+    if (!s_about_obj) {
+        ESP_LOGE(TAG, "lv_obj_create(about_obj) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_about_obj);
     lv_obj_set_pos(s_about_obj, 0, list_y);
     lv_obj_set_size(s_about_obj, LCD_H_RES, LCD_V_RES - list_y - DOCK_H);

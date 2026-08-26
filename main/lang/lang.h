@@ -209,6 +209,13 @@ typedef enum {
     STR_LED_COLOR_WHITE,
     STR_LED_COLOR_SEP,
     STR_LED_BRIGHTNESS,
+    // 设置-关于系统：状态/字体引擎/内存信息
+    STR_STATUS_READY,        // Python 就绪
+    STR_STATUS_NOT_READY,    // Python 未就绪
+    STR_FONT_ENGINE_FREETYPE,// 字体引擎: FreeType
+    STR_FONT_ENGINE_BUILTIN, // 字体引擎: 内置
+    STR_MEM_MIN_FREE,        // 内存最低空闲
+    STR_MEM_MAX_BLOCK,       // 内存最大连续块
     // 总数
     STR_COUNT
 } str_id_t;

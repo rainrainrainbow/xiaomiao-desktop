@@ -11,6 +11,7 @@
 #include "ui_framework.h"
 #include "app/app_manager.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
@@ -399,6 +400,12 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     const theme_colors_t *colors = ui_theme_colors();
     
     lv_obj_t *bar = lv_obj_create(parent);
+    if (!bar) {
+        ESP_LOGE(TAG, "lv_obj_create(statusbar) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        s_ui_state.statusbar = NULL;
+        return NULL;
+    }
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, 0);
     lv_obj_set_size(bar, LCD_H_RES, ui_statusbar_h());
@@ -408,32 +415,50 @@ lv_obj_t* ui_statusbar_create(lv_obj_t *parent)
     
     // 品牌名/应用名（英文，使用默认字体避免乱码）
     lv_obj_t *brand = lv_label_create(bar);
-    // 如果当前有应用在运行，显示应用名；否则显示品牌名
-    const char *app_name = app_manager_get_current_name();
-    if (app_name) {
-        lv_label_set_text(brand, app_name);
+    if (!brand) {
+        ESP_LOGE(TAG, "lv_label_create(statusbar_brand) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        s_ui_state.brand_label = NULL;
     } else {
-        lv_label_set_text(brand, "XiaoMiaoOS");
+        // 如果当前有应用在运行，显示应用名；否则显示品牌名
+        const char *app_name = app_manager_get_current_name();
+        if (app_name) {
+            lv_label_set_text(brand, app_name);
+        } else {
+            lv_label_set_text(brand, "XiaoMiaoOS");
+        }
+        lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
+        lv_obj_set_width(brand, LCD_H_RES - 90);  /* 左侧品牌名区（避开中间时间+右侧电池） */
+        lv_label_set_long_mode(brand, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
+        s_ui_state.brand_label = brand;
     }
-    lv_obj_set_style_text_color(brand, lv_color_hex(colors->text), 0);
-    lv_obj_set_width(brand, LCD_H_RES - 90);  /* 左侧品牌名区（避开中间时间+右侧电池） */
-    lv_label_set_long_mode(brand, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(brand, LV_ALIGN_LEFT_MID, 4, 0);
-    s_ui_state.brand_label = brand;
     
     // 时间标签
     lv_obj_t *time = lv_label_create(bar);
-    lv_label_set_text(time, "00:00");
-    lv_obj_set_style_text_color(time, lv_color_hex(colors->text), 0);
-    lv_obj_align(time, LV_ALIGN_CENTER, 0, 0);
-    s_ui_state.time_label = time;
+    if (!time) {
+        ESP_LOGE(TAG, "lv_label_create(statusbar_time) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        s_ui_state.time_label = NULL;
+    } else {
+        lv_label_set_text(time, "00:00");
+        lv_obj_set_style_text_color(time, lv_color_hex(colors->text), 0);
+        lv_obj_align(time, LV_ALIGN_CENTER, 0, 0);
+        s_ui_state.time_label = time;
+    }
     
     // 电池标签
     lv_obj_t *bat = lv_label_create(bar);
-    lv_label_set_text(bat, "100%");
-    lv_obj_set_style_text_color(bat, lv_color_hex(colors->text), 0);
-    lv_obj_align(bat, LV_ALIGN_RIGHT_MID, -4, 0);
-    s_ui_state.bat_label = bat;
+    if (!bat) {
+        ESP_LOGE(TAG, "lv_label_create(statusbar_bat) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        s_ui_state.bat_label = NULL;
+    } else {
+        lv_label_set_text(bat, "100%");
+        lv_obj_set_style_text_color(bat, lv_color_hex(colors->text), 0);
+        lv_obj_align(bat, LV_ALIGN_RIGHT_MID, -4, 0);
+        s_ui_state.bat_label = bat;
+    }
     
     s_ui_state.statusbar = bar;
     return bar;
@@ -473,6 +498,11 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
     const theme_colors_t *colors = ui_theme_colors();
     
     lv_obj_t *dock = lv_obj_create(parent);
+    if (!dock) {
+        ESP_LOGE(TAG, "lv_obj_create(dock) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return NULL;
+    }
     lv_obj_remove_style_all(dock);
     lv_obj_set_pos(dock, 0, LCD_V_RES - DOCK_H);
     lv_obj_set_size(dock, LCD_H_RES, DOCK_H);
@@ -485,6 +515,11 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
         int dot_spacing = LCD_H_RES / (total_pages + 1);
         for (int i = 0; i < total_pages; i++) {
             lv_obj_t *dot = lv_obj_create(dock);
+            if (!dot) {
+                ESP_LOGE(TAG, "lv_obj_create(dot) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_obj_remove_style_all(dot);
             lv_obj_set_size(dot, 4, 4);
             lv_obj_set_pos(dot, dot_spacing * (i + 1) - 2, 2);
@@ -510,6 +545,11 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     if (title_h < 14) title_h = 14;
     
     lv_obj_t *bar = lv_obj_create(parent);
+    if (!bar) {
+        ESP_LOGE(TAG, "lv_obj_create(titlebar) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return NULL;
+    }
     lv_obj_remove_style_all(bar);
     lv_obj_set_pos(bar, 0, y);
     lv_obj_set_size(bar, LCD_H_RES, title_h);
@@ -518,6 +558,11 @@ lv_obj_t* ui_titlebar_create(lv_obj_t *parent, lv_coord_t y, const char *text)
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *lbl = lv_label_create(bar);
+    if (!lbl) {
+        ESP_LOGE(TAG, "lv_label_create(titlebar_lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return bar;
+    }
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
     // 标题为中文，使用统一中文字体（优先FreeType，回退内置），根据字体大小自适应
