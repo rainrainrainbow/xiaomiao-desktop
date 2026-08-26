@@ -6,6 +6,7 @@
  * 显示可用字体列表供用户选择，支持"内置(英文)"选项。
  * 用户选择后保存字体路径索引到 NVS。
  */
+#include "esp_heap_caps.h"
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"

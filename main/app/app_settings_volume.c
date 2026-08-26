@@ -5,6 +5,7 @@
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_volume_settings_callbacks。
  * 提供0%-100%的音量调节，使用 lv_slider 滑块组件，左右键步进10%，A键确认返回。
  */
+#include "esp_heap_caps.h"
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"

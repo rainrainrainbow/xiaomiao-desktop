@@ -5,6 +5,7 @@
  * 架构说明：独立应用文件，通过 app_builtin.h 暴露 g_font_settings_callbacks。
  * 提供4种字体大小（14px/16px/20px/24px）的选择和实时预览。
  */
+#include "esp_heap_caps.h"
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"

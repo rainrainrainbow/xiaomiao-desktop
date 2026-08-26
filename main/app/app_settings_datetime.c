@@ -6,6 +6,7 @@
  * 显示当前日期时间，提供NTP同步功能（通过SNTP协议从网络获取时间）。
  * 需要WiFi已连接才能进行NTP同步。
  */
+#include "esp_heap_caps.h"
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"
