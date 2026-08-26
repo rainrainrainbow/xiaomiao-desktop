@@ -74,6 +74,7 @@ static const char *s_zh[STR_COUNT] = {
     [STR_APP_MID]         = "MID播放器",
     [STR_APP_PYTHON]      = "Python",
     [STR_APP_APPS]        = "应用",
+    [STR_APP_LED]         = "灯效",
     [STR_APP_TYPE_BUILTIN] = "内置",
     [STR_APP_TYPE_PYTHON]  = "Python",
     [STR_AUDIO_OUTPUT]     = "音频输出",
@@ -163,6 +164,24 @@ static const char *s_zh[STR_COUNT] = {
     [STR_OTA_LATEST_VERSION] = "最新版本",
     [STR_OTA_REBOOT_HINT]  = "A=重启刷写",
     [STR_OTA_RETRY_HINT]   = "A=重试",
+    // 灯效
+    [STR_LED_EFFECT_OFF]   = "关闭",
+    [STR_LED_EFFECT_STATIC]= "单色常亮",
+    [STR_LED_EFFECT_BREATH]= "呼吸灯",
+    [STR_LED_EFFECT_RAINBOW]="彩虹渐变",
+    [STR_LED_EFFECT_FLOW]  = "流光溢彩",
+    [STR_LED_EFFECT_BLINK] = "闪烁",
+    [STR_LED_COLOR_RED]    = "红",
+    [STR_LED_COLOR_ORANGE] = "橙",
+    [STR_LED_COLOR_YELLOW] = "黄",
+    [STR_LED_COLOR_GREEN]  = "绿",
+    [STR_LED_COLOR_CYAN]   = "青",
+    [STR_LED_COLOR_BLUE]   = "蓝",
+    [STR_LED_COLOR_PURPLE] = "紫",
+    [STR_LED_COLOR_PINK]   = "粉",
+    [STR_LED_COLOR_WHITE]  = "白",
+    [STR_LED_COLOR_SEP]    = "─── 颜色 ───",
+    [STR_LED_BRIGHTNESS]   = "亮度",
 };
 
 /* ========== 英文翻译表 ========== */
@@ -232,6 +251,7 @@ static const char *s_en[STR_COUNT] = {
     [STR_APP_MID]         = "MID Player",
     [STR_APP_PYTHON]      = "Python",
     [STR_APP_APPS]        = "Apps",
+    [STR_APP_LED]         = "LED",
     [STR_APP_TYPE_BUILTIN] = "Built-in",
     [STR_APP_TYPE_PYTHON]  = "Python",
     // 设置项名称
@@ -334,6 +354,24 @@ static const char *s_en[STR_COUNT] = {
     [STR_OTA_LATEST_VERSION] = "Latest Version",
     [STR_OTA_REBOOT_HINT]  = "A=Reboot to Flash",
     [STR_OTA_RETRY_HINT]   = "A=Retry",
+    // 灯效
+    [STR_LED_EFFECT_OFF]   = "Off",
+    [STR_LED_EFFECT_STATIC]= "Static",
+    [STR_LED_EFFECT_BREATH]= "Breath",
+    [STR_LED_EFFECT_RAINBOW]="Rainbow",
+    [STR_LED_EFFECT_FLOW]  = "Flow",
+    [STR_LED_EFFECT_BLINK] = "Blink",
+    [STR_LED_COLOR_RED]    = "Red",
+    [STR_LED_COLOR_ORANGE] = "Orange",
+    [STR_LED_COLOR_YELLOW] = "Yellow",
+    [STR_LED_COLOR_GREEN]  = "Green",
+    [STR_LED_COLOR_CYAN]   = "Cyan",
+    [STR_LED_COLOR_BLUE]   = "Blue",
+    [STR_LED_COLOR_PURPLE] = "Purple",
+    [STR_LED_COLOR_PINK]   = "Pink",
+    [STR_LED_COLOR_WHITE]  = "White",
+    [STR_LED_COLOR_SEP]    = "─── Colors ───",
+    [STR_LED_BRIGHTNESS]   = "Brightness",
 };
 
 static lang_id_t s_current_lang = LANG_ZH;

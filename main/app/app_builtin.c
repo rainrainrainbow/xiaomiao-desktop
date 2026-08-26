@@ -88,7 +88,7 @@ const char* app_builtin_get_display_name(const char *internal_name)
     if (strcmp(internal_name, "音乐") == 0) return lang_get(STR_APP_MUSIC);
     if (strcmp(internal_name, "Python") == 0) return lang_get(STR_APP_PYTHON);
     if (strcmp(internal_name, "文件") == 0) return lang_get(STR_APP_FILES);
-    if (strcmp(internal_name, "灯效") == 0) return "灯效";
+    if (strcmp(internal_name, "灯效") == 0) return lang_get(STR_APP_LED);
     if (strcmp(internal_name, "应用") == 0) return lang_get(STR_APP_APPS);
     return internal_name; /* 回退到原始名称 */
 }
