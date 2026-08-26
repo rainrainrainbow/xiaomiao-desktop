@@ -107,6 +107,11 @@ static void font_src_rebuild_visible(void)
         if (idx < s_font_count) {
             /* 字体文件项：使用复选框 */
             lv_obj_t *cb = lv_checkbox_create(row);
+            if (!cb) {
+                ESP_LOGE(TAG, "lv_checkbox_create(cb) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             /* 提取文件名（不含路径） */
             const char *fname = strrchr(s_font_paths[idx], '/');
             if (fname) fname++; else fname = s_font_paths[idx];
@@ -185,12 +190,17 @@ static void font_src_settings_init(void *data)
 
     /* 底部状态提示标签 */
     s_font_src_status = lv_label_create(scr);
-    lv_obj_set_style_text_font(s_font_src_status, lv_font_cn_get(font_px), 0);
-    lv_obj_set_style_text_color(s_font_src_status, lv_color_hex(0x22C55E), 0);
-    lv_obj_set_width(s_font_src_status, LCD_H_RES - 4);
-    lv_label_set_long_mode(s_font_src_status, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_pos(s_font_src_status, 2, LCD_V_RES - DOCK_H - 12);
-    lv_obj_add_flag(s_font_src_status, LV_OBJ_FLAG_HIDDEN);
+    if (!s_font_src_status) {
+        ESP_LOGE(TAG, "lv_label_create(s_font_src_status) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_set_style_text_font(s_font_src_status, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_color(s_font_src_status, lv_color_hex(0x22C55E), 0);
+        lv_obj_set_width(s_font_src_status, LCD_H_RES - 4);
+        lv_label_set_long_mode(s_font_src_status, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_pos(s_font_src_status, 2, LCD_V_RES - DOCK_H - 12);
+        lv_obj_add_flag(s_font_src_status, LV_OBJ_FLAG_HIDDEN);
+    }
 
     /* 找到当前选中的选项 */
     int cur_idx = sys_nvs_load_font_path(); /* 0=内置, 1+=字体索引+1 */
