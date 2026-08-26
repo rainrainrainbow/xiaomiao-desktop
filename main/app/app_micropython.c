@@ -17,6 +17,7 @@
 #include "poincare/mp_xiaomiao.h"
 #include "driver/drv_button.h"   /* drv_button_get_event 供注入 */
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -160,6 +161,7 @@ void app_micropython_on_tick(void)
             lv_obj_t *scr = lv_screen_active();
             if (scr) {
                 lv_obj_t *err_lbl = lv_label_create(scr);
+                if (err_lbl) {
                 /* 截断错误信息到屏幕可显示的长度 */
                 char buf[128];
                 strncpy(buf, s_py_error_msg, sizeof(buf) - 1);
@@ -175,8 +177,9 @@ void app_micropython_on_tick(void)
                 lv_label_set_long_mode(err_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
                 lv_obj_align(err_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H - 2);
                 ESP_LOGI(TAG, "Error displayed on screen: %s", buf);
+                }
             }
-        }
+}
         
         /* 在 main 任务上下文操作 LVGL：无效化 canvas 并强制刷新 */
         lv_obj_invalidate(s_py_canvas);
@@ -285,32 +288,34 @@ static void python_app_activate(void)
         }
 
         lv_obj_t *canvas = lv_canvas_create(scr);
-        lv_obj_remove_style_all(canvas);
-        lv_obj_set_pos(canvas, 0, content_y);
-        lv_obj_set_size(canvas, LCD_H_RES, content_h);
-        lv_obj_clear_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
-        lv_canvas_set_buffer(canvas, fb, LCD_H_RES, content_h, LV_COLOR_FORMAT_RGB565_SWAPPED);
-        lv_obj_set_style_bg_color(canvas, lv_color_hex(colors->bg), 0);
-        lv_obj_set_style_bg_opa(canvas, LV_OPA_COVER, 0);
-
-        s_py_canvas = canvas;
+        if (!canvas) {
+            ESP_LOGE(TAG, "lv_canvas_create(canvas) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        } else {
+            lv_obj_remove_style_all(canvas);
+            lv_obj_set_pos(canvas, 0, content_y);
+            lv_obj_set_size(canvas, LCD_H_RES, content_h);
+            lv_obj_clear_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
+            lv_canvas_set_buffer(canvas, fb, LCD_H_RES, content_h, LV_COLOR_FORMAT_RGB565_SWAPPED);
+            lv_obj_set_style_bg_color(canvas, lv_color_hex(colors->bg), 0);
+            lv_obj_set_style_bg_opa(canvas, LV_OPA_COVER, 0);
+            s_py_canvas = canvas;
+        }
         s_py_running_app = true;
-
         /* 注册 flush 回调：Python show() → 置脏标志 */
         xiaomiao_display_set_flush_cb(py_flush_cb);
-
         /* 启动独立任务执行 main.py（不阻塞 UI） */
         strncpy(s_py_entry_path, entry_file, sizeof(s_py_entry_path) - 1);
         s_py_entry_path[sizeof(s_py_entry_path) - 1] = '\0';
         xTaskCreate(py_run_task, "py_app", 32768, NULL, 10, &s_py_task);
-
         /* 显示启动提示 */
         lv_obj_t *hint = lv_label_create(scr);
-        lv_label_set_text(hint, lang_get(STR_MP_LOADING));
-        lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(hint, lv_font_cn_get(font_px), 0);
-        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H - 2);
-
+        if (hint) {
+            lv_label_set_text(hint, lang_get(STR_MP_LOADING));
+            lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(hint, lv_font_cn_get(font_px), 0);
+            lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H - 2);
+        }
         ui_dock_create(scr, 1, 0);
         ESP_LOGI(TAG, "Python app started in background task: %s", entry_file);
         return;
@@ -374,40 +379,49 @@ static void python_app_activate(void)
 
     /* 创建内容容器 */
     lv_obj_t *content = lv_obj_create(scr);
+    if (!content) {
+        ESP_LOGE(TAG, "lv_obj_create(content) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(content);
     lv_obj_set_pos(content, 0, content_y);
     lv_obj_set_size(content, LCD_H_RES, content_h);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-
     /* 应用图标（居中上方，使用LVGL内置Montserrat字体显示符号） */
     lv_obj_t *icon_lbl = lv_label_create(content);
-    lv_label_set_text(icon_lbl, LV_SYMBOL_SETTINGS);
-    lv_obj_set_style_text_color(icon_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(icon_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(icon_lbl, LV_ALIGN_TOP_MID, 0, 8);
-
+    if (icon_lbl) {
+        lv_label_set_text(icon_lbl, LV_SYMBOL_SETTINGS);
+        lv_obj_set_style_text_color(icon_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(icon_lbl, &lv_font_montserrat_14, 0);
+        lv_obj_align(icon_lbl, LV_ALIGN_TOP_MID, 0, 8);
+    }
     /* 结果状态图标（使用LVGL内置Montserrat字体显示符号） */
     lv_obj_t *result_icon_lbl = lv_label_create(content);
-    lv_label_set_text(result_icon_lbl, result_icon);
-    lv_obj_set_style_text_color(result_icon_lbl, lv_color_hex(result_color), 0);
-    lv_obj_set_style_text_font(result_icon_lbl, &lv_font_montserrat_14, 0);
-    lv_obj_align(result_icon_lbl, LV_ALIGN_CENTER, 0, -font_px);
-
+    if (result_icon_lbl) {
+        lv_label_set_text(result_icon_lbl, result_icon);
+        lv_obj_set_style_text_color(result_icon_lbl, lv_color_hex(result_color), 0);
+        lv_obj_set_style_text_font(result_icon_lbl, &lv_font_montserrat_14, 0);
+        lv_obj_align(result_icon_lbl, LV_ALIGN_CENTER, 0, -font_px);
+    }
     /* 结果消息 */
     lv_obj_t *result_lbl = lv_label_create(content);
-    lv_label_set_text(result_lbl, result_msg ? result_msg : "");
-    lv_obj_set_style_text_color(result_lbl, lv_color_hex(result_color), 0);
-    lv_obj_set_style_text_font(result_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_style_text_align(result_lbl, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(result_lbl, LV_ALIGN_CENTER, 0, font_px + 4);
+    if (result_lbl) {
+        lv_label_set_text(result_lbl, result_msg ? result_msg : "");
+        lv_obj_set_style_text_color(result_lbl, lv_color_hex(result_color), 0);
+        lv_obj_set_style_text_font(result_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_align(result_lbl, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(result_lbl, LV_ALIGN_CENTER, 0, font_px + 4);
+    }
 
     /* 操作提示 */
     lv_obj_t *hint_lbl = lv_label_create(content);
-    lv_label_set_text(hint_lbl, lang_get(STR_BACK));
-    lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
-
+    if (hint_lbl) {
+        lv_label_set_text(hint_lbl, lang_get(STR_BACK));
+        lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -4);
+    }
     ui_dock_create(scr, 1, 0);
 }
 

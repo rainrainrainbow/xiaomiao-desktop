@@ -7,6 +7,7 @@
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -71,6 +72,11 @@ static void theme_rebuild_visible(void)
     for (int i = 0; i < s_theme_vis_rows && (s_theme_scroll + i) < s_theme_total; i++) {
         int idx = s_theme_scroll + i;
         lv_obj_t *row = lv_obj_create(s_theme_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_theme_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_theme_row_h);
@@ -84,18 +90,25 @@ static void theme_rebuild_visible(void)
         if (idx < THEME_OPTION_COUNT) {
             /* 使用 LVGL 复选框组件 */
             lv_obj_t *cb = lv_checkbox_create(row);
-            lv_checkbox_set_text(cb, theme_name(idx));
-            lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
-            lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
-            lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
-            /* 设置选中状态 */
-            if (idx == (int)st->theme) {
-                lv_obj_add_state(cb, LV_STATE_CHECKED);
+            if (cb) {
+                lv_checkbox_set_text(cb, theme_name(idx));
+                lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
+                lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
+                lv_obj_align(cb, LV_ALIGN_LEFT_MID, 6, 0);
+                /* 设置选中状态 */
+                if (idx == (int)st->theme) {
+                    lv_obj_add_state(cb, LV_STATE_CHECKED);
+                }
             }
             s_theme_checkboxes[idx] = cb;
             s_theme_labels[idx] = lv_label_create(row); /* 占位，不使用 */
         } else {
             lv_obj_t *lbl = lv_label_create(row);
+            if (!lbl) {
+                ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
@@ -104,7 +117,6 @@ static void theme_rebuild_visible(void)
         }
     }
 }
-
 static void theme_settings_init(void *data)
 {
     ESP_LOGI(TAG, "Theme settings init");
@@ -123,6 +135,11 @@ static void theme_settings_init(void *data)
     s_theme_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_theme_row_h;
     if (s_theme_vis_rows < 1) s_theme_vis_rows = 1;
     s_theme_list = lv_obj_create(scr);
+    if (!s_theme_list) {
+        ESP_LOGE(TAG, "lv_obj_create(theme_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_theme_list);
     lv_obj_set_pos(s_theme_list, 0, ui_content_y());
     lv_obj_set_size(s_theme_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

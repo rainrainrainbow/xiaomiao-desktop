@@ -7,6 +7,7 @@
 #include "driver/drv_audio_output.h"
 #include "system/sys_nvs.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
 #include <stdio.h>
 #include <string.h>
@@ -106,6 +107,11 @@ static void audio_settings_init(void *data)
     
     /* 内容区 */
     lv_obj_t *content = lv_obj_create(scr);
+    if (!content) {
+        ESP_LOGE(TAG, "lv_obj_create(content) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(content);
     lv_obj_set_pos(content, 0, ui_content_y());
     lv_obj_set_size(content, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
@@ -119,6 +125,12 @@ static void audio_settings_init(void *data)
     int y = 0;
     for (int i = 0; i < dev_count && i < AUDIO_OUT_MAX; i++) {
         lv_obj_t *row = lv_obj_create(content);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(audio_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            y += row_h;
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, y);
         lv_obj_set_size(row, LCD_H_RES, row_h);
@@ -126,18 +138,22 @@ static void audio_settings_init(void *data)
         
         /* 设备名称 */
         lv_obj_t *name_lbl = lv_label_create(row);
-        char buf[32];
-        const char *status = devs[i].available ? "" : lang_get(STR_AUDIO_UNAVAILABLE);
-        snprintf(buf, sizeof(buf), "%s%s", devs[i].name, status);
-        lv_label_set_text(name_lbl, buf);
-        lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 8, 0);
+        if (name_lbl) {
+            char buf[32];
+            const char *status = devs[i].available ? "" : lang_get(STR_AUDIO_UNAVAILABLE);
+            snprintf(buf, sizeof(buf), "%s%s", devs[i].name, status);
+            lv_label_set_text(name_lbl, buf);
+            lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 8, 0);
+        }
         
         /* 当前标记 */
         lv_obj_t *mark_lbl = lv_label_create(row);
-        lv_label_set_text(mark_lbl, devs[i].is_default ? "●" : "○");
-        lv_obj_set_style_text_font(mark_lbl, &lv_font_montserrat_14, 0);
-        lv_obj_align(mark_lbl, LV_ALIGN_RIGHT_MID, -8, 0);
+        if (mark_lbl) {
+            lv_label_set_text(mark_lbl, devs[i].is_default ? "●" : "○");
+            lv_obj_set_style_text_font(mark_lbl, &lv_font_montserrat_14, 0);
+            lv_obj_align(mark_lbl, LV_ALIGN_RIGHT_MID, -8, 0);
+        }
         
         s_audio_rows[i] = row;
         y += row_h;
@@ -146,62 +162,84 @@ static void audio_settings_init(void *data)
     /* 分隔线 */
     y += 2;
     lv_obj_t *sep = lv_obj_create(content);
-    lv_obj_remove_style_all(sep);
-    lv_obj_set_pos(sep, 8, y);
-    lv_obj_set_size(sep, LCD_H_RES - 16, 1);
-    lv_obj_set_style_bg_color(sep, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_bg_opa(sep, LV_OPA_30, 0);
+    if (sep) {
+        lv_obj_remove_style_all(sep);
+        lv_obj_set_pos(sep, 8, y);
+        lv_obj_set_size(sep, LCD_H_RES - 16, 1);
+        lv_obj_set_style_bg_color(sep, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_bg_opa(sep, LV_OPA_30, 0);
+    }
     y += 4;
     
     /* 模式选择行 */
     lv_obj_t *mode_row = lv_obj_create(content);
-    lv_obj_remove_style_all(mode_row);
-    lv_obj_set_pos(mode_row, 0, y);
-    lv_obj_set_size(mode_row, LCD_H_RES, row_h);
-    lv_obj_clear_flag(mode_row, LV_OBJ_FLAG_SCROLLABLE);
+    if (!mode_row) {
+        ESP_LOGE(TAG, "lv_obj_create(mode_row) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_remove_style_all(mode_row);
+        lv_obj_set_pos(mode_row, 0, y);
+        lv_obj_set_size(mode_row, LCD_H_RES, row_h);
+        lv_obj_clear_flag(mode_row, LV_OBJ_FLAG_SCROLLABLE);
+    }
     
-    lv_obj_t *mode_title = lv_label_create(mode_row);
-    lv_label_set_text(mode_title, lang_get(STR_AUDIO_MODE));
-    lv_obj_set_style_text_font(mode_title, lv_font_cn_get(font_px), 0);
-    lv_obj_align(mode_title, LV_ALIGN_LEFT_MID, 8, 0);
+    lv_obj_t *mode_title = mode_row ? lv_label_create(mode_row) : NULL;
+    if (mode_title) {
+        lv_label_set_text(mode_title, lang_get(STR_AUDIO_MODE));
+        lv_obj_set_style_text_font(mode_title, lv_font_cn_get(font_px), 0);
+        lv_obj_align(mode_title, LV_ALIGN_LEFT_MID, 8, 0);
+    }
     
-    s_audio_mode_label = lv_label_create(mode_row);
-    bool auto_mode = audio_output_is_auto_mode();
-    lv_label_set_text(s_audio_mode_label, auto_mode ? lang_get(STR_AUDIO_MODE_AUTO) : lang_get(STR_AUDIO_MODE_MANUAL));
-    lv_obj_set_style_text_font(s_audio_mode_label, lv_font_cn_get(font_px), 0);
-    lv_obj_set_style_text_color(s_audio_mode_label, lv_color_hex(colors->sel_bg), 0);
-    lv_obj_align(s_audio_mode_label, LV_ALIGN_RIGHT_MID, -8, 0);
+    s_audio_mode_label = mode_row ? lv_label_create(mode_row) : NULL;
+    if (s_audio_mode_label) {
+        bool auto_mode = audio_output_is_auto_mode();
+        lv_label_set_text(s_audio_mode_label, auto_mode ? lang_get(STR_AUDIO_MODE_AUTO) : lang_get(STR_AUDIO_MODE_MANUAL));
+        lv_obj_set_style_text_font(s_audio_mode_label, lv_font_cn_get(font_px), 0);
+        lv_obj_set_style_text_color(s_audio_mode_label, lv_color_hex(colors->sel_bg), 0);
+        lv_obj_align(s_audio_mode_label, LV_ALIGN_RIGHT_MID, -8, 0);
+    }
     
     s_audio_rows[dev_count] = mode_row;  // 存储模式行
     y += row_h + 4;
     
     /* 音量调节行 */
     lv_obj_t *vol_row = lv_obj_create(content);
-    lv_obj_remove_style_all(vol_row);
-    lv_obj_set_pos(vol_row, 0, y);
-    lv_obj_set_size(vol_row, LCD_H_RES, row_h);
-    lv_obj_clear_flag(vol_row, LV_OBJ_FLAG_SCROLLABLE);
+    if (!vol_row) {
+        ESP_LOGE(TAG, "lv_obj_create(vol_row) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_remove_style_all(vol_row);
+        lv_obj_set_pos(vol_row, 0, y);
+        lv_obj_set_size(vol_row, LCD_H_RES, row_h);
+        lv_obj_clear_flag(vol_row, LV_OBJ_FLAG_SCROLLABLE);
+    }
     
-    lv_obj_t *vol_title = lv_label_create(vol_row);
-    lv_label_set_text(vol_title, lang_get(STR_VOLUME));
-    lv_obj_set_style_text_font(vol_title, lv_font_cn_get(font_px), 0);
-    lv_obj_align(vol_title, LV_ALIGN_LEFT_MID, 8, 0);
+    lv_obj_t *vol_title = vol_row ? lv_label_create(vol_row) : NULL;
+    if (vol_title) {
+        lv_label_set_text(vol_title, lang_get(STR_VOLUME));
+        lv_obj_set_style_text_font(vol_title, lv_font_cn_get(font_px), 0);
+        lv_obj_align(vol_title, LV_ALIGN_LEFT_MID, 8, 0);
+    }
     
-    s_audio_volume_bar = lv_bar_create(vol_row);
-    lv_obj_set_size(s_audio_volume_bar, 60, 6);
-    lv_bar_set_range(s_audio_volume_bar, 0, 100);
-    lv_bar_set_value(s_audio_volume_bar, audio_output_get_volume(), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(s_audio_volume_bar, lv_color_hex(colors->sel_bg), LV_PART_INDICATOR);
-    lv_obj_align(s_audio_volume_bar, LV_ALIGN_RIGHT_MID, -8, 0);
+    s_audio_volume_bar = vol_row ? lv_bar_create(vol_row) : NULL;
+    if (s_audio_volume_bar) {
+        lv_obj_set_size(s_audio_volume_bar, 60, 6);
+        lv_bar_set_range(s_audio_volume_bar, 0, 100);
+        lv_bar_set_value(s_audio_volume_bar, audio_output_get_volume(), LV_ANIM_OFF);
+        lv_obj_set_style_bg_color(s_audio_volume_bar, lv_color_hex(colors->sel_bg), LV_PART_INDICATOR);
+        lv_obj_align(s_audio_volume_bar, LV_ALIGN_RIGHT_MID, -8, 0);
+    }
     
     s_audio_rows[dev_count + 1] = vol_row;  // 存储音量行
     
     /* 底部提示 */
     lv_obj_t *hint = lv_label_create(scr);
-    lv_label_set_text(hint, lang_get(STR_AUDIO_HINT));
-    lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(hint, lv_font_cn_get(12), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -2);
+    if (hint) {
+        lv_label_set_text(hint, lang_get(STR_AUDIO_HINT));
+        lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(hint, lv_font_cn_get(12), 0);
+        lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -2);
+    }
     
     /* 重置选择 */
     s_audio_selected = 0;

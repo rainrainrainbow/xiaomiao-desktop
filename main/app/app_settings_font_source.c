@@ -86,6 +86,11 @@ static void font_src_rebuild_visible(void)
     for (int i = 0; i < s_font_src_vis_rows && (s_font_src_scroll + i) < s_total_options; i++) {
         int idx = s_font_src_scroll + i;
         lv_obj_t *row = lv_obj_create(s_font_src_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_font_src_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_font_src_row_h);
@@ -118,6 +123,11 @@ static void font_src_rebuild_visible(void)
         } else {
             /* 内置(英文)选项 */
             lv_obj_t *lbl = lv_label_create(row);
+            if (!lbl) {
+                ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_label_set_text(lbl, lang_get(STR_FONT_SOURCE_BUILTIN));
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
@@ -162,6 +172,11 @@ static void font_src_settings_init(void *data)
     if (s_font_src_vis_rows < 1) s_font_src_vis_rows = 1;
 
     s_font_src_list = lv_obj_create(scr);
+    if (!s_font_src_list) {
+        ESP_LOGE(TAG, "lv_obj_create(s_font_src_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_font_src_list);
     lv_obj_set_pos(s_font_src_list, 0, ui_content_y());
     lv_obj_set_size(s_font_src_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H - 12);

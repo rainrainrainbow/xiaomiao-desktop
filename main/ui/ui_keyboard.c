@@ -8,6 +8,7 @@
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -216,6 +217,7 @@ void ui_keyboard_show(const kb_config_t *config)
     
     /* 创建全屏容器 */
     s_kb_container = lv_obj_create(lv_screen_active());
+    if (!s_kb_container) { ESP_LOGE(TAG, "kb_container failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); return; }
     lv_obj_remove_style_all(s_kb_container);
     lv_obj_set_size(s_kb_container, LCD_H_RES, LCD_V_RES);
     lv_obj_set_pos(s_kb_container, 0, 0);
@@ -228,15 +230,18 @@ void ui_keyboard_show(const kb_config_t *config)
     /* 标题 */
     if (config->title) {
         lv_obj_t *title = lv_label_create(s_kb_container);
+        if (title) {
         lv_label_set_text(title, config->title);
         lv_obj_set_style_text_color(title, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(title, lv_font_cn_get(14), 0);
         lv_obj_set_pos(title, KB_PADDING, y);
         y += 16;
+        }
     }
     
     /* 输入框 */
     s_kb_input = lv_label_create(s_kb_container);
+    if (!s_kb_input) { ESP_LOGE(TAG, "kb_input failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); return; }
     lv_obj_set_size(s_kb_input, LCD_H_RES - KB_PADDING * 2, KB_INPUT_H);
     lv_obj_set_pos(s_kb_input, KB_PADDING, y);
     lv_obj_set_style_bg_color(s_kb_input, lv_color_hex(colors->header_bg), 0);
@@ -255,6 +260,7 @@ void ui_keyboard_show(const kb_config_t *config)
     for (int r = 0; r < KB_ROWS; r++) {
         for (int c = 0; c < KB_COLS; c++) {
             lv_obj_t *cell = lv_obj_create(s_kb_container);
+            if (!cell) { ESP_LOGE(TAG, "kb_cell failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); continue; }
             lv_obj_remove_style_all(cell);
             lv_obj_set_size(cell, KB_CELL_W - 1, KB_CELL_H - 1);
             lv_obj_set_pos(cell, grid_x + c * KB_CELL_W, y + r * KB_CELL_H);
@@ -266,6 +272,7 @@ void ui_keyboard_show(const kb_config_t *config)
             lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
             
             lv_obj_t *lbl = lv_label_create(cell);
+            if (!lbl) { ESP_LOGE(TAG, "kb_lbl failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); continue; }
             const char *ch = kb_get_char(r, c);
             lv_label_set_text(lbl, ch ? ch : "");
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
@@ -286,6 +293,7 @@ void ui_keyboard_show(const kb_config_t *config)
     
     /* 操作栏 */
     s_kb_action_bar = lv_obj_create(s_kb_container);
+    if (!s_kb_action_bar) { ESP_LOGE(TAG, "kb_action_bar failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); return; }
     lv_obj_remove_style_all(s_kb_action_bar);
     lv_obj_set_size(s_kb_action_bar, LCD_H_RES - KB_PADDING * 2, KB_ACTION_H);
     lv_obj_set_pos(s_kb_action_bar, KB_PADDING, y);
@@ -295,6 +303,7 @@ void ui_keyboard_show(const kb_config_t *config)
     
     /* 模式切换按钮 */
     s_kb_mode_label = lv_label_create(s_kb_action_bar);
+    if (!s_kb_mode_label) { ESP_LOGE(TAG, "kb_mode_label failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); return; }
     lv_label_set_text(s_kb_mode_label, "abc");
     lv_obj_set_style_text_color(s_kb_mode_label, lv_color_hex(colors->sel_bg), 0);
     lv_obj_set_style_text_font(s_kb_mode_label, lv_font_cn_get(12), 0);
@@ -302,10 +311,12 @@ void ui_keyboard_show(const kb_config_t *config)
     
     /* 操作提示 */
     lv_obj_t *hint = lv_label_create(s_kb_action_bar);
+    if (hint) {
     lv_label_set_text(hint, "A=OK B=←");
     lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(hint, lv_font_cn_get(12), 0);
-    lv_obj_align(hint, LV_ALIGN_RIGHT_MID, -6, 0);
+        lv_obj_set_style_text_font(hint, lv_font_cn_get(12), 0);
+        lv_obj_align(hint, LV_ALIGN_RIGHT_MID, -6, 0);
+    }
     
     kb_refresh_grid();
     

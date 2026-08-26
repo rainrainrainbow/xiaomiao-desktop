@@ -420,6 +420,7 @@ static void desktop_page_init(void *data)
 
         // 模拟器：.icon{display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:4px;gap:1px}
         lv_obj_t *cell = lv_obj_create(scr);
+        if (!cell) { ESP_LOGE(TAG, "desktop_cell failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); continue; }
         lv_obj_set_pos(cell, pad_x + col * (cell_w + gap), grid_top + pad_y + row * (cell_h + gap));
         lv_obj_set_size(cell, cell_w, cell_h);
         lv_obj_set_style_radius(cell, 4, 0);
@@ -435,6 +436,7 @@ static void desktop_page_init(void *data)
 
         // 图标 glyph（模拟器：font-size:20px, line-height:22px）
         lv_obj_t *icon = lv_label_create(cell);
+        if (icon) {
         lv_label_set_text(icon, app->icon_text);
         lv_obj_set_style_text_color(icon, lv_color_hex(app->icon_color), 0);
         // 图标字体根据字体大小自适应
@@ -442,16 +444,19 @@ static void desktop_page_init(void *data)
         // 但cell的flex布局会自适应大小
         lv_obj_set_style_text_font(icon, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, 0);
+        }
 
         // 名称标签（模拟器：font-size:7px, color:var(--black)）
         // 应用名为中文，使用统一中文字体（优先FreeType，回退内置）
         // 字体大小根据设置自适应：14px→14px, 16px→14px, 20px→16px, 24px→20px
         lv_obj_t *name = lv_label_create(cell);
+        if (name) {
         lv_label_set_text(name, app_builtin_get_display_name(app->name));
         lv_obj_set_style_text_color(name, lv_color_hex(colors->text), 0);
         int name_font_size = (font_px <= 14) ? 14 : (font_px <= 16) ? 14 : (font_px <= 20) ? 16 : 20;
         lv_obj_set_style_text_font(name, lv_font_cn_get(name_font_size), 0);
         lv_obj_set_style_text_align(name, LV_TEXT_ALIGN_CENTER, 0);
+        }
 
         s_app_cells[i] = cell;
     }
@@ -600,6 +605,10 @@ static void recents_page_init(void *data)
     if (total_show < 1) total_show = 1;
 
     lv_obj_t *list = lv_obj_create(scr);
+    if (!list) {
+        ESP_LOGE(TAG, "recents_list failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(list);
     lv_obj_set_pos(list, 0, ui_content_y());
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
@@ -621,6 +630,7 @@ static void recents_page_init(void *data)
         bg_state_t state = bg_manager_get_state(i);
 
         lv_obj_t *row_obj = lv_obj_create(list);
+        if (!row_obj) { ESP_LOGE(TAG, "recents_bg_row failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); continue; }
         lv_obj_remove_style_all(row_obj);
         lv_obj_set_pos(row_obj, 0, row * item_h);
         lv_obj_set_size(row_obj, LCD_H_RES, item_h);
@@ -633,6 +643,7 @@ static void recents_page_init(void *data)
         lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *lbl = lv_label_create(row_obj);
+        if (lbl) {
         char buf[48];
         snprintf(buf, sizeof(buf), "%s", app_name);
         lv_label_set_text(lbl, buf);
@@ -641,9 +652,11 @@ static void recents_page_init(void *data)
         lv_obj_set_width(lbl, LCD_H_RES - 70);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        }
 
         // 状态标签
         lv_obj_t *status_lbl = lv_label_create(row_obj);
+        if (status_lbl) {
         if (state == BG_STATE_FOREGROUND) {
             lv_label_set_text(status_lbl, lang_get(STR_CURRENT));
         } else {
@@ -653,6 +666,7 @@ static void recents_page_init(void *data)
             state == BG_STATE_FOREGROUND ? 0x22C55E : colors->text_dim), 0);
         lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
+        }
 
         row++;
     }
@@ -666,6 +680,7 @@ static void recents_page_init(void *data)
         if (bg_manager_is_running(app->name)) continue;
 
         lv_obj_t *row_obj = lv_obj_create(list);
+        if (!row_obj) { ESP_LOGE(TAG, "recents_hist_row failed! mem free=%lu", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT)); continue; }
         lv_obj_remove_style_all(row_obj);
         lv_obj_set_pos(row_obj, 0, row * item_h);
         lv_obj_set_size(row_obj, LCD_H_RES, item_h);
@@ -678,6 +693,7 @@ static void recents_page_init(void *data)
         lv_obj_clear_flag(row_obj, LV_OBJ_FLAG_SCROLLABLE);
 
         lv_obj_t *lbl = lv_label_create(row_obj);
+        if (lbl) {
         char buf[48];
         snprintf(buf, sizeof(buf), "%s %s", app->icon_text, app_builtin_get_display_name(app->name));
         lv_label_set_text(lbl, buf);
@@ -686,16 +702,19 @@ static void recents_page_init(void *data)
         lv_obj_set_width(lbl, LCD_H_RES - 70);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        }
         row++;
     }
 
     if (row == 0) {
         // 没有内容
         lv_obj_t *empty_lbl = lv_label_create(scr);
+        if (empty_lbl) {
         lv_label_set_text(empty_lbl, lang_get(STR_RECENTS_EMPTY));
         lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(ui_state_get()->font_size), 0);
         lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
+        }
     }
 
     s_recents_obj = list;

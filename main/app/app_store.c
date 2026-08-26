@@ -9,6 +9,7 @@
 #include "app_manager.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
 #include <stdio.h>
@@ -239,6 +240,11 @@ static void store_rebuild_visible(void)
         store_app_t *app = &s_apps[idx];
         
         lv_obj_t *row = lv_obj_create(s_store_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_row_h);
@@ -254,29 +260,35 @@ static void store_rebuild_visible(void)
         
         // 应用名
         lv_obj_t *name_lbl = lv_label_create(row);
-        lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_width(name_lbl, LCD_H_RES - 70);
-        lv_label_set_long_mode(name_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-        lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 2, 0);
-        lv_label_set_text(name_lbl, app->name);
+        if (name_lbl) {
+            lv_obj_set_style_text_font(name_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_color(name_lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_width(name_lbl, LCD_H_RES - 70);
+            lv_label_set_long_mode(name_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_align(name_lbl, LV_ALIGN_LEFT_MID, 2, 0);
+            lv_label_set_text(name_lbl, app->name);
+        }
         
         // 状态标签（已安装/未安装）
         lv_obj_t *status_lbl = lv_label_create(row);
-        lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(status_lbl, 
-            lv_color_hex(app->installed ? 0x22C55E : colors->text_dim), 0);
-        lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
-        lv_label_set_text(status_lbl, app->installed ? lang_get(STR_STORE_INSTALLED) : lang_get(STR_STORE_NOT_INSTALLED));
+        if (status_lbl) {
+            lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_color(status_lbl, 
+                lv_color_hex(app->installed ? 0x22C55E : colors->text_dim), 0);
+            lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
+            lv_label_set_text(status_lbl, app->installed ? lang_get(STR_STORE_INSTALLED) : lang_get(STR_STORE_NOT_INSTALLED));
+        }
     }
     
     // 如果没有应用，显示提示
     if (s_app_count == 0) {
         lv_obj_t *empty_lbl = lv_label_create(s_store_obj);
-        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
-        lv_label_set_text(empty_lbl, lang_get(STR_STORE_EMPTY));
+        if (empty_lbl) {
+            lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
+            lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
+            lv_label_set_text(empty_lbl, lang_get(STR_STORE_EMPTY));
+        }
     }
 }
 
@@ -321,6 +333,11 @@ static void store_init(void *data)
     
     // 列表容器
     s_store_obj = lv_obj_create(scr);
+    if (!s_store_obj) {
+        ESP_LOGE(TAG, "lv_obj_create(store_obj) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_store_obj);
     lv_obj_set_pos(s_store_obj, 0, ui_content_y());
     lv_obj_set_size(s_store_obj, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H - 12);
@@ -328,11 +345,16 @@ static void store_init(void *data)
     
     // 底部信息栏
     s_info_label = lv_label_create(scr);
-    lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
-    lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_width(s_info_label, LCD_H_RES - 4);
-    lv_label_set_long_mode(s_info_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
+    if (!s_info_label) {
+        ESP_LOGE(TAG, "lv_label_create(info_label) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
+        lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_width(s_info_label, LCD_H_RES - 4);
+        lv_label_set_long_mode(s_info_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
+    }
     
     // 底部导航栏
     ui_dock_create(scr, 1, 0);

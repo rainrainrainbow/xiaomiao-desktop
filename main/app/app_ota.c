@@ -7,6 +7,7 @@
 #include "ui_framework.h"
 #include "lang/lang.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
@@ -484,32 +485,45 @@ static void ota_init(void *data)
     
     /* 创建列表容器 */
     s_ota_list = lv_list_create(scr);
+    if (!s_ota_list) {
+        ESP_LOGE(TAG, "lv_list_create(ota_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_set_size(s_ota_list, LV_PCT(100), LV_PCT(100));
     lv_obj_center(s_ota_list);
     
     /* 状态标签 */
     s_status_label = lv_label_create(s_ota_list);
-    lv_label_set_text(s_status_label, lang_get(STR_OTA_IDLE));
-    lv_obj_set_width(s_status_label, LV_PCT(100));
-    lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    if (s_status_label) {
+        lv_label_set_text(s_status_label, lang_get(STR_OTA_IDLE));
+        lv_obj_set_width(s_status_label, LV_PCT(100));
+        lv_obj_set_style_text_align(s_status_label, LV_TEXT_ALIGN_CENTER, 0);
+    }
     
     /* 进度条 */
     s_progress_bar = lv_bar_create(s_ota_list);
-    lv_obj_set_width(s_progress_bar, LV_PCT(80));
-    lv_obj_align(s_progress_bar, LV_ALIGN_CENTER, 0, 0);
-    lv_bar_set_range(s_progress_bar, 0, 100);
-    lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
+    if (s_progress_bar) {
+        lv_obj_set_width(s_progress_bar, LV_PCT(80));
+        lv_obj_align(s_progress_bar, LV_ALIGN_CENTER, 0, 0);
+        lv_bar_set_range(s_progress_bar, 0, 100);
+        lv_bar_set_value(s_progress_bar, 0, LV_ANIM_OFF);
+    }
     
     /* 版本标签 */
     s_version_label = lv_label_create(s_ota_list);
-    lv_obj_set_width(s_version_label, LV_PCT(100));
-    lv_obj_set_style_text_align(s_version_label, LV_TEXT_ALIGN_CENTER, 0);
+    if (s_version_label) {
+        lv_obj_set_width(s_version_label, LV_PCT(100));
+        lv_obj_set_style_text_align(s_version_label, LV_TEXT_ALIGN_CENTER, 0);
+    }
     
     /* 操作标签 */
     s_action_label = lv_label_create(s_ota_list);
-    lv_obj_set_width(s_action_label, LV_PCT(100));
-    lv_obj_set_style_text_align(s_action_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(s_action_label, lv_color_hex(colors->text_dim), 0);
+    if (s_action_label) {
+        lv_obj_set_width(s_action_label, LV_PCT(100));
+        lv_obj_set_style_text_align(s_action_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(s_action_label, lv_color_hex(colors->text_dim), 0);
+    }
     
     /* 创建定时器定期刷新UI（500ms间隔，更新进度条和状态） */
     s_ota_timer = lv_timer_create(ota_timer_cb, 500, NULL);

@@ -174,6 +174,11 @@ static void dt_rebuild_visible(void)
     memset(s_dt_labels, 0, sizeof(s_dt_labels));
     for (int i = 0; i < s_dt_vis_rows && i < s_dt_total; i++) {
         lv_obj_t *row = lv_obj_create(s_dt_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_dt_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_dt_row_h);
@@ -185,6 +190,11 @@ static void dt_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
@@ -211,6 +221,11 @@ static void dt_settings_init(void *data)
     s_dt_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_dt_row_h;
     if (s_dt_vis_rows < 1) s_dt_vis_rows = 1;
     s_dt_list = lv_obj_create(scr);
+    if (!s_dt_list) {
+        ESP_LOGE(TAG, "lv_obj_create(s_dt_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_dt_list);
     lv_obj_set_pos(s_dt_list, 0, ui_content_y());
     lv_obj_set_size(s_dt_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

@@ -17,6 +17,7 @@
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -516,6 +517,11 @@ static void wifi_rebuild_visible(void)
     for (int i = 0; i < s_wifi_vis_rows && (s_wifi_scroll + i) < s_wifi_total; i++) {
         int idx = s_wifi_scroll + i;
         lv_obj_t *row = lv_obj_create(s_wifi_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_wifi_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_wifi_row_h);
@@ -527,6 +533,11 @@ static void wifi_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_set_width(lbl, LCD_H_RES - 12);
@@ -538,51 +549,60 @@ static void wifi_rebuild_visible(void)
         /* 第1行：添加LVGL开关组件 */
         if (idx == WIFI_ROW_SWITCH) {
             lv_obj_t *sw = lv_switch_create(row);
-            lv_obj_remove_style_all(sw);
-            /* 开关背景 */
-            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
-            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(sw, 8, 0);
-            /* 开关指示器（开启时填充色） */
-            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->text), LV_PART_INDICATOR);
-            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
-            lv_obj_set_style_radius(sw, 8, LV_PART_INDICATOR);
-            /* 开关旋钮 */
-            lv_obj_set_style_bg_color(sw, lv_color_hex(colors->bg), LV_PART_KNOB);
-            lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
-            lv_obj_set_style_radius(sw, 6, LV_PART_KNOB);
-            lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
-            lv_obj_set_size(sw, 36, s_wifi_row_h - 4);
-            lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -6, 0);
-            /* 设置开关状态 */
-            if (st->wifi_on) {
-                lv_obj_add_state(sw, LV_STATE_CHECKED);
+            if (!sw) {
+                ESP_LOGE(TAG, "lv_switch_create(sw) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
             } else {
-                lv_obj_clear_state(sw, LV_STATE_CHECKED);
+                lv_obj_remove_style_all(sw);
+                /* 开关背景 */
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(sw, 8, 0);
+                /* 开关指示器（开启时填充色） */
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->text), LV_PART_INDICATOR);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+                lv_obj_set_style_radius(sw, 8, LV_PART_INDICATOR);
+                /* 开关旋钮 */
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->bg), LV_PART_KNOB);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
+                lv_obj_set_style_radius(sw, 6, LV_PART_KNOB);
+                lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
+                lv_obj_set_size(sw, 36, s_wifi_row_h - 4);
+                lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -6, 0);
+                /* 设置开关状态 */
+                if (st->wifi_on) {
+                    lv_obj_add_state(sw, LV_STATE_CHECKED);
+                } else {
+                    lv_obj_clear_state(sw, LV_STATE_CHECKED);
+                }
+                s_wifi_switch = sw;
             }
-            s_wifi_switch = sw;
         }
-
         /* STA模式网络列表行：添加信号强度进度条 */
         if (s_mode_sel == WIFI_MODE_SEL_STA && idx >= WIFI_ROW_NET_BASE) {
             int net_idx = idx - WIFI_ROW_NET_BASE;
             if (net_idx < s_network_count && net_idx < MAX_NETWORKS) {
                 lv_obj_t *bar = lv_bar_create(row);
-                lv_obj_remove_style_all(bar);
-                /* 进度条背景 */
-                lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
-                lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-                lv_obj_set_style_radius(bar, 2, 0);
-                /* 进度条指示器（填充部分） */
-                lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
-                lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
-                lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
-                /* 位置：行右侧 */
-                lv_obj_set_size(bar, 40, s_wifi_row_h - 6);
-                lv_obj_align(bar, LV_ALIGN_RIGHT_MID, -6, 0);
-                lv_bar_set_range(bar, 0, 100);
-                lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-                s_wifi_bars[net_idx] = bar;
+                if (!bar) {
+                    ESP_LOGE(TAG, "lv_bar_create(bar) failed! mem free=%lu",
+                             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                } else {
+                    lv_obj_remove_style_all(bar);
+                    /* 进度条背景 */
+                    lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
+                    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+                    lv_obj_set_style_radius(bar, 2, 0);
+                    /* 进度条指示器（填充部分） */
+                    lv_obj_set_style_bg_color(bar, lv_color_hex(colors->text), LV_PART_INDICATOR);
+                    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+                    lv_obj_set_style_radius(bar, 2, LV_PART_INDICATOR);
+                    /* 位置：行右侧 */
+                    lv_obj_set_size(bar, 40, s_wifi_row_h - 6);
+                    lv_obj_align(bar, LV_ALIGN_RIGHT_MID, -6, 0);
+                    lv_bar_set_range(bar, 0, 100);
+                    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+                    s_wifi_bars[net_idx] = bar;
+                }
             }
         }
     }
@@ -610,6 +630,11 @@ static void wifi_settings_init(void *data)
     if (s_wifi_vis_rows < 1) s_wifi_vis_rows = 1;
 
     s_wifi_list = lv_obj_create(scr);
+    if (!s_wifi_list) {
+        ESP_LOGE(TAG, "lv_obj_create(s_wifi_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_wifi_list);
     lv_obj_set_pos(s_wifi_list, 0, ui_content_y());
     lv_obj_set_size(s_wifi_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

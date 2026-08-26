@@ -7,6 +7,7 @@
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -83,6 +84,11 @@ static void sleep_rebuild_visible(void)
     for (int i = 0; i < s_sleep_vis_rows && (s_sleep_scroll + i) < s_sleep_total; i++) {
         int idx = s_sleep_scroll + i;
         lv_obj_t *row = lv_obj_create(s_sleep_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_sleep_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_sleep_row_h);
@@ -107,6 +113,11 @@ static void sleep_rebuild_visible(void)
             s_sleep_labels[idx] = lv_label_create(row); /* 占位 */
         } else {
             lv_obj_t *lbl = lv_label_create(row);
+            if (!lbl) {
+                ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
             lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
@@ -134,6 +145,11 @@ static void sleep_settings_init(void *data)
     s_sleep_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_sleep_row_h;
     if (s_sleep_vis_rows < 1) s_sleep_vis_rows = 1;
     s_sleep_list = lv_obj_create(scr);
+    if (!s_sleep_list) {
+        ESP_LOGE(TAG, "lv_obj_create(s_sleep_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_sleep_list);
     lv_obj_set_pos(s_sleep_list, 0, ui_content_y());
     lv_obj_set_size(s_sleep_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

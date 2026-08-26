@@ -9,6 +9,7 @@
 #include "app_manager.h"
 #include "ui_framework.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
 #include <stdio.h>
@@ -89,12 +90,22 @@ static void txt_viewer_refresh(void)
     for (int i = start; i < end; i++) {
         int row_idx = i - start;
         lv_obj_t *row = lv_obj_create(s_txt_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, row_h + 2 + row_idx * row_h);
         lv_obj_set_size(row, LCD_H_RES, row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_label_set_text(lbl, s_txt_lines[i]);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
@@ -211,26 +222,38 @@ static void filemgr_refresh_list(void)
     int font_px = st->font_size;
     if (font_px < 14) font_px = 14;
     if (font_px > 24) font_px = 24;
-
-    /* 路径行 */
+/* 路径行 */
     lv_obj_t *path_row = lv_obj_create(s_filemgr_obj);
-    lv_obj_remove_style_all(path_row);
-    lv_obj_set_pos(path_row, 0, 0);
-    lv_obj_set_size(path_row, LCD_H_RES, s_filemgr_row_h);
-    lv_obj_clear_flag(path_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(path_row, LV_OPA_TRANSP, 0);
+    if (!path_row) {
+        ESP_LOGE(TAG, "lv_obj_create(path_row) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_remove_style_all(path_row);
+        lv_obj_set_pos(path_row, 0, 0);
+        lv_obj_set_size(path_row, LCD_H_RES, s_filemgr_row_h);
+        lv_obj_clear_flag(path_row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(path_row, LV_OPA_TRANSP, 0);
+    }
     char header[FILEMGR_PATH_LEN + 8];
     snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
     lv_obj_t *path_lbl = lv_label_create(path_row);
-    lv_label_set_text(path_lbl, header);
-    lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_width(path_lbl, LCD_H_RES - 8);
-    lv_label_set_long_mode(path_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    if (path_lbl) {
+        lv_label_set_text(path_lbl, header);
+        lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_width(path_lbl, LCD_H_RES - 8);
+        lv_label_set_long_mode(path_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    }
+    /* 后面的文件列表行（在循环中，脚本已加保护） */
 
     if (s_filemgr_count == 0) {
         lv_obj_t *lbl = lv_label_create(s_filemgr_obj);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_label_set_text(lbl, lang_get(STR_FILE_EMPTY_DIR));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
@@ -244,6 +267,11 @@ static void filemgr_refresh_list(void)
     for (int i = start; i < end; i++) {
         int row_idx = i - start + 1; /* 第0行是路径 */
         lv_obj_t *row = lv_obj_create(s_filemgr_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, row_idx * s_filemgr_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_filemgr_row_h);
@@ -258,6 +286,11 @@ static void filemgr_refresh_list(void)
         const char *prefix = s_filemgr_is_dir[i] ? "📁 " : "📄 ";
         snprintf(buf, sizeof(buf), "%s%s", prefix, s_filemgr_entries[i]);
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_label_set_text(lbl, buf);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
@@ -309,6 +342,11 @@ static void filemgr_init(void *data)
     s_filemgr_row_h = font_px + 1;  /* 字体高度 + 1px间距 */
     
     lv_obj_t *list = lv_obj_create(scr);
+    if (!list) {
+        ESP_LOGE(TAG, "lv_obj_create(filemgr_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(list);
     lv_obj_set_pos(list, 0, ui_content_y());
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

@@ -55,6 +55,11 @@ static void vol_rebuild_visible(void)
     s_vol_slider = NULL;
     for (int i = 0; i < s_vol_vis_rows && i < 3; i++) {
         lv_obj_t *row = lv_obj_create(s_vol_list);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, i * s_vol_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_vol_row_h);
@@ -66,6 +71,11 @@ static void vol_rebuild_visible(void)
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 6, 0);
@@ -75,26 +85,31 @@ static void vol_rebuild_visible(void)
         /* 第二行：添加 LVGL 滑块组件（lv_slider，可交互） */
         if (i == 1) {
             lv_obj_t *slider = lv_slider_create(row);
-            lv_obj_remove_style_all(slider);
-            /* 滑块轨道背景 */
-            lv_obj_set_style_bg_color(slider, lv_color_hex(colors->border), 0);
-            lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, 0);
-            lv_obj_set_style_radius(slider, 3, 0);
-            /* 滑块指示器（填充部分） */
-            lv_obj_set_style_bg_color(slider, lv_color_hex(colors->text), LV_PART_INDICATOR);
-            lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
-            lv_obj_set_style_radius(slider, 3, LV_PART_INDICATOR);
-            /* 滑块旋钮（小圆点） */
-            lv_obj_set_style_bg_color(slider, lv_color_hex(colors->text), LV_PART_KNOB);
-            lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
-            lv_obj_set_style_radius(slider, 4, LV_PART_KNOB);
-            lv_obj_set_style_pad_all(slider, 2, LV_PART_KNOB);
-            /* 位置：标签右侧 */
-            lv_obj_set_size(slider, LCD_H_RES - 90, s_vol_row_h - 4);
-            lv_obj_align(slider, LV_ALIGN_RIGHT_MID, -6, 0);
-            lv_slider_set_range(slider, 0, 100);
-            lv_slider_set_value(slider, st->volume, LV_ANIM_OFF);
-            s_vol_slider = slider;
+            if (!slider) {
+                ESP_LOGE(TAG, "lv_slider_create(slider) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            } else {
+                lv_obj_remove_style_all(slider);
+                /* 滑块轨道背景 */
+                lv_obj_set_style_bg_color(slider, lv_color_hex(colors->border), 0);
+                lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(slider, 3, 0);
+                /* 滑块指示器（填充部分） */
+                lv_obj_set_style_bg_color(slider, lv_color_hex(colors->text), LV_PART_INDICATOR);
+                lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
+                lv_obj_set_style_radius(slider, 3, LV_PART_INDICATOR);
+                /* 滑块旋钮（小圆点） */
+                lv_obj_set_style_bg_color(slider, lv_color_hex(colors->text), LV_PART_KNOB);
+                lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+                lv_obj_set_style_radius(slider, 4, LV_PART_KNOB);
+                lv_obj_set_style_pad_all(slider, 2, LV_PART_KNOB);
+                /* 位置：标签右侧 */
+                lv_obj_set_size(slider, LCD_H_RES - 90, s_vol_row_h - 4);
+                lv_obj_align(slider, LV_ALIGN_RIGHT_MID, -6, 0);
+                lv_slider_set_range(slider, 0, 100);
+                lv_slider_set_value(slider, st->volume, LV_ANIM_OFF);
+                s_vol_slider = slider;
+            }
         }
     }
 }
@@ -117,6 +132,11 @@ static void vol_settings_init(void *data)
     s_vol_vis_rows = (LCD_V_RES - ui_content_y() - DOCK_H) / s_vol_row_h;
     if (s_vol_vis_rows < 1) s_vol_vis_rows = 1;
     s_vol_list = lv_obj_create(scr);
+    if (!s_vol_list) {
+        ESP_LOGE(TAG, "lv_obj_create(s_vol_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_vol_list);
     lv_obj_set_pos(s_vol_list, 0, ui_content_y());
     lv_obj_set_size(s_vol_list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);

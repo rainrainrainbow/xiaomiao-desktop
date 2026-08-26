@@ -15,6 +15,7 @@
 #include "ui_framework.h"
 #include "driver/drv_led_strip.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
 #include "freertos/FreeRTOS.h"
@@ -260,8 +261,13 @@ static void led_rebuild_visible(void)
             continue;
         }
         int vis_i = row_idx - s_scroll;
-
         lv_obj_t *row = lv_obj_create(s_led_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(effect_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            row_idx++;
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, vis_i * s_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_row_h);
@@ -273,34 +279,41 @@ static void led_rebuild_visible(void)
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(effect_lbl) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            row_idx++;
+            continue;
+        }
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_width(lbl, LCD_H_RES - 50);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 2, 0);
         lv_label_set_text(lbl, lang_get(s_effect_name_ids[i]));
-
         /* 当前效果标记 */
         if (s_current_effect == i) {
             lv_obj_t *mark = lv_label_create(row);
-            lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
-            lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
-            lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
-            lv_label_set_text(mark, LV_SYMBOL_OK);
+            if (mark) {
+                lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
+                lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
+                lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
+                lv_label_set_text(mark, LV_SYMBOL_OK);
+            }
         }
-
         row_idx++;
     }
 
     /* ---- 分隔线 ---- */
     if (row_idx >= s_scroll && row_idx < s_scroll + vis_rows) {
         lv_obj_t *sep = lv_label_create(s_led_obj);
-        lv_obj_set_style_text_font(sep, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(sep, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_pos(sep, 2, (row_idx - s_scroll) * s_row_h);
-        lv_label_set_text(sep, lang_get(STR_LED_COLOR_SEP));
+        if (sep) {
+            lv_obj_set_style_text_font(sep, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_color(sep, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_pos(sep, 2, (row_idx - s_scroll) * s_row_h);
+            lv_label_set_text(sep, lang_get(STR_LED_COLOR_SEP));
+        }
     }
     row_idx++;
 
@@ -311,48 +324,59 @@ static void led_rebuild_visible(void)
             continue;
         }
         int vis_i = row_idx - s_scroll;
-
         lv_obj_t *row = lv_obj_create(s_led_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(color_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            row_idx++;
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, vis_i * s_row_h);
         lv_obj_set_size(row, LCD_H_RES, s_row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
         if (i == s_sel - (LED_EFFECT_COUNT + 1)) {
             lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-
         /* 颜色小方块 */
         lv_obj_t *color_box = lv_obj_create(row);
-        lv_obj_remove_style_all(color_box);
-        lv_obj_set_size(color_box, font_px - 2, font_px - 2);
-        lv_obj_set_pos(color_box, 2, 1);
-        lv_obj_set_style_bg_color(color_box, lv_color_hex(
-            (s_color_presets[i].color.r << 16) |
-            (s_color_presets[i].color.g << 8) |
-            s_color_presets[i].color.b), 0);
-        lv_obj_set_style_bg_opa(color_box, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(color_box, 2, 0);
+        if (color_box) {
+            lv_obj_remove_style_all(color_box);
+            lv_obj_set_size(color_box, font_px - 2, font_px - 2);
+            lv_obj_set_pos(color_box, 2, 1);
+            lv_obj_set_style_bg_color(color_box, lv_color_hex(
+                (s_color_presets[i].color.r << 16) |
+                (s_color_presets[i].color.g << 8) |
+                s_color_presets[i].color.b), 0);
+            lv_obj_set_style_bg_opa(color_box, LV_OPA_COVER, 0);
+            lv_obj_set_style_radius(color_box, 2, 0);
+        }
 
         /* 颜色名（通过 lang_get 国际化） */
         lv_obj_t *lbl = lv_label_create(row);
+        if (!lbl) {
+            ESP_LOGE(TAG, "lv_label_create(color_lbl) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            row_idx++;
+            continue;
+        }
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
         lv_obj_set_x(lbl, font_px + 4);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, font_px + 4, 0);
         lv_label_set_text(lbl, lang_get(s_color_presets[i].name_id));
-
         if (s_current_color == i) {
             lv_obj_t *mark = lv_label_create(row);
-            lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
-            lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
-            lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
-            lv_label_set_text(mark, LV_SYMBOL_OK);
+            if (mark) {
+                lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
+                lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
+                lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
+                lv_label_set_text(mark, LV_SYMBOL_OK);
+            }
         }
-
         row_idx++;
     }
 
@@ -389,18 +413,27 @@ static void led_init(void *data)
 
     /* 列表容器 */
     s_led_obj = lv_obj_create(scr);
+    if (!s_led_obj) {
+        ESP_LOGE(TAG, "lv_obj_create(led_obj) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(s_led_obj);
     lv_obj_set_pos(s_led_obj, 0, ui_content_y());
     lv_obj_set_size(s_led_obj, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H - 12);
     lv_obj_clear_flag(s_led_obj, LV_OBJ_FLAG_SCROLLABLE);
-
     /* 底部信息栏 */
     s_info_label = lv_label_create(scr);
-    lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
-    lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_width(s_info_label, LCD_H_RES - 4);
-    lv_label_set_long_mode(s_info_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
+    if (!s_info_label) {
+        ESP_LOGE(TAG, "lv_label_create(info_label) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_set_style_text_font(s_info_label, lv_font_cn_get(ui_state_get()->font_size), 0);
+        lv_obj_set_style_text_color(s_info_label, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_width(s_info_label, LCD_H_RES - 4);
+        lv_label_set_long_mode(s_info_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_set_pos(s_info_label, 2, LCD_V_RES - DOCK_H - 12);
+    }
 
     /* 底部导航栏 */
     ui_dock_create(scr, 1, 0);

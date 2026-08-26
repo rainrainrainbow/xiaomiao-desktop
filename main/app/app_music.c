@@ -26,6 +26,7 @@
 #include "driver/drv_lrc.h"
 #include "system/sys_nvs.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
@@ -509,6 +510,11 @@ static lv_obj_t* music_create_progress_bar(lv_obj_t *parent, int y)
 {
     const theme_colors_t *colors = ui_theme_colors();
     lv_obj_t *bar = lv_bar_create(parent);
+    if (!bar) {
+        ESP_LOGE(TAG, "lv_bar_create(progress) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return NULL;
+    }
     lv_obj_remove_style_all(bar);
     lv_obj_set_style_bg_color(bar, lv_color_hex(colors->border), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
@@ -522,12 +528,16 @@ static lv_obj_t* music_create_progress_bar(lv_obj_t *parent, int y)
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     return bar;
 }
-
 /* 创建频谱条 */
 static void music_create_eq_bars(lv_obj_t *parent, int y)
 {
     const theme_colors_t *colors = ui_theme_colors();
     lv_obj_t *eq_container = lv_obj_create(parent);
+    if (!eq_container) {
+        ESP_LOGE(TAG, "lv_obj_create(eq_container) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(eq_container);
     lv_obj_set_pos(eq_container, 0, y);
     lv_obj_set_size(eq_container, LCD_H_RES, MUSIC_EQ_H);
@@ -535,20 +545,27 @@ static void music_create_eq_bars(lv_obj_t *parent, int y)
     lv_obj_set_style_bg_opa(eq_container, LV_OPA_TRANSP, 0);
 
     lv_obj_t *eq_label = lv_label_create(eq_container);
-    lv_label_set_text(eq_label, "BASS");
-    lv_obj_set_style_text_color(eq_label, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(eq_label, lv_font_cn_get(14), 0);
-    lv_obj_align(eq_label, LV_ALIGN_BOTTOM_LEFT, 4, 0);
-
+    if (eq_label) {
+        lv_label_set_text(eq_label, "BASS");
+        lv_obj_set_style_text_color(eq_label, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(eq_label, lv_font_cn_get(14), 0);
+        lv_obj_align(eq_label, LV_ALIGN_BOTTOM_LEFT, 4, 0);
+    }
     lv_obj_t *treble_label = lv_label_create(eq_container);
-    lv_label_set_text(treble_label, "TREBLE");
-    lv_obj_set_style_text_color(treble_label, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(treble_label, lv_font_cn_get(14), 0);
-    lv_obj_align(treble_label, LV_ALIGN_BOTTOM_RIGHT, -4, 0);
-
+    if (treble_label) {
+        lv_label_set_text(treble_label, "TREBLE");
+        lv_obj_set_style_text_color(treble_label, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(treble_label, lv_font_cn_get(14), 0);
+        lv_obj_align(treble_label, LV_ALIGN_BOTTOM_RIGHT, -4, 0);
+    }
     int eq_bar_w = (LCD_H_RES - 24) / 4;
     for (int i = 0; i < 4; i++) {
         s_eq_bars[i] = lv_bar_create(eq_container);
+        if (!s_eq_bars[i]) {
+            ESP_LOGE(TAG, "lv_bar_create(eq_bar) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(s_eq_bars[i]);
         lv_obj_set_style_bg_color(s_eq_bars[i], lv_color_hex(colors->border), 0);
         lv_obj_set_style_bg_opa(s_eq_bars[i], LV_OPA_COVER, 0);
@@ -586,12 +603,16 @@ static void music_refresh_list_page(void)
 
     /* ========== 区1：顶部状态区 ========== */
     lv_obj_t *header = lv_obj_create(s_music_obj);
-    lv_obj_remove_style_all(header);
-    lv_obj_set_pos(header, 0, 0);
-    lv_obj_set_size(header, LCD_H_RES, MUSIC_HEADER_H);
-    lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
-
+    if (!header) {
+        ESP_LOGE(TAG, "lv_obj_create(header) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_remove_style_all(header);
+        lv_obj_set_pos(header, 0, 0);
+        lv_obj_set_size(header, LCD_H_RES, MUSIC_HEADER_H);
+        lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
+    }
     char status[64];
     if (s_is_playing && s_playing_idx >= 0) {
         char display_name[MUSIC_DISPLAY_LEN];
@@ -602,36 +623,38 @@ static void music_refresh_list_page(void)
         snprintf(status, sizeof(status), "%s", lang_get(STR_MUSIC_LIST));
     }
     s_status_lbl = lv_label_create(header);
-    lv_label_set_text(s_status_lbl, status);
-    lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(s_status_lbl, lv_font_cn_get(14), 0);
-    lv_obj_set_width(s_status_lbl, LCD_H_RES - 60);
-    lv_label_set_long_mode(s_status_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(s_status_lbl, LV_ALIGN_LEFT_MID, 4, 0);
-
+    if (s_status_lbl) {
+        lv_label_set_text(s_status_lbl, status);
+        lv_obj_set_style_text_color(s_status_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(s_status_lbl, lv_font_cn_get(14), 0);
+        lv_obj_set_width(s_status_lbl, LCD_H_RES - 60);
+        lv_label_set_long_mode(s_status_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(s_status_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+    }
     char vol_str[8];
     snprintf(vol_str, sizeof(vol_str), "%d%%", s_volume);
     s_vol_lbl = lv_label_create(header);
-    lv_label_set_text(s_vol_lbl, vol_str);
-    lv_obj_set_style_text_color(s_vol_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(s_vol_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(s_vol_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
-
+    if (s_vol_lbl) {
+        lv_label_set_text(s_vol_lbl, vol_str);
+        lv_obj_set_style_text_color(s_vol_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(s_vol_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(s_vol_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
+    }
     /* ========== 区2：进度条 ========== */
     s_progress_bar = music_create_progress_bar(s_music_obj, MUSIC_HEADER_H + 2);
-
     /* ========== 区3：频谱 ========== */
     music_create_eq_bars(s_music_obj, MUSIC_HEADER_H + MUSIC_PROGRESS_H + 4);
-
     /* ========== 区4：分隔线 ========== */
     int divider_y = MUSIC_HEADER_H + MUSIC_PROGRESS_H + MUSIC_EQ_H + 6;
     lv_obj_t *divider = lv_obj_create(s_music_obj);
-    lv_obj_remove_style_all(divider);
-    lv_obj_set_pos(divider, 4, divider_y);
-    lv_obj_set_size(divider, LCD_H_RES - 8, MUSIC_DIVIDER_H);
-    lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(colors->border), 0);
-    lv_obj_set_style_bg_opa(divider, LV_OPA_20, 0);
+    if (divider) {
+        lv_obj_remove_style_all(divider);
+        lv_obj_set_pos(divider, 4, divider_y);
+        lv_obj_set_size(divider, LCD_H_RES - 8, MUSIC_DIVIDER_H);
+        lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_color(divider, lv_color_hex(colors->border), 0);
+        lv_obj_set_style_bg_opa(divider, LV_OPA_20, 0);
+    }
 
     /* ========== 区5：文件列表 ========== */
     int list_y = MUSIC_LIST_TOP;
@@ -650,62 +673,68 @@ static void music_refresh_list_page(void)
 
     if (s_music_count == 0) {
         lv_obj_t *empty_lbl = lv_label_create(s_music_obj);
-        lv_label_set_text(empty_lbl, lang_get(STR_MUSIC_NO_FILE));
-        lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_align(empty_lbl, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 10);
+        if (empty_lbl) {
+            lv_label_set_text(empty_lbl, lang_get(STR_MUSIC_NO_FILE));
+            lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_align(empty_lbl, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 10);
+        }
         return;
     }
-
     for (int i = 0; i < s_music_vis_rows; i++) {
         int idx = s_music_scroll + i;
         if (idx >= s_music_count) break;
-
         int row_y = list_y + i * s_music_row_h;
         lv_obj_t *row = lv_obj_create(s_music_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(music_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, row_y);
         lv_obj_set_size(row, LCD_H_RES, s_music_row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
         if (idx == s_music_sel) {
             lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-
         char display_name[MUSIC_DISPLAY_LEN];
         music_get_display_name(s_music_entries[idx], display_name, sizeof(display_name));
-
         const char *playing_mark = (idx == s_playing_idx && s_is_playing) ? "▶" : " ";
         char buf[64];
         snprintf(buf, sizeof(buf), "%s %.28s", playing_mark, display_name);
-
         lv_obj_t *lbl = lv_label_create(row);
-        lv_label_set_text(lbl, buf);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_width(lbl, LCD_H_RES - 8);
-        lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        if (lbl) {
+            lv_label_set_text(lbl, buf);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_width(lbl, LCD_H_RES - 8);
+            lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        }
     }
-
     /* ========== 区6：底部操作提示 ========== */
     int hint_y = list_y + s_music_vis_rows * s_music_row_h;
     if (hint_y + s_music_row_h < LCD_V_RES - DOCK_H) {
         lv_obj_t *hint_row = lv_obj_create(s_music_obj);
-        lv_obj_remove_style_all(hint_row);
-        lv_obj_set_pos(hint_row, 0, hint_y);
-        lv_obj_set_size(hint_row, LCD_H_RES, s_music_row_h);
-        lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_bg_opa(hint_row, LV_OPA_TRANSP, 0);
-        lv_obj_t *hint_lbl = lv_label_create(hint_row);
-        lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_HINT));
-        lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
-        lv_obj_align(hint_lbl, LV_ALIGN_CENTER, 0, 0);
+        if (hint_row) {
+            lv_obj_remove_style_all(hint_row);
+            lv_obj_set_pos(hint_row, 0, hint_y);
+            lv_obj_set_size(hint_row, LCD_H_RES, s_music_row_h);
+            lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_bg_opa(hint_row, LV_OPA_TRANSP, 0);
+        }
+        lv_obj_t *hint_lbl = hint_row ? lv_label_create(hint_row) : NULL;
+        if (hint_lbl) {
+            lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_HINT));
+            lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
+            lv_obj_align(hint_lbl, LV_ALIGN_CENTER, 0, 0);
+        }
     }
 
     music_update_eq_visual();
@@ -742,48 +771,51 @@ static void music_refresh_play_page(void)
 
     /* 标题（当前歌曲名） */
     lv_obj_t *title_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(title_lbl, title);
-    lv_obj_set_style_text_color(title_lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(title_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_set_width(title_lbl, LCD_H_RES - 8);
-    lv_label_set_long_mode(title_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 2);
+    if (title_lbl) {
+        lv_label_set_text(title_lbl, title);
+        lv_obj_set_style_text_color(title_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(title_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_set_width(title_lbl, LCD_H_RES - 8);
+        lv_label_set_long_mode(title_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+        lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 2);
+    }
     y += font_px + 4;
-
     /* 歌词区（4行） */
     if (s_lrc_enabled && lrc_parser_is_loaded(&s_lrc)) {
         lv_obj_t *lrc_area = lv_obj_create(s_music_obj);
-        lv_obj_remove_style_all(lrc_area);
-        lv_obj_set_pos(lrc_area, 0, y);
-        lv_obj_set_size(lrc_area, LCD_H_RES, MUSIC_LRC_LINES * (font_px + 1));
-        lv_obj_clear_flag(lrc_area, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_style_bg_opa(lrc_area, LV_OPA_TRANSP, 0);
-
-        for (int i = 0; i < MUSIC_LRC_LINES; i++) {
-            lv_obj_t *lbl = lv_label_create(lrc_area);
-            lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
-            lv_obj_set_width(lbl, LCD_H_RES - 12);
-            lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-            lv_label_set_text(lbl, "");
-            lv_obj_set_pos(lbl, 6, i * (font_px + 1));
-            s_lrc_labels[i] = lbl;
+        if (lrc_area) {
+            lv_obj_remove_style_all(lrc_area);
+            lv_obj_set_pos(lrc_area, 0, y);
+            lv_obj_set_size(lrc_area, LCD_H_RES, MUSIC_LRC_LINES * (font_px + 1));
+            lv_obj_clear_flag(lrc_area, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_bg_opa(lrc_area, LV_OPA_TRANSP, 0);
+            for (int i = 0; i < MUSIC_LRC_LINES; i++) {
+                lv_obj_t *lbl = lv_label_create(lrc_area);
+                if (!lbl) continue;
+                lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
+                lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
+                lv_obj_set_width(lbl, LCD_H_RES - 12);
+                lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                lv_label_set_text(lbl, "");
+                lv_obj_set_pos(lbl, 6, i * (font_px + 1));
+                s_lrc_labels[i] = lbl;
+            }
         }
         y += MUSIC_LRC_LINES * (font_px + 1) + 2;
     } else {
         /* 无歌词时显示提示 */
         lv_obj_t *no_lrc = lv_label_create(s_music_obj);
-        lv_label_set_text(no_lrc, lang_get(STR_MUSIC_LRC_OFF));
-        lv_obj_set_style_text_color(no_lrc, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(no_lrc, lv_font_cn_get(14), 0);
-        lv_obj_align(no_lrc, LV_ALIGN_TOP_MID, 0, y + 4);
+        if (no_lrc) {
+            lv_label_set_text(no_lrc, lang_get(STR_MUSIC_LRC_OFF));
+            lv_obj_set_style_text_color(no_lrc, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(no_lrc, lv_font_cn_get(14), 0);
+            lv_obj_align(no_lrc, LV_ALIGN_TOP_MID, 0, y + 4);
+        }
         y += font_px + 16;
     }
-
     /* 进度条 */
     s_progress_bar = music_create_progress_bar(s_music_obj, y);
     y += MUSIC_PROGRESS_H + 2;
-
     /* 时间标签 */
     char time_str[24];
     uint32_t pos_ms = wav_decoder_get_position_ms(&s_wav_decoder);
@@ -795,12 +827,13 @@ static void music_refresh_play_page(void)
              (unsigned int)(pos_s / 60), (unsigned int)(pos_s % 60),
              (unsigned int)(dur_s / 60), (unsigned int)(dur_s % 60));
     s_time_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(s_time_lbl, time_str);
-    lv_obj_set_style_text_color(s_time_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(s_time_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(s_time_lbl, LV_ALIGN_RIGHT_MID, -4, y - MUSIC_PROGRESS_H / 2);
+    if (s_time_lbl) {
+        lv_label_set_text(s_time_lbl, time_str);
+        lv_obj_set_style_text_color(s_time_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(s_time_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(s_time_lbl, LV_ALIGN_RIGHT_MID, -4, y - MUSIC_PROGRESS_H / 2);
+    }
     y += font_px - 2;
-
     /* 循环模式 + 播放状态 */
     char mode_str[32];
     switch (s_play_mode) {
@@ -810,32 +843,34 @@ static void music_refresh_play_page(void)
     default: mode_str[0] = '\0'; break;
     }
     lv_obj_t *mode_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(mode_lbl, mode_str);
-    lv_obj_set_style_text_color(mode_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(mode_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(mode_lbl, LV_ALIGN_LEFT_MID, 4, y);
-
+    if (mode_lbl) {
+        lv_label_set_text(mode_lbl, mode_str);
+        lv_obj_set_style_text_color(mode_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(mode_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(mode_lbl, LV_ALIGN_LEFT_MID, 4, y);
+    }
     /* 播放/暂停状态 */
     lv_obj_t *play_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(play_lbl, s_is_paused ? lang_get(STR_MUSIC_PAUSE) : lang_get(STR_MUSIC_PLAY));
-    lv_obj_set_style_text_color(play_lbl, lv_color_hex(colors->sel_bg), 0);
-    lv_obj_set_style_text_font(play_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(play_lbl, LV_ALIGN_RIGHT_MID, -4, y);
+    if (play_lbl) {
+        lv_label_set_text(play_lbl, s_is_paused ? lang_get(STR_MUSIC_PAUSE) : lang_get(STR_MUSIC_PLAY));
+        lv_obj_set_style_text_color(play_lbl, lv_color_hex(colors->sel_bg), 0);
+        lv_obj_set_style_text_font(play_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(play_lbl, LV_ALIGN_RIGHT_MID, -4, y);
+    }
     y += font_px + 4;
-
     /* 频谱（播放页） */
     if (s_eq_enabled) {
         music_create_eq_bars(s_music_obj, y);
         y += MUSIC_EQ_H + 2;
     }
-
     /* 底部操作提示 */
     lv_obj_t *hint_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_PLAY_HINT2));
-    lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H);
-
+    if (hint_lbl) {
+        lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_PLAY_HINT2));
+        lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H);
+    }
     music_update_eq_visual();
 }
 
@@ -860,11 +895,12 @@ static void music_refresh_settings_page(void)
 
     /* 标题 */
     lv_obj_t *title_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(title_lbl, lang_get(STR_MUSIC_SETTINGS));
-    lv_obj_set_style_text_color(title_lbl, lv_color_hex(colors->text), 0);
-    lv_obj_set_style_text_font(title_lbl, lv_font_cn_get(font_px), 0);
-    lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 4);
-
+    if (title_lbl) {
+        lv_label_set_text(title_lbl, lang_get(STR_MUSIC_SETTINGS));
+        lv_obj_set_style_text_color(title_lbl, lv_color_hex(colors->text), 0);
+        lv_obj_set_style_text_font(title_lbl, lv_font_cn_get(font_px), 0);
+        lv_obj_align(title_lbl, LV_ALIGN_TOP_MID, 0, 4);
+    }
     int y = font_px + 10;
 
     /* 设置项行 */
@@ -902,39 +938,46 @@ static void music_refresh_settings_page(void)
 
     for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
         lv_obj_t *row = lv_obj_create(s_music_obj);
+        if (!row) {
+            ESP_LOGE(TAG, "lv_obj_create(settings_row) failed! mem free=%lu",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            y += row_h;
+            continue;
+        }
         lv_obj_remove_style_all(row);
         lv_obj_set_pos(row, 0, y);
         lv_obj_set_size(row, LCD_H_RES, row_h);
         lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-
         if (i == s_settings_sel) {
             lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         } else {
             lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
         }
-
         lv_obj_t *lbl = lv_label_create(row);
-        lv_label_set_text(lbl, labels[i]);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
-        lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
-
+        if (lbl) {
+            lv_label_set_text(lbl, labels[i]);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text), 0);
+            lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 8, 0);
+        }
         lv_obj_t *val_lbl = lv_label_create(row);
-        lv_label_set_text(val_lbl, values[i]);
-        lv_obj_set_style_text_color(val_lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(val_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_align(val_lbl, LV_ALIGN_RIGHT_MID, -8, 0);
-
+        if (val_lbl) {
+            lv_label_set_text(val_lbl, values[i]);
+            lv_obj_set_style_text_color(val_lbl, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(val_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_align(val_lbl, LV_ALIGN_RIGHT_MID, -8, 0);
+        }
         y += row_h;
     }
-
     /* 底部提示 */
     lv_obj_t *hint_lbl = lv_label_create(s_music_obj);
-    lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_SETTINGS_HINT));
-    lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
-    lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
-    lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H);
+    if (hint_lbl) {
+        lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_SETTINGS_HINT));
+        lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
+        lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
+        lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H);
+    }
 }
 
 /* 根据当前页面刷新 */
@@ -971,19 +1014,21 @@ static void music_init(void *data)
     }
 
     lv_obj_t *list = lv_obj_create(scr);
+    if (!list) {
+        ESP_LOGE(TAG, "lv_obj_create(music_list) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+        return;
+    }
     lv_obj_remove_style_all(list);
     lv_obj_set_pos(list, 0, ui_content_y());
     lv_obj_set_size(list, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H);
     lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     s_music_obj = list;
-
     s_music_sel = 0;
     s_music_scroll = 0;
     s_music_page = MUSIC_PAGE_LIST;
-
     music_scan_dir(s_music_current_path);
     music_refresh_page();
-
     if (s_ui_timer) lv_timer_del(s_ui_timer);
     s_ui_timer = lv_timer_create(music_ui_timer_cb, 200, NULL);
 
