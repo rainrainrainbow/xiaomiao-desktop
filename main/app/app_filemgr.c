@@ -252,7 +252,7 @@ static void filemgr_refresh_list(void)
         if (!lbl) {
             ESP_LOGE(TAG, "lv_label_create(lbl) failed! mem free=%lu",
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
-            continue;
+            return;
         }
         lv_label_set_text(lbl, lang_get(STR_FILE_EMPTY_DIR));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
