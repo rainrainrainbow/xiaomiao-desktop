@@ -3,7 +3,8 @@
  * @brief 崩溃蓝屏显示模块接口
  */
 
-#pragma once
+#ifndef CRASH_SCREEN_H
+#define CRASH_SCREEN_H
 
 #include "esp_lcd_panel_io.h"
 #include <stdint.h>
@@ -54,3 +55,5 @@ void crash_screen_show_and_restart(const crash_info_t *info);
 #ifdef __cplusplus
 }
 #endif
+
+#endif /* CRASH_SCREEN_H */
