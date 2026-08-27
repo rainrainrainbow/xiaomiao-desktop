@@ -82,6 +82,7 @@ typedef enum {
     STR_APP_FILES,
     STR_APP_MID,
     STR_APP_PYTHON,
+    STR_APP_SHELL,           // Shell 命令终端
     STR_APP_APPS,
     STR_APP_LED,
     // 应用类型标签
@@ -210,6 +211,12 @@ typedef enum {
     STR_LED_COLOR_WHITE,
     STR_LED_COLOR_SEP,
     STR_LED_BRIGHTNESS,
+    // Shell 命令终端
+    STR_SHELL_WELCOME,       // Shell 欢迎信息
+    STR_SHELL_INPUT,         // 输入提示
+    STR_SHELL_HELP,          // 帮助
+    STR_SHELL_UNKNOWN,       // 未知命令
+    STR_SHELL_SCROLL,        // 滚动提示
     // 设置-关于系统：状态/字体引擎/内存信息
     STR_STATUS_READY,        // Python 就绪
     STR_STATUS_NOT_READY,    // Python 未就绪

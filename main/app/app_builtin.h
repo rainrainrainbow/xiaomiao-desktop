@@ -115,7 +115,10 @@ extern const page_callbacks_t g_ota_callbacks;
  * 灯效应用页面回调
  */
 extern const page_callbacks_t g_led_callbacks;
-
+/**
+ * Shell 命令终端页面回调（原 Python 应用改造）
+ */
+extern const page_callbacks_t g_shell_callbacks;
 /**
  * 根据内置应用内部名称获取本地化显示名
  * @param internal_name 内部名称（中文，如"设置"、"商店"）

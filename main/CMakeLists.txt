@@ -26,6 +26,7 @@ idf_component_register(
         "app/app_filemgr.c"
         # "app/app_midplayer.c" 已删除
         "app/app_micropython.c"
+        "app/app_shell.c"
         "app/bg_manager.c"
         "app/app_ota.c"
         "app/app_led.c"
