@@ -232,7 +232,7 @@ static void ota_download_firmware(void)
         }
     }
     
-    free(buffer);
+    heap_caps_free(buffer);
     fclose(fp);
     esp_http_client_cleanup(client);
     
@@ -325,7 +325,7 @@ static void ota_flash_from_sdcard(void)
         err = esp_ota_write(update_handle, buf, read_len);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
-            free(buf);
+            heap_caps_free(buf);
             esp_ota_abort(update_handle);
             fclose(fp);
             s_ota_state = OTA_STATE_ERROR;
@@ -349,7 +349,7 @@ static void ota_flash_from_sdcard(void)
         }
     }
     
-    free(buf);
+    heap_caps_free(buf);
     fclose(fp);
     
     /* 完成OTA更新 */

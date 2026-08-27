@@ -469,7 +469,7 @@ void audio_output_tone(uint32_t freq_hz, uint32_t duration_ms)
             remaining -= chunk;
         }
         
-        free(buf);
+        heap_caps_free(buf);
         s_sine_freq = 0;
     }
 }

@@ -234,7 +234,7 @@ static esp_err_t i2s_backend_write(const void *data, size_t len)
 
         size_t bytes_written = 0;
         esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, vol_buf, len, &bytes_written, portMAX_DELAY);
-        free(vol_buf);
+        heap_caps_free(vol_buf);
 
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "I2S write (vol) failed: %s", esp_err_to_name(ret));

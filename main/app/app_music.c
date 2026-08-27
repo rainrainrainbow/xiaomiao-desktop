@@ -315,7 +315,7 @@ static void music_play_task(void *arg)
     }
 
     /* 清理 */
-    free(decode_buf);
+    heap_caps_free(decode_buf);
     audio_output_stop();
     wav_decoder_close(&s_wav_decoder);
 

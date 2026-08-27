@@ -125,7 +125,7 @@ static esp_err_t rmt_del_led_encoder(rmt_encoder_t *encoder)
     if (led_enc->bytes_encoder) {
         rmt_del_encoder(led_enc->bytes_encoder);
     }
-    free(led_enc);
+    heap_caps_free(led_enc);
     return ESP_OK;
 }
 

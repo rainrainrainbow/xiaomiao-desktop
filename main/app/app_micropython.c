@@ -751,7 +751,7 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         // 入口文件路径
         app->py_entry = strdup(main_path);
         
-        if (json_content) free(json_content);
+        if (json_content) heap_caps_free(json_content);
         
         count++;
     }

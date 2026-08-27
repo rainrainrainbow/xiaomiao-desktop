@@ -281,7 +281,7 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
 
         size_t actual = fread(u8_buf, 1, max_samples, decoder->file);
         if (actual == 0) {
-            free(u8_buf);
+            heap_caps_free(u8_buf);
             decoder->state = WAV_DECODER_EOF;
             return ESP_ERR_INVALID_STATE;
         }
@@ -293,7 +293,7 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
 
         *bytes_read = actual * 2;
         decoder->bytes_read += actual;
-        free(u8_buf);
+        heap_caps_free(u8_buf);
 
     } else {
         /* ---- 16位PCM：直接读取 ---- */

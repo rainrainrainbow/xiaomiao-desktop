@@ -161,7 +161,7 @@ static void st7735_clear_black(esp_lcd_panel_io_handle_t io)
         st7735_tx(io, ST7735_RASET, raset, sizeof(raset));
         st7735_tx(io, ST7735_RAMWR, line, (uint16_t)(y2 - y + 1) * LCD_H_RES * sizeof(uint16_t));
     }
-    free(line);
+    heap_caps_free(line);
 }
 
 static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
@@ -184,7 +184,7 @@ static void lcd_show_splash(esp_lcd_panel_io_handle_t io, uint16_t color)
         int h = (y + 16 <= LCD_V_RES) ? 16 : (LCD_V_RES - y);
         st7735_tx(io, ST7735_RAMWR, buf, LCD_H_RES * h * sizeof(uint16_t));
     }
-    free(buf);
+    heap_caps_free(buf);
 }
 
 static void st7735_init(esp_lcd_panel_io_handle_t io)
