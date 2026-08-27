@@ -93,6 +93,11 @@ static void lang_rebuild_visible(void)
         }
         if (idx < LANG_OPTION_COUNT) {
             lv_obj_t *cb = lv_checkbox_create(row);
+            if (!cb) {
+                ESP_LOGE(TAG, "lv_checkbox_create(cb) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                continue;
+            }
             lv_checkbox_set_text(cb, lang_option_name(idx));
             lv_obj_set_style_text_color(cb, lv_color_hex(colors->text), 0);
             lv_obj_set_style_text_font(cb, lv_font_cn_get(st->font_size), 0);
@@ -102,7 +107,8 @@ static void lang_rebuild_visible(void)
                 lv_obj_add_state(cb, LV_STATE_CHECKED);
             }
             s_lang_checkboxes[idx] = cb;
-            s_lang_labels[idx] = lv_label_create(row);
+            lv_obj_t *ph = lv_label_create(row);
+            if (ph) s_lang_labels[idx] = ph;
         } else {
             lv_obj_t *lbl = lv_label_create(row);
             if (!lbl) {
