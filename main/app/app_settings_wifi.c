@@ -92,7 +92,12 @@ static void wifi_rebuild_visible(void);
 /* ========== WiFi驱动初始化 ========== */
 static void wifi_driver_init(void)
 {
-    if (s_wifi_initialized) return;
+    if (s_wifi_initialized) {
+        /* 页面 destroy 时可能已注销事件，重新注册（幂等） */
+        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
+        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+        return;
+    }
 
     /* 注意：esp_netif_init() 和 esp_event_loop_create_default() 已在 app_main 中初始化一次 */
 
@@ -228,6 +233,9 @@ static void wifi_password_callback(const char *password, void *user_data)
     
     s_wifi_state = WIFI_STATE_CONNECTING;
     s_connected_idx = -1;
+    if (s_wifi_list) {
+        wifi_rebuild_visible();   /* 立即显示"连接中"反馈 */
+    }
     
     wifi_config_t wifi_config = {
         .sta = {

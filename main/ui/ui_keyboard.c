@@ -51,10 +51,10 @@ static const char *kb_chars_symbol[] = {
 #define KB_COLS          7      /* 每行字符数 */
 #define KB_ROWS          5      /* 行数 */
 #define KB_CELL_W        22     /* 单元格宽度 */
-#define KB_CELL_H        18     /* 单元格高度 */
-#define KB_INPUT_H       24     /* 输入框高度 */
-#define KB_ACTION_H      20     /* 操作栏高度 */
-#define KB_PADDING       4      /* 边距 */
+#define KB_CELL_H        14     /* 单元格高度 */
+#define KB_INPUT_H       20     /* 输入框高度 */
+#define KB_ACTION_H      18     /* 操作栏高度 */
+#define KB_PADDING       2      /* 边距 */
 
 /* ========== 键盘状态 ========== */
 static bool s_kb_visible = false;
@@ -235,7 +235,7 @@ void ui_keyboard_show(const kb_config_t *config)
         lv_obj_set_style_text_color(title, lv_color_hex(colors->text), 0);
         lv_obj_set_style_text_font(title, lv_font_cn_get(14), 0);
         lv_obj_set_pos(title, KB_PADDING, y);
-        y += 16;
+        y += 14;
         }
     }
     

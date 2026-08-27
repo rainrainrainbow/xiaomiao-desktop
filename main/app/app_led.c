@@ -131,6 +131,13 @@ static void led_effect_task(void *arg)
     case LED_EFFECT_STATIC:
         drv_led_strip_set_all(base_color);
         drv_led_strip_refresh();
+        /* 常亮：保持当前颜色直到收到停止请求（循环内刷新以响应亮度调节） */
+        while (!s_effect_stop) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            if (s_effect_stop) break;
+            drv_led_strip_set_all(base_color);
+            drv_led_strip_refresh();
+        }
         break;
 
     case LED_EFFECT_BREATH:
@@ -210,15 +217,31 @@ static void start_effect(void)
     /* 停止当前效果 */
     if (s_effect_running) {
         s_effect_stop = true;
-        vTaskDelay(pdMS_TO_TICKS(100));
+        /* 等待旧任务真正退出（最多 200ms，避免新旧任务并发操作 RMT） */
+        for (int i = 0; i < 20 && s_effect_running; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (s_effect_running) {
+            ESP_LOGW(TAG, "old effect task did not exit in time");
+        }
     }
 
     /* 初始化 LED（如果未初始化） */
     drv_led_strip_init();
     drv_led_strip_set_brightness(s_current_brightness);
 
-    /* 启动新效果任务 */
-    xTaskCreate(led_effect_task, "led_effect", 2048, NULL, 5, NULL);
+    /* 启动新效果任务；创建失败时一次性设置当前颜色（安全兜底） */
+    BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 2048, NULL, 5, NULL);
+    if (rt != pdPASS) {
+        ESP_LOGE(TAG, "xTaskCreate(led_effect) failed! setting color once");
+        led_rgb_t c = s_color_presets[s_current_color].color;
+        if (s_current_effect != LED_EFFECT_OFF) {
+            drv_led_strip_set_all(c);
+            drv_led_strip_refresh();
+        } else {
+            drv_led_strip_clear();
+        }
+    }
 }
 
 /* ========== UI 相关 ========== */

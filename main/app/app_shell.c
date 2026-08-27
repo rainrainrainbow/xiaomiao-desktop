@@ -80,7 +80,7 @@ static void shell_render(void)
     ui_state_t *st = ui_state_get();
     int line_h = st->font_size + 3;
     if (line_h < 17) line_h = 17;
-    int vis = (LCD_V_RES - ui_content_y() - DOCK_H - 6) / line_h;
+    int vis = (LCD_V_RES - ui_content_y() - DOCK_H - 16) / line_h;
     if (vis < 1) vis = 1;
 
     if (s_count == 0) {
@@ -299,7 +299,7 @@ static void shell_init(void *data)
         if (container) {
             lv_obj_remove_style_all(container);
             lv_obj_set_pos(container, 0, ui_content_y());
-            lv_obj_set_size(container, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H - 6);
+            lv_obj_set_size(container, LCD_H_RES, LCD_V_RES - ui_content_y() - DOCK_H - 16);
             lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
             /* 给 label 设置父对象为 container，但 label 自身承载文本 */
             lv_obj_set_parent(s_out_lbl, container);
@@ -308,7 +308,7 @@ static void shell_init(void *data)
             lv_obj_set_style_bg_color(s_out_lbl, lv_color_hex(colors->bg), 0);
             lv_obj_set_style_bg_opa(s_out_lbl, LV_OPA_COVER, 0);
             lv_obj_set_pos(s_out_lbl, 3, 1);
-            lv_obj_set_size(s_out_lbl, LCD_H_RES - 6, LCD_V_RES - ui_content_y() - DOCK_H - 6);
+            lv_obj_set_size(s_out_lbl, LCD_H_RES - 6, LCD_V_RES - ui_content_y() - DOCK_H - 16);
             lv_label_set_long_mode(s_out_lbl, LV_LABEL_LONG_WRAP);
             lv_label_set_text(s_out_lbl, "");
         }
@@ -319,7 +319,7 @@ static void shell_init(void *data)
     if (s_hint_lbl) {
         lv_obj_set_style_text_color(s_hint_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(s_hint_lbl, lv_font_cn_get(12), 0);
-        lv_obj_set_pos(s_hint_lbl, 2, LCD_V_RES - DOCK_H - 5);
+        lv_obj_set_pos(s_hint_lbl, 2, LCD_V_RES - DOCK_H - 15);
         {
             char h[48];
             snprintf(h, sizeof(h), "A:%s  B:%s", lang_get(STR_SHELL_INPUT), lang_get(STR_BACK));
