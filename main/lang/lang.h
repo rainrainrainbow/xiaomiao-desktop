@@ -217,6 +217,9 @@ typedef enum {
     STR_SHELL_HELP,          // 帮助
     STR_SHELL_UNKNOWN,       // 未知命令
     STR_SHELL_SCROLL,        // 滚动提示
+    STR_SHELL_AVAIL,         // 可用命令标题
+    STR_SHELL_CODE,          // 代码（py 命令参数提示）
+    STR_SHELL_TITLE,         // 键盘标题
     // 设置-关于系统：状态/字体引擎/内存信息
     STR_STATUS_READY,        // Python 就绪
     STR_STATUS_NOT_READY,    // Python 未就绪

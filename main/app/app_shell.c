@@ -86,7 +86,11 @@ static void shell_render(void)
     if (s_count == 0) {
         s_scroll = 0;
         lv_label_set_text(s_out_lbl, lang_get(STR_SHELL_WELCOME));
-        if (s_hint_lbl) lv_label_set_text(s_hint_lbl, "A:input  B:back");
+        if (s_hint_lbl) {
+            char h[48];
+            snprintf(h, sizeof(h), "A:%s  B:%s", lang_get(STR_SHELL_INPUT), lang_get(STR_BACK));
+            lv_label_set_text(s_hint_lbl, h);
+        }
         return;
     }
     /* s_scroll 为关注行索引（append 后指向最后一行）。渲染时对齐窗口： */
@@ -119,10 +123,10 @@ static void shell_render(void)
 /* ========== 命令实现 ========== */
 static void cmd_help(void)
 {
-    shell_append("可用命令:");
+    shell_append("%s", lang_get(STR_SHELL_AVAIL));
     shell_append(" help ls cat echo clear");
     shell_append(" sysinfo brightness ver");
-    shell_append(" py <代码> reboot");
+    shell_append(" py <%s> reboot", lang_get(STR_SHELL_CODE));
 }
 
 static void cmd_ls(const char *arg)
@@ -250,7 +254,7 @@ static void shell_execute(const char *cmdline)
     else if (strcmp(cmd, "py") == 0) cmd_py(arg);
     else if (strcmp(cmd, "reboot") == 0) { shell_append("rebooting..."); vTaskDelay(pdMS_TO_TICKS(200)); esp_restart(); }
     else if (cmd[0] == '\0') { /* 空命令 */ }
-    else shell_append("unknown cmd: %s (help)", cmd);
+    else shell_append("%s: %s (%s)", lang_get(STR_SHELL_UNKNOWN), cmd, lang_get(STR_SHELL_HELP));
 }
 
 /* ========== 键盘确认回调 ========== */
@@ -316,7 +320,11 @@ static void shell_init(void *data)
         lv_obj_set_style_text_color(s_hint_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(s_hint_lbl, lv_font_cn_get(12), 0);
         lv_obj_set_pos(s_hint_lbl, 2, LCD_V_RES - DOCK_H - 5);
-        lv_label_set_text(s_hint_lbl, "A:input  B:back");
+        {
+            char h[48];
+            snprintf(h, sizeof(h), "A:%s  B:%s", lang_get(STR_SHELL_INPUT), lang_get(STR_BACK));
+            lv_label_set_text(s_hint_lbl, h);
+        }
     }
 
     ui_dock_create(scr, 1, 0);
@@ -356,7 +364,7 @@ static bool shell_on_key(int key)
         /* 弹出命令输入键盘 */
         {
             kb_config_t cfg = {
-                .title = "Command",
+                .title = lang_get(STR_SHELL_TITLE),
                 .placeholder = ">",
                 .max_length = 60,
                 .password_mode = false,
