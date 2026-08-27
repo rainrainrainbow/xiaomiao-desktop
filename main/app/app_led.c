@@ -174,18 +174,24 @@ static void led_effect_task(void *arg)
             }
             drv_led_strip_refresh();
             offset = (offset + 1) % LED_STRIP_COUNT;
-            vTaskDelay(pdMS_TO_TICKS(150));
+            /* 150ms 拆成小段，及时响应停止请求 */
+            for (int i = 0; i < 5 && !s_effect_stop; i++) {
+                vTaskDelay(pdMS_TO_TICKS(30));
+            }
         }
         break;
     }
-
     case LED_EFFECT_BLINK:
         while (!s_effect_stop) {
             drv_led_strip_set_all(base_color);
             drv_led_strip_refresh();
-            vTaskDelay(pdMS_TO_TICKS(500));
+            for (int i = 0; i < 10 && !s_effect_stop; i++) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
             drv_led_strip_clear();
-            vTaskDelay(pdMS_TO_TICKS(500));
+            for (int i = 0; i < 10 && !s_effect_stop; i++) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+            }
         }
         break;
 
