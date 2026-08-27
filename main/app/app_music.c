@@ -239,7 +239,7 @@ static void music_play_task(void *arg)
     }
 
     /* 解码缓冲区（16位PCM样本） */
-    int16_t *decode_buf = (int16_t *)malloc(DECODE_BUF_SIZE * sizeof(int16_t));
+    int16_t *decode_buf = heap_caps_malloc(DECODE_BUF_SIZE * sizeof(int16_t), MALLOC_CAP_8BIT);
     if (!decode_buf) {
         ESP_LOGE(TAG, "Failed to allocate decode buffer");
         audio_output_stop();

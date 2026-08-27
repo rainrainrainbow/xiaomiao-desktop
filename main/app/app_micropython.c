@@ -629,7 +629,7 @@ static char* read_file_to_heap(const char *path)
         return NULL;
     }
     
-    char *buf = malloc(size + 1);
+    char *buf = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
     if (!buf) {
         fclose(f);
         return NULL;

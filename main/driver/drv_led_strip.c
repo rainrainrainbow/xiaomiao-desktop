@@ -16,6 +16,7 @@
 #include "driver/rmt_encoder.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -167,7 +168,7 @@ esp_err_t drv_led_strip_init(void)
     ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_cfg, &s_led_chan));
 
     /* ---- 创建编码器 ---- */
-    led_encoder_t *enc = calloc(1, sizeof(led_encoder_t));
+    led_encoder_t *enc = heap_caps_calloc(1, sizeof(led_encoder_t), MALLOC_CAP_8BIT);
     if (!enc) {
         ESP_LOGE(TAG, "Failed to allocate encoder");
         return ESP_ERR_NO_MEM;

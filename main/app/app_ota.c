@@ -198,7 +198,7 @@ static void ota_download_firmware(void)
     int content_length = esp_http_client_fetch_headers(client);
     ESP_LOGI(TAG, "Content length: %d", content_length);
     
-    char *buffer = malloc(1024);
+    char *buffer = heap_caps_malloc(1024, MALLOC_CAP_8BIT);
     if (buffer == NULL) {
         ESP_LOGE(TAG, "Failed to allocate buffer");
         fclose(fp);
@@ -307,7 +307,7 @@ static void ota_flash_from_sdcard(void)
     }
     
     /* 分配读取缓冲区 */
-    uint8_t *buf = malloc(4096);
+    uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_8BIT);
     if (!buf) {
         ESP_LOGE(TAG, "Failed to allocate flash buffer");
         esp_ota_abort(update_handle);
