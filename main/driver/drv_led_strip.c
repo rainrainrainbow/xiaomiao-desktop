@@ -207,6 +207,28 @@ esp_err_t drv_led_strip_init(void)
     return ESP_OK;
 }
 
+esp_err_t drv_led_strip_deinit(void)
+{
+    if (!s_initialized) {
+        return ESP_OK;
+    }
+    /* 先清空灯带 */
+    drv_led_strip_clear();
+    /* 停止并释放 RMT 通道 */
+    if (s_led_chan) {
+        rmt_disable(s_led_chan);
+        rmt_del_channel(s_led_chan);
+        s_led_chan = NULL;
+    }
+    if (s_led_encoder) {
+        rmt_del_encoder(s_led_encoder);
+        s_led_encoder = NULL;
+    }
+    s_initialized = false;
+    ESP_LOGI(TAG, "WS2812B LED strip deinitialized");
+    return ESP_OK;
+}
+
 esp_err_t drv_led_strip_set_pixel(int index, led_rgb_t color)
 {
     if (index < 0 || index >= LED_STRIP_COUNT) {
@@ -229,7 +251,8 @@ esp_err_t drv_led_strip_refresh(void)
     if (!s_initialized || !s_led_chan) {
         return ESP_ERR_INVALID_STATE;
     }
-
+    /* 每次传输前必须重置编码器状态，否则会从上次残留状态继续编码 */
+    rmt_encoder_reset(s_led_encoder);
     /* 发送数据到 LED 灯带 */
     rmt_transmit_config_t tx_cfg = {
         .loop_count = 0,
@@ -237,20 +260,17 @@ esp_err_t drv_led_strip_refresh(void)
             .eot_level = 0,  /* 发送完后拉低 */
         },
     };
-
     esp_err_t ret = rmt_transmit(s_led_chan, s_led_encoder, s_led_buffer,
                                   sizeof(s_led_buffer), &tx_cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(ret));
         return ret;
     }
-
     /* 等待发送完成 */
     ret = rmt_tx_wait_all_done(s_led_chan, pdMS_TO_TICKS(100));
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "RMT wait timeout");
     }
-
     return ESP_OK;
 }
 

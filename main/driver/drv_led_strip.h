@@ -42,6 +42,12 @@ typedef struct {
  * 注意：会与蜂鸣器冲突，调用前需停止蜂鸣器。
  */
 esp_err_t drv_led_strip_init(void);
+/**
+ * @brief 释放 WS2812B LED 灯带（停止 RMT 并释放 GPIO）
+ *
+ * 退出 LED 应用时调用，确保彻底熄灭并释放 GPIO14。
+ */
+esp_err_t drv_led_strip_deinit(void);
 
 /**
  * @brief 设置单个 LED 颜色

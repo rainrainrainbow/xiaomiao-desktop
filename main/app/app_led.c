@@ -78,7 +78,7 @@ static int s_current_color = 0;          // 选中颜色预设索引
 static uint8_t s_current_brightness = 128; // 当前亮度
 
 /* 效果任务相关 */
-static bool s_effect_running = false;
+static volatile bool s_effect_running = false;
 static volatile bool s_effect_stop = false;
 
 /* ========== 颜色辅助函数 ========== */
@@ -452,16 +452,16 @@ static void led_destroy(void)
     ESP_LOGI(TAG, "LED app destroy");
     
     /* 停止当前效果任务 */
+    s_effect_stop = true;
     if (s_effect_running) {
-        s_effect_stop = true;
         /* 等待任务退出（最多100ms） */
         for (int i = 0; i < 10 && s_effect_running; i++) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
     
-    /* 清空LED */
-    drv_led_strip_clear();
+    /* 彻底熄灭并释放 LED（RMT 通道） */
+    drv_led_strip_deinit();
     
     s_led_obj = NULL;
     s_info_label = NULL;
