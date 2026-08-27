@@ -28,12 +28,15 @@ static const char *TAG = "DRV_LED";
 /* ========== 引脚定义 ========== */
 #define PIN_LED_STRIP   GPIO_NUM_14     /* WS2812B 数据引脚（与蜂鸣器复用） */
 
-/* ========== WS2812B 时序参数 ========== */
+/* ========== WS2812B 时序参数 ==========
+ * 标准值（Waveshare 教程 / espressif-led_strip 组件一致）：
+ *   T0H=0.40us T0L=0.85us T1H=0.80us T1L=0.45us RESET>50us
+ */
 #define RMT_LED_RESOLUTION_HZ   10000000  /* 10MHz = 0.1us 精度 */
-#define RMT_T0H                 35        /* 0.35us */
-#define RMT_T0L                 80        /* 0.80us */
-#define RMT_T1H                 70        /* 0.70us */
-#define RMT_T1L                 60        /* 0.60us */
+#define RMT_T0H                 40        /* 0.40us */
+#define RMT_T0L                 85        /* 0.85us */
+#define RMT_T1H                 80        /* 0.80us */
+#define RMT_T1L                 45        /* 0.45us */
 #define RMT_RESET_US            80        /* 80us 复位信号 */
 
 /* ========== 内部状态 ========== */
