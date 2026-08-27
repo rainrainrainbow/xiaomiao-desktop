@@ -158,6 +158,7 @@ typedef enum {
     STR_MP_NO_ENTRY,
     STR_MP_DONE,
     STR_MP_EXEC_FAIL,
+    STR_MP_NO_SD_CARD,
     // 安装状态
     STR_INSTALL_OK,
     STR_INSTALL_BLOCKED,

@@ -266,6 +266,23 @@ static void python_app_activate(void)
     const app_def_t *py_apps = app_manager_get_micropython(&py_count);
     const char *entry_file = NULL;
 
+    /* 检查SD卡是否可用 */
+    if (py_count == 0 || py_apps == NULL) {
+        ESP_LOGW(TAG, "No MicroPython apps found (SD card may not be mounted)");
+        /* 显示友好提示而非崩溃 */
+        lv_obj_t *hint = lv_label_create(scr);
+        if (hint) {
+            lv_label_set_text(hint, lang_get(STR_MP_NO_SD_CARD));
+            lv_obj_set_style_text_color(hint, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(hint, lv_font_cn_get(font_px), 0);
+            lv_obj_set_width(hint, LCD_H_RES - 20);
+            lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+            lv_obj_align(hint, LV_ALIGN_CENTER, 0, 0);
+        }
+        ui_dock_create(scr, 1, 0);
+        return;
+    }
+
     for (int i = 0; i < py_count; i++) {
         if (strcmp(py_apps[i].name, app_name) == 0) {
             entry_file = py_apps[i].py_entry;

@@ -958,7 +958,10 @@ static void ui_init_task(void *arg)
 /* ========== 主函数 ========== */
 void app_main(void)
 {
-    return_to_loader_setup();
+    /* 注意：不再无条件调用 return_to_loader_setup()！
+     * 该函数会把下次启动分区设为 factory（Loader），
+     * 导致崩溃/重启后回退到 factory——用户明确要求取消此行为。
+     * 现在仅在设置应用"返回Loader"菜单中显式调用。 */
     
     ESP_LOGI(TAG, "=== Xiaomiao Desktop v20 (Backlight Fix) ===");
     

@@ -137,6 +137,7 @@ static const char *s_zh[STR_COUNT] = {
     [STR_MP_NO_ENTRY]      = "未找到入口文件",
     [STR_MP_DONE]          = "应用运行完毕",
     [STR_MP_EXEC_FAIL]     = "应用执行失败\n请查看串口日志",
+    [STR_MP_NO_SD_CARD]   = "未检测到SD卡\n请插入SD卡后重试",
     [STR_INSTALL_OK]       = "已安装",
     [STR_INSTALL_BLOCKED]  = "已阻止 - 未签名应用",
     [STR_INSTALL_UNTRUSTED]= "已阻止 - 不受信任来源",
@@ -330,6 +331,7 @@ static const char *s_en[STR_COUNT] = {
     [STR_MP_NO_ENTRY]      = "Entry file not found",
     [STR_MP_DONE]          = "App finished",
     [STR_MP_EXEC_FAIL]     = "App execution failed\nCheck serial log",
+    [STR_MP_NO_SD_CARD]   = "No SD card detected\nPlease insert SD card and retry",
     // 安装状态
     [STR_INSTALL_OK]       = "Installed",
     [STR_INSTALL_BLOCKED]  = "Blocked - unsigned app",

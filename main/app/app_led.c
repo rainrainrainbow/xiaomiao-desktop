@@ -450,6 +450,19 @@ static void led_init(void *data)
 static void led_destroy(void)
 {
     ESP_LOGI(TAG, "LED app destroy");
+    
+    /* 停止当前效果任务 */
+    if (s_effect_running) {
+        s_effect_stop = true;
+        /* 等待任务退出（最多100ms） */
+        for (int i = 0; i < 10 && s_effect_running; i++) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    
+    /* 清空LED */
+    drv_led_strip_clear();
+    
     s_led_obj = NULL;
     s_info_label = NULL;
 }

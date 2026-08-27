@@ -19,6 +19,7 @@
 #include "esp_partition.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
+#include "return_to_loader.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -104,17 +105,18 @@ static void settings_refresh_label(int idx)
         break;
     }
     case 11: snprintf(buf, sizeof(buf), "%s", lang_get(STR_DATE_TIME)); break;
-    case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
-    case 13: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
+    case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_OTA_IDLE)); break;
+    case 13: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
+    case 14: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
     default: {
         const char *def_items[] = {
             lang_get(STR_BRIGHTNESS), lang_get(STR_THEME), lang_get(STR_VOLUME), lang_get(STR_WIFI),
             lang_get(STR_LAYOUT), lang_get(STR_FONT), lang_get(STR_FONT_SOURCE), lang_get(STR_LANGUAGE),
             lang_get(STR_SOUND), lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT),
-            lang_get(STR_DATE_TIME), lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT),
+            lang_get(STR_DATE_TIME), lang_get(STR_OTA_IDLE), lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT),
             lang_get(STR_RESET_DEFAULT), lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER)
         };
-        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 17 ? def_items[idx] : "");
+        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 18 ? def_items[idx] : "");
         break;
     }
     }
@@ -429,6 +431,8 @@ static bool settings_on_key(int key)
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
             sys_nvs_save_font_source(st->font_source);
+            /* 显式设置下次启动到 factory（Loader）分区，然后重启 */
+            return_to_loader_setup();
             esp_restart();
             return true;
         }
