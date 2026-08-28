@@ -404,6 +404,16 @@ static void ota_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+/* 刷写任务：从SD卡刷写固件（独立任务，避免阻塞LVGL主线程导致UI冻结） */
+static void ota_flash_task(void *pvParameters)
+{
+    (void)pvParameters;
+    s_ota_state = OTA_STATE_FLASHING;
+    s_download_progress = 0;
+    ota_flash_from_sdcard();
+    vTaskDelete(NULL);
+}
+
 /* 启动OTA任务 */
 static void ota_start(void)
 {
@@ -575,11 +585,16 @@ static bool ota_on_key(int key)
             /* 重新开始OTA */
             ota_start();
         } else if (s_ota_state == OTA_STATE_READY) {
-            /* 开始刷写固件 */
+            /* 开始刷写固件：放入独立任务，避免阻塞 LVGL 主线程 */
             ESP_LOGI(TAG, "Starting firmware flash from SD card...");
             s_ota_state = OTA_STATE_FLASHING;
             s_download_progress = 0;
-            ota_flash_from_sdcard();
+            BaseType_t rt = xTaskCreate(ota_flash_task, "ota_flash", 8192, NULL, 5, NULL);
+            if (rt != pdPASS) {
+                ESP_LOGE(TAG, "xTaskCreate(ota_flash) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+                s_ota_state = OTA_STATE_ERROR;
+            }
         }
         return true;
     }
