@@ -49,6 +49,7 @@ typedef enum {
 } wifi_mode_sel_t;
 
 static volatile wifi_state_t s_wifi_state = WIFI_STATE_OFF;
+static volatile bool s_scan_ui_dirty = false; /* 扫描完成后需要刷新UI（由LVGL定时器消费） */
 static bool s_wifi_initialized = false;
 static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
 static bool s_ap_netif_created = false;   /* AP netif 是否已创建 */
@@ -185,9 +186,9 @@ static void wifi_scan(void)
     if (s_wifi_state == WIFI_STATE_OFF) return;
     ui_state_t *st = ui_state_get();
     if (!st->wifi_on) return;
-
+    /* 已在扫描中则跳过，避免重复发起 */
+    if (s_wifi_state == WIFI_STATE_SCANNING) return;
     s_wifi_state = WIFI_STATE_SCANNING;
-    s_network_count = 0;
 
     wifi_scan_config_t scan_config = {
         .ssid = NULL,
@@ -195,33 +196,43 @@ static void wifi_scan(void)
         .channel = 0,
         .show_hidden = false,
     };
-
-    esp_err_t ret = esp_wifi_scan_start(&scan_config, true);
+    /* 异步扫描：立即返回，结果在 WIFI_EVENT_SCAN_DONE 事件回调中获取。
+     * 避免阻塞式扫描导致 UI（LVGL）冻结数秒。 */
+    esp_err_t ret = esp_wifi_scan_start(&scan_config, false);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "WiFi scan failed: %s", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "WiFi scan start failed: %s", esp_err_to_name(ret));
         s_wifi_state = WIFI_STATE_IDLE;
         return;
     }
-
+    ESP_LOGI(TAG, "WiFi async scan started");
+}
+/* 扫描完成回调（在 WiFi 事件循环线程中执行，不操作 LVGL）：
+ * 仅更新数据状态；UI 刷新由后续 LVGL 主循环调用 rebuild/refresh 完成 */
+static void wifi_scan_done_handler(void)
+{
     uint16_t ap_count = 0;
     esp_wifi_scan_get_ap_num(&ap_count);
     if (ap_count > MAX_NETWORKS) ap_count = MAX_NETWORKS;
-
-    wifi_ap_record_t ap_records[MAX_NETWORKS];
-    esp_wifi_scan_get_ap_records(&ap_count, ap_records);
-
-    for (int i = 0; i < ap_count && i < MAX_NETWORKS; i++) {
-        strncpy(s_networks[i].ssid, (const char*)ap_records[i].ssid, WIFI_SSID_MAX);
-        s_networks[i].ssid[WIFI_SSID_MAX] = '\0';
-        s_networks[i].rssi = ap_records[i].rssi;
-        s_networks[i].auth_mode = ap_records[i].authmode;
+    if (ap_count > 0) {
+        wifi_ap_record_t ap_records[MAX_NETWORKS];
+        memset(ap_records, 0, sizeof(ap_records));
+        if (esp_wifi_scan_get_ap_records(&ap_count, ap_records) == ESP_OK) {
+            for (int i = 0; i < ap_count && i < MAX_NETWORKS; i++) {
+                strncpy(s_networks[i].ssid, (const char*)ap_records[i].ssid, WIFI_SSID_MAX);
+                s_networks[i].ssid[WIFI_SSID_MAX] = '\0';
+                s_networks[i].rssi = ap_records[i].rssi;
+                s_networks[i].auth_mode = ap_records[i].authmode;
+            }
+            s_network_count = ap_count;
+        }
+    } else {
+        s_network_count = 0;
     }
-    s_network_count = ap_count;
     s_wifi_state = WIFI_STATE_IDLE;
-
     ESP_LOGI(TAG, "WiFi scan complete: %d networks found", s_network_count);
+    /* 通知 LVGL 主线程刷新 UI（事件线程不直接操作 LVGL） */
+    s_scan_ui_dirty = true;
 }
-
 /* ========== WiFi连接/断开 ========== */
 static int s_pending_connect_idx = -1;  /* 等待密码输入的网络索引 */
 
@@ -236,6 +247,7 @@ static void wifi_password_callback(const char *password, void *user_data)
     if (s_wifi_list) {
         wifi_rebuild_visible();   /* 立即显示"连接中"反馈 */
     }
+    s_connect_start_tick = lv_tick_get();
     
     wifi_config_t wifi_config = {
         .sta = {
@@ -293,6 +305,7 @@ static void wifi_connect(int idx)
     /* 开放网络：直接连接 */
     s_wifi_state = WIFI_STATE_CONNECTING;
     s_connected_idx = -1;
+    s_connect_start_tick = lv_tick_get();
     
     wifi_config_t wifi_config = {
         .sta = {
@@ -344,10 +357,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             if (s_pending_connect_idx >= 0) {
                 s_connected_idx = s_pending_connect_idx;
             }
-            /* 重建UI以显示连接状态 */
-            if (s_wifi_list) {
-                wifi_rebuild_visible();
-            }
+            s_connect_start_tick = 0;   /* 连接已建立，取消超时保护 */
+            /* 事件线程不能直接操作LVGL，置标志由LVGL定时器刷新UI */
+            s_scan_ui_dirty = true;
             break;
             
         case WIFI_EVENT_STA_DISCONNECTED:
@@ -355,14 +367,14 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             if (s_wifi_state == WIFI_STATE_CONNECTED || s_wifi_state == WIFI_STATE_CONNECTING) {
                 s_wifi_state = WIFI_STATE_IDLE;
                 s_connected_idx = -1;
-                if (s_wifi_list) {
-                    wifi_rebuild_visible();
-                }
+                s_connect_start_tick = 0;
+                s_scan_ui_dirty = true;
             }
             break;
             
         case WIFI_EVENT_SCAN_DONE:
             ESP_LOGI(TAG, "WiFi scan done (async)");
+            wifi_scan_done_handler();
             break;
             
         default:
@@ -379,9 +391,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 s_pending_connect_idx = -1;
             }
             s_wifi_state = WIFI_STATE_CONNECTED;
-            if (s_wifi_list) {
-                wifi_rebuild_visible();
-            }
+            s_connect_start_tick = 0;
+            s_scan_ui_dirty = true;
             break;
         }
         default:
@@ -617,6 +628,30 @@ static void wifi_rebuild_visible(void)
 }
 
 /* ========== 页面生命周期 ========== */
+static lv_timer_t *s_wifi_timer = NULL;  /* WiFi页面UI刷新定时器 */
+static uint32_t s_connect_start_tick = 0; /* 发起连接的时间戳（用于超时保护） */
+#define WIFI_CONNECT_TIMEOUT_MS  15000     /* 连接超时（毫秒） */
+/* LVGL定时器回调：消费扫描完成标志刷新UI（必须在LVGL主线程执行） */
+static void wifi_timer_cb(lv_timer_t *timer)
+{
+    if (!s_wifi_list) return;
+    /* 连接超时保护：CONNECTING 状态持续超过阈值自动恢复 IDLE */
+    if (s_wifi_state == WIFI_STATE_CONNECTING && s_connect_start_tick != 0) {
+        uint32_t elapsed = lv_tick_get() - s_connect_start_tick;
+        if (elapsed >= WIFI_CONNECT_TIMEOUT_MS) {
+            ESP_LOGW(TAG, "WiFi connect timeout (%u ms), back to idle", (unsigned)elapsed);
+            s_wifi_state = WIFI_STATE_IDLE;
+            s_connected_idx = -1;
+            s_pending_connect_idx = -1;
+            s_connect_start_tick = 0;
+            wifi_rebuild_visible();
+        }
+    }
+    if (s_scan_ui_dirty) {
+        s_scan_ui_dirty = false;
+        wifi_rebuild_visible();
+    }
+}
 static void wifi_settings_init(void *data)
 {
     ESP_LOGI(TAG, "WiFi settings init");
@@ -667,11 +702,23 @@ static void wifi_settings_init(void *data)
 
     wifi_rebuild_visible();
     ui_dock_create(scr, 1, 0);
-}
 
+    /* 创建UI刷新定时器（300ms）：用于消费扫描完成标志，避免事件线程直接操作LVGL */
+    s_scan_ui_dirty = false;
+    if (s_wifi_timer == NULL) {
+        s_wifi_timer = lv_timer_create(wifi_timer_cb, 300, NULL);
+    }
+}
 static void wifi_settings_destroy(void)
 {
     ESP_LOGI(TAG, "WiFi settings destroy");
+    /* 销毁定时器 */
+    if (s_wifi_timer) {
+        lv_timer_del(s_wifi_timer);
+        s_wifi_timer = NULL;
+    }
+    s_scan_ui_dirty = false;
+    s_connect_start_tick = 0;
     /* 取消注册事件处理 */
     esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
     esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler);

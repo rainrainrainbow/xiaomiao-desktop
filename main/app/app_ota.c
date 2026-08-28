@@ -155,8 +155,16 @@ static void ota_check_latest_version(void)
     cJSON_Delete(root);
     
     esp_http_client_cleanup(client);
-}
 
+    /* 兜底：如果解析后仍未找到可下载的固件资产，进入错误状态以便用户重试 */
+    if (s_ota_state == OTA_STATE_CHECKING) {
+        ESP_LOGW(TAG, "No firmware asset '%s' found in latest release", FIRMWARE_FILENAME);
+        s_latest_version[0] = '\0';
+        s_download_url[0] = '\0';
+        s_download_progress = 0;
+        s_ota_state = OTA_STATE_ERROR;
+    }
+}
 /* 下载固件到SD卡 */
 static void ota_download_firmware(void)
 {
