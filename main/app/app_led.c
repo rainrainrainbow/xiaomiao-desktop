@@ -234,7 +234,7 @@ static void start_effect(void)
     drv_led_strip_set_brightness(s_current_brightness);
 
     /* 启动新效果任务；创建失败时一次性设置当前颜色（安全兜底） */
-    BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 2048, NULL, 5, NULL);
+    BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 3072, NULL, 5, NULL);
     if (rt != pdPASS) {
         ESP_LOGE(TAG, "xTaskCreate(led_effect) failed! setting color once");
         /* 边界检查：确保颜色索引有效 */
