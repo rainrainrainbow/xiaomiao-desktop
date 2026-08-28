@@ -33,6 +33,13 @@ typedef enum {
     KB_MODE_MAX
 } kb_mode_t;
 
+/* 键盘布局 */
+typedef enum {
+    KB_LAYOUT_QWERTY = 0,    /* QWERTY 全键盘（手机全键盘风格） */
+    KB_LAYOUT_T9,            /* T9 九宫格（老式手机拨号盘） */
+    KB_LAYOUT_MAX
+} kb_layout_t;
+
 /* 键盘回调 */
 typedef void (*kb_confirm_cb_t)(const char *text, void *user_data);
 typedef void (*kb_cancel_cb_t)(void *user_data);
