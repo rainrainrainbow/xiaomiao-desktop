@@ -376,6 +376,23 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGI(TAG, "WiFi scan done (async)");
             wifi_scan_done_handler();
             break;
+
+        case WIFI_EVENT_AP_STACONNECTED:
+        case WIFI_EVENT_AP_STADISCONNECTED: {
+            /* AP模式下客户端接入/断开：实时更新连接数 */
+            wifi_sta_list_t sta_list;
+            memset(&sta_list, 0, sizeof(sta_list));
+            if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+                s_ap_sta_count = sta_list.num;
+            }
+            ESP_LOGI(TAG, "AP station %s, total=%d",
+                     event_id == WIFI_EVENT_AP_STACONNECTED ? "connected" : "disconnected",
+                     s_ap_sta_count);
+            if (s_mode_sel == WIFI_MODE_SEL_AP) {
+                s_scan_ui_dirty = true;   /* 刷新UI显示新的连接数 */
+            }
+            break;
+        }
             
         default:
             break;
