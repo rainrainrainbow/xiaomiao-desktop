@@ -1,15 +1,15 @@
 /**
  * @file drv_led_strip.h
- * @brief WS2812B LED灯带驱动 - 与蜂鸣器复用GPIO14
+ * @brief NeoPixel RGB LED灯带驱动 - 与蜂鸣器复用GPIO14
  *
  * 硬件说明：
- * - 4颗 WS2812B 智能LED，连接在 GPIO14
+ * - 4颗 NeoPixel RGB（NEO_RGB 位序：R→G→B），连接在 GPIO14
  * - GPIO14 同时连接蜂鸣器（通过 LEDC PWM）
- * - 使用 RMT 驱动 WS2812B（时序要求严格）
+ * - 使用 RMT 驱动（时序与 WS2812B 兼容）
  * - 蜂鸣器使用时，LED 显示会短暂暂停
  *
  * 注意：
- * - WS2812B 和蜂鸣器共用 GPIO14，不能同时使用
+ * - NeoPixel RGB 和蜂鸣器共用 GPIO14，不能同时使用
  * - LED 驱动使用 RMT 发送时序信号
  * - 蜂鸣器使用 LEDC PWM 输出方波
  * - 使用时需互斥：LED 显示时停止蜂鸣器，反之亦然
@@ -27,23 +27,22 @@ extern "C" {
 
 /* LED数量 */
 #define LED_STRIP_COUNT    4
-
-/* 颜色结构体（GRB顺序，WS2812B使用） */
+/* 颜色结构体（NEO_RGB位序：R→G→B，NeoPixel RGB灯珠） */
 typedef struct {
-    uint8_t g;  /* 绿色 */
     uint8_t r;  /* 红色 */
+    uint8_t g;  /* 绿色 */
     uint8_t b;  /* 蓝色 */
 } led_rgb_t;
 
 /**
- * @brief 初始化 WS2812B LED 灯带
+ * @brief 初始化 NeoPixel RGB LED 灯带
  * 
  * 配置 RMT 控制器，设置 GPIO14 为输出。
  * 注意：会与蜂鸣器冲突，调用前需停止蜂鸣器。
  */
 esp_err_t drv_led_strip_init(void);
 /**
- * @brief 释放 WS2812B LED 灯带（停止 RMT 并释放 GPIO）
+ * @brief 释放 NeoPixel RGB LED 灯带（停止 RMT 并释放 GPIO）
  *
  * 退出 LED 应用时调用，确保彻底熄灭并释放 GPIO14。
  */

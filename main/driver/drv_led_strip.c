@@ -1,14 +1,14 @@
 /**
  * @file drv_led_strip.c
- * @brief WS2812B LED灯带驱动实现 - 使用RMT，与蜂鸣器复用GPIO14
+ * @brief NeoPixel RGB LED灯带驱动实现 - 使用RMT，与蜂鸣器复用GPIO14
  *
- * WS2812B 时序（使用 RMT）：
- * - T0H = 0.35us, T0L = 0.80us (逻辑0)
- * - T1H = 0.70us, T1L = 0.60us (逻辑1)
- * - RESET = >50us 低电平
+ * NeoPixel RGB (NEO_RGB) 时序（使用 RMT，标准 WS2812B 兼容）：
+ * - T0H = 0.40us, T0L = 0.85us (逻辑0)
+ * - T1H = 0.80us, T1L = 0.45us (逻辑1)
+ * - RESET = >50us 低电平（eot_level=0 保持）
  *
  * 与蜂鸣器互斥：
- * - GPIO14 同时连接蜂鸣器（LEDC PWM）和 WS2812B（RMT）
+ * - GPIO14 同时连接蜂鸣器（LEDC PWM）和 NeoPixel RGB（RMT）
  * - 使用前需停止蜂鸣器，使用后恢复
  */
 #include "drv_led_strip.h"
@@ -26,9 +26,9 @@
 static const char *TAG = "DRV_LED";
 
 /* ========== 引脚定义 ========== */
-#define PIN_LED_STRIP   GPIO_NUM_14     /* WS2812B 数据引脚（与蜂鸣器复用） */
+#define PIN_LED_STRIP   GPIO_NUM_14     /* NeoPixel RGB 数据引脚（与蜂鸣器复用） */
 
-/* ========== WS2812B 时序参数 ==========
+/* ========== NeoPixel RGB 时序参数 ==========
  * 标准值（Waveshare 教程 / espressif-led_strip 组件一致）：
  *   T0H=0.40us T0L=0.85us T1H=0.80us T1L=0.45us RESET>50us
  */
@@ -54,7 +54,7 @@ typedef struct {
     rmt_encoder_t *bytes_encoder;
     int state;
     size_t cur_pixel;   /* 当前处理的像素索引 */
-    size_t cur_byte;    /* 当前处理的字节索引 (0=G, 1=R, 2=B) */
+    size_t cur_byte;    /* 当前处理的字节索引 (0=R, 1=G, 2=B) */
 } led_encoder_t;
 
 static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channel,
@@ -74,12 +74,12 @@ static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channe
     }
 
     switch (led_enc->state) {
-    case 0: /* 发送像素数据 (GRB 顺序) */
+    case 0: /* 发送像素数据 (RGB 顺序, NeoPixel NEO_RGB) */
         while (led_enc->cur_pixel < (size_t)num_pixels) {
-            /* 计算带亮度调整的 GRB 值 */
+            /* 计算带亮度调整的 RGB 值（按 NEO_RGB 位序：R→G→B） */
             uint8_t grb[3] = {
-                (uint8_t)(pixels[led_enc->cur_pixel].g * s_brightness / 255),
                 (uint8_t)(pixels[led_enc->cur_pixel].r * s_brightness / 255),
+                (uint8_t)(pixels[led_enc->cur_pixel].g * s_brightness / 255),
                 (uint8_t)(pixels[led_enc->cur_pixel].b * s_brightness / 255),
             };
 
@@ -108,7 +108,7 @@ static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channe
         /* fall through */
 
     case 1: /* 发送复位信号 (>50us 低电平) */
-        /* WS2812B 复位信号：至少 50us 的低电平 */
+        /* NeoPixel RGB 复位信号：至少 50us 的低电平 */
         /* 这里不需要额外编码，RMT 在传输完成后会自动保持 eot_level=0 */
         led_enc->state = 0;
         *ret_state = RMT_ENCODING_COMPLETE;
@@ -152,7 +152,7 @@ esp_err_t drv_led_strip_init(void)
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Initializing WS2812B LED strip on GPIO%d", PIN_LED_STRIP);
+    ESP_LOGI(TAG, "Initializing NeoPixel RGB LED strip on GPIO%d", PIN_LED_STRIP);
 
     /* ---- 配置 RMT TX 通道 ---- */
     rmt_tx_channel_config_t tx_chan_cfg = {
@@ -181,7 +181,7 @@ esp_err_t drv_led_strip_init(void)
     enc->base.reset = rmt_led_encoder_reset;
     s_led_encoder = &enc->base;
 
-    /* 创建 bytes_encoder 用于 WS2812B 位编码 */
+    /* 创建 bytes_encoder 用于 NeoPixel RGB 位编码 */
     rmt_bytes_encoder_config_t bytes_enc_cfg = {
         .bit0 = {
             .duration0 = RMT_T0H,
@@ -206,7 +206,7 @@ esp_err_t drv_led_strip_init(void)
     memset(s_led_buffer, 0, sizeof(s_led_buffer));
 
     s_initialized = true;
-    ESP_LOGI(TAG, "WS2812B LED strip initialized (%d LEDs)", LED_STRIP_COUNT);
+    ESP_LOGI(TAG, "NeoPixel RGB LED strip initialized (%d LEDs)", LED_STRIP_COUNT);
     return ESP_OK;
 }
 
@@ -228,7 +228,7 @@ esp_err_t drv_led_strip_deinit(void)
         s_led_encoder = NULL;
     }
     s_initialized = false;
-    ESP_LOGI(TAG, "WS2812B LED strip deinitialized");
+    ESP_LOGI(TAG, "NeoPixel RGB LED strip deinitialized");
     return ESP_OK;
 }
 
