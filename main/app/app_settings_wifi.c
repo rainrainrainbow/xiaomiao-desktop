@@ -50,7 +50,7 @@ typedef enum {
 
 static volatile wifi_state_t s_wifi_state = WIFI_STATE_OFF;
 static volatile bool s_scan_ui_dirty = false; /* 扫描完成后需要刷新UI（由LVGL定时器消费） */
-static uint32_t s_connect_start_tick = 0;     /* 发起连接的时间戳（用于超时保护） */
+static volatile uint32_t s_connect_start_tick = 0; /* 发起连接的时间戳（用于超时保护） */
 #define WIFI_CONNECT_TIMEOUT_MS  15000         /* 连接超时（毫秒） */
 static bool s_wifi_initialized = false;
 static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
@@ -66,8 +66,8 @@ typedef struct {
 } wifi_network_t;
 
 static wifi_network_t s_networks[MAX_NETWORKS];
-static int s_network_count = 0;
-static int s_connected_idx = -1;  /* 当前连接的网络索引 */
+static volatile int s_network_count = 0;
+static volatile int s_connected_idx = -1; /* 当前连接的网络索引 */
 
 /* ========== UI状态 ========== */
 #define WIFI_ROW_MODE     0   /* 模式行（STA/AP切换） */
@@ -236,7 +236,7 @@ static void wifi_scan_done_handler(void)
     s_scan_ui_dirty = true;
 }
 /* ========== WiFi连接/断开 ========== */
-static int s_pending_connect_idx = -1;  /* 等待密码输入的网络索引 */
+static volatile int s_pending_connect_idx = -1; /* 等待密码输入的网络索引 */
 
 /* 密码输入回调 */
 static void wifi_password_callback(const char *password, void *user_data)
