@@ -48,12 +48,12 @@ typedef enum {
     WIFI_MODE_SEL_MAX
 } wifi_mode_sel_t;
 
-static wifi_state_t s_wifi_state = WIFI_STATE_OFF;
+static volatile wifi_state_t s_wifi_state = WIFI_STATE_OFF;
 static bool s_wifi_initialized = false;
 static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
 static bool s_ap_netif_created = false;   /* AP netif 是否已创建 */
 static wifi_mode_sel_t s_mode_sel = WIFI_MODE_SEL_STA;
-static int s_ap_sta_count = 0;            /* AP模式下已连接设备数 */
+static volatile int s_ap_sta_count = 0;            /* AP模式下已连接设备数 */
 
 /* 扫描到的网络列表 */
 typedef struct {

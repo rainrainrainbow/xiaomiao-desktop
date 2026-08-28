@@ -38,11 +38,10 @@ static lv_obj_t *s_status_label = NULL;
 static lv_obj_t *s_progress_bar = NULL;
 static lv_obj_t *s_version_label = NULL;
 static lv_obj_t *s_action_label = NULL;
-
-static ota_state_t s_ota_state = OTA_STATE_IDLE;
+static volatile ota_state_t s_ota_state = OTA_STATE_IDLE;
 static char s_latest_version[32] = {0};
 static char s_download_url[256] = {0};
-static int s_download_progress = 0;
+static volatile int s_download_progress = 0;
 
 /* HTTP事件处理 */
 static esp_err_t _http_event_handler(esp_http_client_event_t *evt)

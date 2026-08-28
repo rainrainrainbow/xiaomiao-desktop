@@ -101,9 +101,9 @@ static int s_music_count = 0;
 static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
 
 /* 播放状态 */
-static bool s_is_playing = false;
-static bool s_is_paused = false;
-static int s_playing_idx = -1;         /* 正在播放的文件索引 */
+static volatile bool s_is_playing = false;
+static volatile bool s_is_paused = false;
+static volatile int s_playing_idx = -1;         /* 正在播放的文件索引 */
 static int s_volume = 50;
 static play_mode_t s_play_mode = PLAY_MODE_SINGLE;
 static bool s_eq_enabled = true;       /* 频谱显示开关 */
