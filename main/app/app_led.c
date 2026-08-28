@@ -81,6 +81,15 @@ static uint8_t s_current_brightness = 128; // 当前亮度
 static volatile bool s_effect_running = false;
 static volatile bool s_effect_stop = false;
 
+/* 效果延时常量（毫秒） */
+#define LED_DELAY_STATIC      50   /* 常亮刷新间隔 */
+#define LED_DELAY_BREATH      30   /* 呼吸灯步进 */
+#define LED_DELAY_RAINBOW     50   /* 彩虹渐变间隔 */
+#define LED_DELAY_FLOW        30   /* 流光步进间隔 */
+#define LED_DELAY_BLINK_ON    50   /* 闪烁亮持续时间 */
+#define LED_DELAY_BLINK_OFF   50   /* 闪烁灭持续时间 */
+
+
 /* ========== 颜色辅助函数 ========== */
 
 /** HSV 转 RGB */
@@ -136,7 +145,7 @@ static void led_effect_task(void *arg)
         drv_led_strip_refresh();
         /* 常亮：保持当前颜色直到收到停止请求（循环内刷新以响应亮度调节） */
         while (!s_effect_stop) {
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(LED_DELAY_STATIC));
             if (s_effect_stop) break;
             drv_led_strip_set_all(base_color);
             drv_led_strip_refresh();
@@ -155,7 +164,7 @@ static void led_effect_task(void *arg)
                 };
                 drv_led_strip_set_all(scaled);
                 drv_led_strip_refresh();
-                vTaskDelay(pdMS_TO_TICKS(30));
+                vTaskDelay(pdMS_TO_TICKS(LED_DELAY_BREATH));
             }
         }
         break;
@@ -169,7 +178,7 @@ static void led_effect_task(void *arg)
             }
             drv_led_strip_refresh();
             hue = (hue + 4) % 256;
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(LED_DELAY_STATIC));
         }
         break;
     }
@@ -186,7 +195,7 @@ static void led_effect_task(void *arg)
             offset = (offset + 1) % LED_STRIP_COUNT;
             /* 150ms 拆成小段，及时响应停止请求 */
             for (int i = 0; i < 5 && !s_effect_stop; i++) {
-                vTaskDelay(pdMS_TO_TICKS(30));
+                vTaskDelay(pdMS_TO_TICKS(LED_DELAY_BREATH));
             }
         }
         break;
@@ -196,11 +205,11 @@ static void led_effect_task(void *arg)
             drv_led_strip_set_all(base_color);
             drv_led_strip_refresh();
             for (int i = 0; i < 10 && !s_effect_stop; i++) {
-                vTaskDelay(pdMS_TO_TICKS(50));
+                vTaskDelay(pdMS_TO_TICKS(LED_DELAY_STATIC));
             }
             drv_led_strip_clear();
             for (int i = 0; i < 10 && !s_effect_stop; i++) {
-                vTaskDelay(pdMS_TO_TICKS(50));
+                vTaskDelay(pdMS_TO_TICKS(LED_DELAY_STATIC));
             }
         }
         break;
