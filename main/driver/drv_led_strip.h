@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* LED数量 */
-#define LED_STRIP_COUNT    4
+#define LED_STRIP_COUNT    3
 /* 颜色结构体（NEO_RGB位序：R→G→B，NeoPixel RGB灯珠） */
 typedef struct {
     uint8_t r;  /* 红色 */
