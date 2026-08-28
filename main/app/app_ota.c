@@ -57,10 +57,11 @@ static esp_err_t _http_event_handler(esp_http_client_event_t *evt)
         ESP_LOGI(TAG, "HTTP_EVENT_HEADER_SENT");
         break;
     case HTTP_EVENT_ON_HEADER:
-        ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", evt->header_key, evt->header_value);
         break;
     case HTTP_EVENT_ON_DATA:
-        ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+        /* 数据块日志改为 DEBUG 级别，避免固件下载时刷屏 */
+        ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
         break;
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
@@ -85,6 +86,8 @@ static void ota_check_latest_version(void)
     esp_http_client_config_t config = {
         .url = GITHUB_API_URL,
         .event_handler = _http_event_handler,
+        .timeout_ms = 10000,          /* 版本检查请求超时10秒，避免无网络时卡死 */
+        .buffer_size = 4096,
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -183,6 +186,7 @@ static void ota_download_firmware(void)
     esp_http_client_config_t config = {
         .url = s_download_url,
         .event_handler = _http_event_handler,
+        .timeout_ms = 30000,          /* 固件下载超时30秒 */
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -243,11 +247,14 @@ static void ota_download_firmware(void)
     fclose(fp);
     esp_http_client_cleanup(client);
     
-    if (total_read > 0) {
+    if (total_read > 0 && (content_length <= 0 || total_read == content_length)) {
         ESP_LOGI(TAG, "Download complete: %d bytes", total_read);
         s_ota_state = OTA_STATE_READY;
-    } else {
-        ESP_LOGE(TAG, "Download failed");
+    } else if (total_read > 0) {
+        /* 下载不完整：实际字节数与 Content-Length 不符，视为失败 */
+        ESP_LOGE(TAG, "Download incomplete: got %d / %d bytes, discarding",
+                 total_read, content_length);
+        remove(FIRMWARE_PATH);   /* 清理不完整的固件文件 */
         s_ota_state = OTA_STATE_ERROR;
     }
 }
