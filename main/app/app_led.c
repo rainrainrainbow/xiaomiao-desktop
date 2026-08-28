@@ -1,6 +1,6 @@
 /**
  * @file app_led.c
- * @brief 灯效应用 — 控制 WS2812B LED 灯带效果
+ * @brief 灯效应用 — 控制 NeoPixel RGB LED 灯带效果
  *
  * 支持效果：
  * - 关闭
@@ -120,7 +120,10 @@ static void led_effect_task(void *arg)
     (void)arg;
     s_effect_running = true;
     s_effect_stop = false;
-
+    /* 边界检查：确保颜色索引有效 */
+    if (s_current_color < 0 || s_current_color >= (int)COLOR_PRESET_COUNT) {
+        s_current_color = 0;
+    }
     led_rgb_t base_color = s_color_presets[s_current_color].color;
 
     switch (s_current_effect) {
@@ -234,6 +237,10 @@ static void start_effect(void)
     BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 2048, NULL, 5, NULL);
     if (rt != pdPASS) {
         ESP_LOGE(TAG, "xTaskCreate(led_effect) failed! setting color once");
+        /* 边界检查：确保颜色索引有效 */
+        if (s_current_color < 0 || s_current_color >= (int)COLOR_PRESET_COUNT) {
+            s_current_color = 0;
+        }
         led_rgb_t c = s_color_presets[s_current_color].color;
         if (s_current_effect != LED_EFFECT_OFF) {
             drv_led_strip_set_all(c);
