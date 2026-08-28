@@ -50,6 +50,8 @@ typedef enum {
 
 static volatile wifi_state_t s_wifi_state = WIFI_STATE_OFF;
 static volatile bool s_scan_ui_dirty = false; /* 扫描完成后需要刷新UI（由LVGL定时器消费） */
+static uint32_t s_connect_start_tick = 0;     /* 发起连接的时间戳（用于超时保护） */
+#define WIFI_CONNECT_TIMEOUT_MS  15000         /* 连接超时（毫秒） */
 static bool s_wifi_initialized = false;
 static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
 static bool s_ap_netif_created = false;   /* AP netif 是否已创建 */
@@ -646,8 +648,6 @@ static void wifi_rebuild_visible(void)
 
 /* ========== 页面生命周期 ========== */
 static lv_timer_t *s_wifi_timer = NULL;  /* WiFi页面UI刷新定时器 */
-static uint32_t s_connect_start_tick = 0; /* 发起连接的时间戳（用于超时保护） */
-#define WIFI_CONNECT_TIMEOUT_MS  15000     /* 连接超时（毫秒） */
 /* LVGL定时器回调：消费扫描完成标志刷新UI（必须在LVGL主线程执行） */
 static void wifi_timer_cb(lv_timer_t *timer)
 {
