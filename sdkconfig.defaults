@@ -139,6 +139,17 @@ CONFIG_MBEDTLS_ECP_DP_SECP256R1_ENABLED=y
 # wear_levelling 配置（用于 retro-core FAT 分区）
 CONFIG_WL_SECTOR_SIZE=4096
 
+# ============================================================================
+# FATFS 长文件名（LFN）支持
+# ============================================================================
+# 默认 CONFIG_FATFS_LFN_NONE=y（禁用长文件名），导致 readdir/fopen 返回
+# 8.3 短文件名（如 NOTOSA~1.OTF），字体/文件/应用扫描均显示截断名。
+# 改用 LFN_HEAP：LFN 缓冲区从堆分配，>1KB 自动走 PSRAM（ESP32-WROVER 有 8MB PSRAM），
+# 支持任意长度文件名（UTF-8/中文），各应用 readdir 将返回完整文件名。
+CONFIG_FATFS_LFN_HEAP=y
+# CONFIG_FATFS_LFN_NONE is not set
+CONFIG_FATFS_MAX_LFN=128
+
 # newlib nano 格式（减少 newlib 代码体积）
 CONFIG_NEWLIB_NANO_FORMAT=y
 
