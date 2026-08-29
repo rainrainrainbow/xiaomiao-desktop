@@ -11,6 +11,7 @@
 
 #include "lv_freetype_font.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -147,9 +148,14 @@ lv_result_t lv_freetype_font_init(void)
     /* 初始化 FreeType 引擎
      * 注意：不重试！如果第一次失败，直接使用内置字体。
      * 重试可能导致某些内部状态不一致，引发后续崩溃。 */
+    ESP_LOGI(TAG, "Attempting FreeType init (DRAM free=%lu, PSRAM free=%lu)",
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
     if (res != LV_RESULT_OK) {
-        ESP_LOGE(TAG, "lv_freetype_init failed - using built-in Montserrat font");
+        ESP_LOGE(TAG, "lv_freetype_init failed (DRAM free=%lu, PSRAM free=%lu) - using built-in Montserrat font",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         return LV_RESULT_INVALID;
     }
 
@@ -300,9 +306,14 @@ lv_result_t lv_freetype_font_load_path(const char *path)
      * uninit + reinit 会导致 FreeType 内部状态不一致，后续 UI 操作崩溃
      * （曾真机复现：init failed, retrying → 重试成功 → 启动设置应用 LoadProhibited）。 */
     if (!s_initialized) {
+        ESP_LOGI(TAG, "Attempting FreeType init (load_path) (DRAM free=%lu, PSRAM free=%lu)",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
         if (res != LV_RESULT_OK) {
-            ESP_LOGE(TAG, "lv_freetype_init failed - using built-in Montserrat font");
+            ESP_LOGE(TAG, "lv_freetype_init failed (load_path) (DRAM free=%lu, PSRAM free=%lu) - using built-in Montserrat font",
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
             return LV_RESULT_INVALID;
         }
         s_initialized = true;
