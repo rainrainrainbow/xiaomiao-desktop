@@ -1,18 +1,15 @@
 /**
  * @file drv_led_strip.h
- * @brief NeoPixel RGB LED灯带驱动 - 与蜂鸣器复用GPIO14
+ * @brief NeoPixel RGB LED灯带驱动 - 官方 espressif/led_strip 组件（RMT）
  *
  * 硬件说明：
- * - 4颗 NeoPixel RGB（NEO_RGB 位序：R→G→B），连接在 GPIO14
- * - GPIO14 同时连接蜂鸣器（通过 LEDC PWM）
- * - 使用 RMT 驱动（时序与 WS2812B 兼容）
- * - 蜂鸣器使用时，LED 显示会短暂暂停
+ * - 3颗 NeoPixel RGB（NEO_RGB 位序：R→G→B），连接在 GPIO14
+ * - 蜂鸣器已拆除，GPIO14 完全归 LED 使用（不再有 LEDC 抢占冲突）
+ * - 使用官方 led_strip 组件驱动（内部封装 RMT 时序编码与复位信号）
  *
  * 注意：
- * - NeoPixel RGB 和蜂鸣器共用 GPIO14，不能同时使用
- * - LED 驱动使用 RMT 发送时序信号
- * - 蜂鸣器使用 LEDC PWM 输出方波
- * - 使用时需互斥：LED 显示时停止蜂鸣器，反之亦然
+ * - 官方组件 RMT 位序配置为 LED_STRIP_COLOR_COMPONENT_FMT_RGB（匹配 NEO_RGB）
+ * - RMT mem_block_symbols 须 ≥ 3*24+复位 ≈ 73（3颗灯），驱动内已配置 128
  */
 #ifndef DRV_LED_STRIP_H
 #define DRV_LED_STRIP_H
@@ -36,9 +33,9 @@ typedef struct {
 
 /**
  * @brief 初始化 NeoPixel RGB LED 灯带
- * 
- * 配置 RMT 控制器，设置 GPIO14 为输出。
- * 注意：会与蜂鸣器冲突，调用前需停止蜂鸣器。
+ *
+ * 使用官方 led_strip 组件配置 RMT，设置 GPIO14 为输出。
+ * 蜂鸣器已拆除，无需互斥。
  */
 esp_err_t drv_led_strip_init(void);
 /**
