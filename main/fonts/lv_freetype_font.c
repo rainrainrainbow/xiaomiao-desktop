@@ -153,9 +153,17 @@ lv_result_t lv_freetype_font_init(void)
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
     if (res != LV_RESULT_OK) {
-        ESP_LOGE(TAG, "lv_freetype_init failed (DRAM free=%lu, PSRAM free=%lu) - using built-in Montserrat font",
+        /* 打印最大空闲块（比 free 总量更能反映能否分配），并记录 LVGL 内部日志
+         * 是否输出了 "already initialized" / "malloc failed" / "FT_Init_FreeType"。
+         * 注意：lv_freetype_init() 在 FT_Init_FreeType 失败时不会释放 ft_ctx，
+         * 导致后续调用永远走 "already initialized" WARN 分支。此处主动 uninit
+         * 清空残留状态，让后续重试（如用户再次选择字体）真正重新初始化。 */
+        lv_freetype_uninit();
+        ESP_LOGE(TAG, "lv_freetype_init failed (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - using built-in Montserrat font",
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                 (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                 (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
         return LV_RESULT_INVALID;
     }
 
@@ -311,9 +319,14 @@ lv_result_t lv_freetype_font_load_path(const char *path)
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
         lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
         if (res != LV_RESULT_OK) {
-            ESP_LOGE(TAG, "lv_freetype_init failed (load_path) (DRAM free=%lu, PSRAM free=%lu) - using built-in Montserrat font",
+            /* 与 init() 一致：失败时主动 uninit 清空 ft_ctx 残留，
+             * 避免后续调用永久卡在 "already initialized" WARN 分支。 */
+            lv_freetype_uninit();
+            ESP_LOGE(TAG, "lv_freetype_init failed (load_path) (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - using built-in Montserrat font",
                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                     (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                     (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                     (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
             return LV_RESULT_INVALID;
         }
         s_initialized = true;

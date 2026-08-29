@@ -283,6 +283,16 @@ static void flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px)
 
 static void tick_cb(void *arg) { lv_tick_inc(1); }
 
+/* LVGL 日志转发到 ESP_LOG：默认 LVGL 日志进黑洞（无 callback + LV_LOG_PRINTF=n），
+ * 导致 lv_freetype_init 等失败原因完全不可见。注册后所有 LVGL WARN/ERROR
+ * 都会输出到串口，便于真机定位 FreeType init / malloc 失败的真实分支。 */
+static void lv_log_to_esp(lv_log_level_t level, const char *buf)
+{
+    (void)level;
+    /* buf 已含前缀（如 [Warn] xxx: msg），统一按 INFO 级别输出 */
+    ESP_LOGI("LVGL", "%s", buf);
+}
+
 static lv_display_t *display_init(esp_lcd_panel_io_handle_t io)
 {
     lv_display_t *d = lv_display_create(LCD_H_RES, LCD_V_RES);
@@ -1015,6 +1025,9 @@ void app_main(void)
     
     // 初始化LVGL
     lv_init();
+    /* 注册 LVGL 日志转发（必须在 lv_init 后、任何 lv_freetype_init 前调用），
+     * 使 LVGL 内部 WARN/ERROR 输出到串口，便于真机定位 FreeType init 失败原因 */
+    lv_log_register_print_cb(lv_log_to_esp);
     lv_display_t *disp = display_init(io);
     
     // 创建按键输入设备
