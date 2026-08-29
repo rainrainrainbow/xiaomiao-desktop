@@ -19,6 +19,10 @@
 #include <string.h>
 #include <math.h>
 
+/* 每个LED需要 24 个 RMT symbols（8bit x 3色），3颗=72个。
+ * 官方示例的 64 只够 1 颗，多个 LED 必须扩容，否则 RMT 传输被拒绝/截断 */
+#define LED_STRIP_RMT_MEM_SYMBOLS  128
+
 static const char *TAG = "DRV_LED";
 
 /* ========== 引脚定义 ========== */
@@ -40,6 +44,12 @@ esp_err_t drv_led_strip_init(void)
 
     ESP_LOGI(TAG, "Initializing NeoPixel RGB LED strip (official led_strip) on GPIO%d", PIN_LED_STRIP);
 
+    /* 强制释放 GPIO14 上的外设占用（蜂鸣器已拆除，但启动时 drv_buzzer_init()
+     * 可能仍将 LEDC 绑定到 GPIO14；RMT 分配前必须重置引脚，否则 RMT 信号发不出去） */
+    gpio_reset_pin(PIN_LED_STRIP);
+    gpio_set_direction(PIN_LED_STRIP, GPIO_MODE_OUTPUT);
+    gpio_set_level(PIN_LED_STRIP, 0);
+
     /* 官方 led_strip 组件配置：RMT 后端，RGB 位序（匹配 NEO_RGB） */
     led_strip_config_t strip_config = {
         .strip_gpio_num = PIN_LED_STRIP,
@@ -51,7 +61,7 @@ esp_err_t drv_led_strip_init(void)
     led_strip_rmt_config_t rmt_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
         .resolution_hz = 10 * 1000 * 1000,   /* 10MHz，0.1us 精度 */
-        .mem_block_symbols = 64,
+        .mem_block_symbols = LED_STRIP_RMT_MEM_SYMBOLS,
         .flags.with_dma = false,
     };
 

@@ -976,8 +976,12 @@ void app_main(void)
     drv_button_init();
     drv_backlight_init();
     drv_battery_init();  // 电池在按键之后，避免覆盖GPIO34配置
-    drv_buzzer_init();   // 初始化蜂鸣器（GPIO14，LEDC PWM，与WS2812B复用）
-    drv_led_strip_init(); // 初始化 WS2812B LED（GPIO14，RMT，与蜂鸣器复用）
+    /* 蜂鸣器已拆除：不再初始化 LEDC —— 否则 LEDC 外设会持续占用 GPIO14，
+     * 导致 RMT（官方 led_strip 组件）无法把时序信号输出到引脚，LED 永远不亮。
+     * GPIO14 现在完全归 LED 使用；音频输出走 I2S DAC 后端。
+     * 若日后恢复蜂鸣器硬件，取消下行注释并确保与 LED 互斥即可。 */
+    // drv_buzzer_init();
+    drv_led_strip_init(); // 初始化 NeoPixel RGB LED（GPIO14，官方 led_strip 组件 + RMT）
     drv_mic_init();      // 初始化 LMD2718 数字麦克风（GPIO21 DATA, GPIO15 CLK）
     audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
     
