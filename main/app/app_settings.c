@@ -263,7 +263,14 @@ static void settings_activate(void)
 {
     ESP_LOGI(TAG, "Settings app activate");
     ui_statusbar_set_title(lang_get(STR_SETTINGS));
-    settings_rebuild_visible();
+    /* 避免重复 rebuild：settings_init() 已经调用过 settings_rebuild_visible()
+     * 重复调用会导致标签被销毁重建，触发 LVGL v9.5 glyph cache 的 use-after-free bug
+     * （lv_cache_lru_rb.c 的 get_victim_cb 在 evict 时访问已释放的节点）
+     * 只在列表不存在时才 rebuild（例如从其他页面返回时）
+     */
+    if (!s_settings_list) {
+        settings_rebuild_visible();
+    }
 }
 
 static void settings_destroy(void)
