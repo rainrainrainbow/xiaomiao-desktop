@@ -295,16 +295,14 @@ lv_result_t lv_freetype_font_load_path(const char *path)
     }
     fclose(f);
 
-    /* 若引擎未初始化，先初始化（失败时重试一次） */
+    /* 若引擎未初始化，先初始化
+     * 注意：不重试！与 lv_freetype_font_init() 保持一致。
+     * uninit + reinit 会导致 FreeType 内部状态不一致，后续 UI 操作崩溃
+     * （曾真机复现：init failed, retrying → 重试成功 → 启动设置应用 LoadProhibited）。 */
     if (!s_initialized) {
         lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
         if (res != LV_RESULT_OK) {
-            ESP_LOGW(TAG, "lv_freetype_init failed, retrying...");
-            lv_freetype_uninit();
-            res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
-        }
-        if (res != LV_RESULT_OK) {
-            ESP_LOGE(TAG, "lv_freetype_init still failed");
+            ESP_LOGE(TAG, "lv_freetype_init failed - using built-in Montserrat font");
             return LV_RESULT_INVALID;
         }
         s_initialized = true;
