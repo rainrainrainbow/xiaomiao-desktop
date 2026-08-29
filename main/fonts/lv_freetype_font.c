@@ -171,11 +171,18 @@ lv_result_t lv_freetype_font_init(void)
                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
 
         /* 绕开 LVGL，直接调用 esp-freetype 的 FT_Init_FreeType 探测确切错误码。
-         * LVGL 内部用它初始化 library，返回的错误码即 lv_freetype_init() 失败的真实原因。 */
+         * LVGL 内部用它初始化 library，返回的错误码即 lv_freetype_init() 失败的真实原因。
+         * 注意：FT_CONFIG_OPTION_ERROR_STRINGS 未启用时 FT_Error_String() 返回 NULL，
+         * 需判空避免打印 (null)。错误码本身（十六进制）恒可靠。 */
         FT_Library probe_lib = NULL;
         FT_Error fterr = FT_Init_FreeType(&probe_lib);
-        ESP_LOGE(TAG, "FT_Init_FreeType direct probe: error=0x%02X (%s)",
-                 (unsigned int)fterr, FT_Error_String(fterr));
+        const char *err_str = FT_Error_String(fterr);
+        if (err_str) {
+            ESP_LOGE(TAG, "FT_Init_FreeType direct probe: error=0x%02X (%s)",
+                     (unsigned int)fterr, err_str);
+        } else {
+            ESP_LOGE(TAG, "FT_Init_FreeType direct probe: error=0x%02X", (unsigned int)fterr);
+        }
         if (probe_lib) {
             ESP_LOGI(TAG, "FT_Init_FreeType direct probe SUCCEEDED (library allocated, but LVGL init failed)");
             FT_Done_FreeType(probe_lib);
@@ -348,8 +355,14 @@ lv_result_t lv_freetype_font_load_path(const char *path)
             /* 直接探测 FT_Init_FreeType 错误码（与 init() 一致） */
             FT_Library probe_lib2 = NULL;
             FT_Error fterr2 = FT_Init_FreeType(&probe_lib2);
-            ESP_LOGE(TAG, "FT_Init_FreeType direct probe (load_path): error=0x%02X (%s)",
-                     (unsigned int)fterr2, FT_Error_String(fterr2));
+            const char *err_str2 = FT_Error_String(fterr2);
+            if (err_str2) {
+                ESP_LOGE(TAG, "FT_Init_FreeType direct probe (load_path): error=0x%02X (%s)",
+                         (unsigned int)fterr2, err_str2);
+            } else {
+                ESP_LOGE(TAG, "FT_Init_FreeType direct probe (load_path): error=0x%02X",
+                         (unsigned int)fterr2);
+            }
             if (probe_lib2) FT_Done_FreeType(probe_lib2);
             return LV_RESULT_INVALID;
         }
