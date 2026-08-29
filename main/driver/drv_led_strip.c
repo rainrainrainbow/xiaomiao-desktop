@@ -1,26 +1,22 @@
 /**
  * @file drv_led_strip.c
- * @brief NeoPixel RGB LED灯带驱动实现 - 使用RMT，与蜂鸣器复用GPIO14
+ * @brief NeoPixel RGB LED灯带驱动实现 - 使用 ESP-IDF 官方 led_strip 组件 (RMT)
  *
- * NeoPixel RGB (NEO_RGB) 时序（使用 RMT，标准 WS2812B 兼容）：
- * - T0H = 0.40us, T0L = 0.85us (逻辑0)
- * - T1H = 0.80us, T1L = 0.45us (逻辑1)
- * - RESET = >50us 低电平（eot_level=0 保持）
+ * 硬件：
+ * - NeoPixel RGB (NEO_RGB 位序 R->G->B), 3 颗, 连接 GPIO14 (与蜂鸣器复用)
+ * - 通过官方 espressif/led_strip 组件驱动，内部封装 RMT 时序编码与复位信号
  *
  * 与蜂鸣器互斥：
  * - GPIO14 同时连接蜂鸣器（LEDC PWM）和 NeoPixel RGB（RMT）
- * - 使用前需停止蜂鸣器，使用后恢复
+ * - 使用前需停止蜂鸣器，使用后释放 GPIO
  */
 #include "drv_led_strip.h"
-#include "driver/rmt_tx.h"
-#include "driver/rmt_encoder.h"
+#include "led_strip.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
-#include <stdlib.h>
 #include <math.h>
 
 static const char *TAG = "DRV_LED";
@@ -28,121 +24,11 @@ static const char *TAG = "DRV_LED";
 /* ========== 引脚定义 ========== */
 #define PIN_LED_STRIP   GPIO_NUM_14     /* NeoPixel RGB 数据引脚（与蜂鸣器复用） */
 
-/* ========== NeoPixel RGB 时序参数 ==========
- * 标准值（Waveshare 教程 / espressif-led_strip 组件一致）：
- *   T0H=0.40us T0L=0.85us T1H=0.80us T1L=0.45us RESET>50us
- */
-#define RMT_LED_RESOLUTION_HZ   10000000  /* 10MHz = 0.1us 精度 */
-#define RMT_T0H                 40        /* 0.40us */
-#define RMT_T0L                 85        /* 0.85us */
-#define RMT_T1H                 80        /* 0.80us */
-#define RMT_T1L                 45        /* 0.45us */
-#define RMT_RESET_US            80        /* 80us 复位信号 */
-
 /* ========== 内部状态 ========== */
-static rmt_channel_handle_t s_led_chan = NULL;
-static rmt_encoder_handle_t s_led_encoder = NULL;
-static led_rgb_t s_led_buffer[LED_STRIP_COUNT];
-static uint8_t s_brightness = 128;  /* 默认50%亮度 */
+static led_strip_handle_t s_strip = NULL;   /* 官方 led_strip 组件句柄 */
+static uint8_t s_brightness = 128;           /* 默认50%亮度 */
 static bool s_initialized = false;
 static volatile bool s_breathing = false;
-
-/* ========== RMT 编码器 ========== */
-/* 使用 ESP-IDF 内置的 bytes_encoder */
-typedef struct {
-    rmt_encoder_t base;
-    rmt_encoder_t *bytes_encoder;
-    int state;
-    size_t cur_pixel;   /* 当前处理的像素索引 */
-    size_t cur_byte;    /* 当前处理的字节索引 (0=R, 1=G, 2=B) */
-} led_encoder_t;
-
-static size_t rmt_encode_led(rmt_encoder_t *encoder, rmt_channel_handle_t channel,
-                             const void *primary_data, size_t data_size,
-                             rmt_encode_state_t *ret_state)
-{
-    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
-    rmt_encode_state_t session_state = RMT_ENCODING_RESET;
-    size_t encoded_size = 0;
-
-    const led_rgb_t *pixels = (const led_rgb_t *)primary_data;
-    int num_pixels = data_size / sizeof(led_rgb_t);
-
-    if (num_pixels <= 0) {
-        *ret_state = RMT_ENCODING_COMPLETE;
-        return 0;
-    }
-
-    switch (led_enc->state) {
-    case 0: /* 发送像素数据 (RGB 顺序, NeoPixel NEO_RGB) */
-        while (led_enc->cur_pixel < (size_t)num_pixels) {
-            /* 计算带亮度调整的 RGB 值（按 NEO_RGB 位序：R→G→B） */
-            uint8_t grb[3] = {
-                (uint8_t)(pixels[led_enc->cur_pixel].r * s_brightness / 255),
-                (uint8_t)(pixels[led_enc->cur_pixel].g * s_brightness / 255),
-                (uint8_t)(pixels[led_enc->cur_pixel].b * s_brightness / 255),
-            };
-
-            /* 编码当前字节 */
-            size_t size = led_enc->bytes_encoder->encode(
-                led_enc->bytes_encoder, channel, &grb[led_enc->cur_byte], 1, &session_state);
-            encoded_size += size;
-
-            /* 移动到下一个字节/像素 */
-            led_enc->cur_byte++;
-            if (led_enc->cur_byte >= 3) {
-                led_enc->cur_byte = 0;
-                led_enc->cur_pixel++;
-            }
-
-            /* 如果本次编码未完成，返回让 RMT 继续请求数据 */
-            if (!(session_state & RMT_ENCODING_COMPLETE)) {
-                *ret_state = RMT_ENCODING_RESET;
-                return encoded_size;
-            }
-        }
-        /* 所有像素发送完毕，进入复位阶段 */
-        led_enc->state = 1;
-        led_enc->cur_pixel = 0;
-        led_enc->cur_byte = 0;
-        /* fall through */
-
-    case 1: /* 发送复位信号 (>50us 低电平) */
-        /* NeoPixel RGB 复位信号：至少 50us 的低电平 */
-        /* 这里不需要额外编码，RMT 在传输完成后会自动保持 eot_level=0 */
-        led_enc->state = 0;
-        *ret_state = RMT_ENCODING_COMPLETE;
-        break;
-
-    default:
-        *ret_state = RMT_ENCODING_RESET;
-        break;
-    }
-
-    return encoded_size;
-}
-
-static esp_err_t rmt_del_led_encoder(rmt_encoder_t *encoder)
-{
-    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
-    if (led_enc->bytes_encoder) {
-        rmt_del_encoder(led_enc->bytes_encoder);
-    }
-    heap_caps_free(led_enc);
-    return ESP_OK;
-}
-
-static esp_err_t rmt_led_encoder_reset(rmt_encoder_t *encoder)
-{
-    led_encoder_t *led_enc = __containerof(encoder, led_encoder_t, base);
-    if (led_enc->bytes_encoder) {
-        rmt_encoder_reset(led_enc->bytes_encoder);
-    }
-    led_enc->state = 0;
-    led_enc->cur_pixel = 0;
-    led_enc->cur_byte = 0;
-    return ESP_OK;
-}
 
 /* ========== 公共接口 ========== */
 
@@ -152,61 +38,37 @@ esp_err_t drv_led_strip_init(void)
         return ESP_OK;
     }
 
-    ESP_LOGI(TAG, "Initializing NeoPixel RGB LED strip on GPIO%d", PIN_LED_STRIP);
+    ESP_LOGI(TAG, "Initializing NeoPixel RGB LED strip (official led_strip) on GPIO%d", PIN_LED_STRIP);
 
-    /* ---- 配置 RMT TX 通道 ---- */
-    rmt_tx_channel_config_t tx_chan_cfg = {
-        .gpio_num = PIN_LED_STRIP,
+    /* 官方 led_strip 组件配置：RMT 后端，RGB 位序（匹配 NEO_RGB） */
+    led_strip_config_t strip_config = {
+        .strip_gpio_num = PIN_LED_STRIP,
+        .max_leds = LED_STRIP_COUNT,
+        .led_model = LED_MODEL_WS2812,
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,  /* R->G->B，NEO_RGB */
+        .flags.invert_out = false,
+    };
+    led_strip_rmt_config_t rmt_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = RMT_LED_RESOLUTION_HZ,
-        .mem_block_symbols = 128,
-        .trans_queue_depth = 4,
-        .flags = {
-            .invert_out = false,
-            .with_dma = false,
-            .io_loop_back = false,
-            .io_od_mode = false,
-        },
+        .resolution_hz = 10 * 1000 * 1000,   /* 10MHz，0.1us 精度 */
+        .mem_block_symbols = 64,
+        .flags.with_dma = false,
     };
-    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_cfg, &s_led_chan));
 
-    /* ---- 创建编码器 ---- */
-    led_encoder_t *enc = heap_caps_calloc(1, sizeof(led_encoder_t), MALLOC_CAP_8BIT);
-    if (!enc) {
-        ESP_LOGE(TAG, "Failed to allocate encoder");
-        return ESP_ERR_NO_MEM;
+    esp_err_t ret = led_strip_new_rmt_device(&strip_config, &rmt_config, &s_strip);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "led_strip_new_rmt_device failed: %s", esp_err_to_name(ret));
+        s_strip = NULL;
+        return ret;
     }
-    enc->base.encode = rmt_encode_led;
-    enc->base.del = rmt_del_led_encoder;
-    enc->base.reset = rmt_led_encoder_reset;
-    s_led_encoder = &enc->base;
 
-    /* 创建 bytes_encoder 用于 NeoPixel RGB 位编码 */
-    rmt_bytes_encoder_config_t bytes_enc_cfg = {
-        .bit0 = {
-            .duration0 = RMT_T0H,
-            .level0 = 1,
-            .duration1 = RMT_T0L,
-            .level1 = 0,
-        },
-        .bit1 = {
-            .duration0 = RMT_T1H,
-            .level0 = 1,
-            .duration1 = RMT_T1L,
-            .level1 = 0,
-        },
-        .flags.msb_first = true,
-    };
-    ESP_ERROR_CHECK(rmt_new_bytes_encoder(&bytes_enc_cfg, &enc->bytes_encoder));
-
-    /* ---- 启用 RMT TX 通道 ---- */
-    ESP_ERROR_CHECK(rmt_enable(s_led_chan));
-
-    /* 清空缓冲区 */
-    memset(s_led_buffer, 0, sizeof(s_led_buffer));
+    /* 初始清空灯带 */
+    if (s_strip) {
+        led_strip_clear(s_strip);
+    }
 
     s_initialized = true;
-    ESP_LOGI(TAG, "NeoPixel RGB LED strip initialized (%d LEDs)", LED_STRIP_COUNT);
+    ESP_LOGI(TAG, "NeoPixel RGB LED strip initialized (official led_strip, %d LEDs)", LED_STRIP_COUNT);
     return ESP_OK;
 }
 
@@ -217,15 +79,10 @@ esp_err_t drv_led_strip_deinit(void)
     }
     /* 先清空灯带 */
     drv_led_strip_clear();
-    /* 停止并释放 RMT 通道 */
-    if (s_led_chan) {
-        rmt_disable(s_led_chan);
-        rmt_del_channel(s_led_chan);
-        s_led_chan = NULL;
-    }
-    if (s_led_encoder) {
-        rmt_del_encoder(s_led_encoder);
-        s_led_encoder = NULL;
+    /* 释放 LED strip 组件（内部会释放 RMT 通道资源） */
+    if (s_strip) {
+        led_strip_del(s_strip);
+        s_strip = NULL;
     }
     s_initialized = false;
     ESP_LOGI(TAG, "NeoPixel RGB LED strip deinitialized");
@@ -234,53 +91,45 @@ esp_err_t drv_led_strip_deinit(void)
 
 esp_err_t drv_led_strip_set_pixel(int index, led_rgb_t color)
 {
-    if (index < 0 || index >= LED_STRIP_COUNT) {
+    if (index < 0 || index >= LED_STRIP_COUNT || !s_strip) {
         return ESP_ERR_INVALID_ARG;
     }
-    s_led_buffer[index] = color;
-    return ESP_OK;
+    /* 应用全局亮度缩放 */
+    uint8_t r = (uint8_t)((uint32_t)color.r * s_brightness / 255);
+    uint8_t g = (uint8_t)((uint32_t)color.g * s_brightness / 255);
+    uint8_t b = (uint8_t)((uint32_t)color.b * s_brightness / 255);
+    return led_strip_set_pixel(s_strip, (uint32_t)index, r, g, b);
 }
 
 esp_err_t drv_led_strip_set_all(led_rgb_t color)
 {
+    if (!s_strip) {
+        return ESP_ERR_INVALID_STATE;
+    }
     for (int i = 0; i < LED_STRIP_COUNT; i++) {
-        s_led_buffer[i] = color;
+        esp_err_t ret = drv_led_strip_set_pixel(i, color);
+        if (ret != ESP_OK) {
+            return ret;
+        }
     }
     return ESP_OK;
 }
 
 esp_err_t drv_led_strip_refresh(void)
 {
-    if (!s_initialized || !s_led_chan) {
+    if (!s_initialized || !s_strip) {
         return ESP_ERR_INVALID_STATE;
     }
-    /* 每次传输前必须重置编码器状态，否则会从上次残留状态继续编码 */
-    rmt_encoder_reset(s_led_encoder);
-    /* 发送数据到 LED 灯带 */
-    rmt_transmit_config_t tx_cfg = {
-        .loop_count = 0,
-        .flags = {
-            .eot_level = 0,  /* 发送完后拉低 */
-        },
-    };
-    esp_err_t ret = rmt_transmit(s_led_chan, s_led_encoder, s_led_buffer,
-                                  sizeof(s_led_buffer), &tx_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "RMT transmit failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-    /* 等待发送完成 */
-    ret = rmt_tx_wait_all_done(s_led_chan, pdMS_TO_TICKS(100));
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "RMT wait timeout");
-    }
-    return ESP_OK;
+    /* 官方组件内部处理 RMT 传输与复位时序 */
+    return led_strip_refresh(s_strip);
 }
 
 esp_err_t drv_led_strip_clear(void)
 {
-    memset(s_led_buffer, 0, sizeof(s_led_buffer));
-    return drv_led_strip_refresh();
+    if (!s_strip) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return led_strip_clear(s_strip);
 }
 
 void drv_led_strip_set_brightness(uint8_t brightness)
@@ -302,16 +151,14 @@ void drv_led_strip_breath(led_rgb_t color, uint32_t duration_ms)
     uint32_t step_ms = 30;  /* 每30ms更新一次 */
 
     while (s_breathing) {
-        /* 正弦波呼吸效果 */
         for (int phase = 0; phase < 256 && s_breathing; phase += 4) {
-            /* brightness = 128 + 127 * sin(phase * 2pi / 256) */
             float rad = (float)phase * 3.14159f / 128.0f;
             uint8_t breath_brightness = (uint8_t)(128 + 127 * sinf(rad));
 
             led_rgb_t scaled = {
-                .r = color.r * breath_brightness / 255,
-                .g = color.g * breath_brightness / 255,
-                .b = color.b * breath_brightness / 255,
+                .r = (uint8_t)((uint32_t)color.r * breath_brightness / 255),
+                .g = (uint8_t)((uint32_t)color.g * breath_brightness / 255),
+                .b = (uint8_t)((uint32_t)color.b * breath_brightness / 255),
             };
             drv_led_strip_set_all(scaled);
             drv_led_strip_refresh();
@@ -327,7 +174,6 @@ void drv_led_strip_breath(led_rgb_t color, uint32_t duration_ms)
         }
     }
 
-    /* 关闭所有 LED */
     drv_led_strip_clear();
 }
 

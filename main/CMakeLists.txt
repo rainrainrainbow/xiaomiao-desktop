@@ -68,5 +68,5 @@ idf_component_register(
         "../components/micropython/micropython/shared"
         "../components/micropython/micropython/ports/esp32"
         "../components/micropython/micropython/ports/esp32/boards/XIAOMIAO_DESKTOP"
-    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling esp_driver_i2s bt esp_coex freetype return_to_loader esp_http_client esp_https_ota cjson
+    REQUIRES driver esp_adc esp_lcd lvgl nvs_flash esp_timer micropython fatfs sdmmc wear_levelling esp_driver_i2s bt esp_coex freetype return_to_loader esp_http_client esp_https_ota cjson led_strip
 )

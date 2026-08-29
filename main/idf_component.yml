@@ -3,3 +3,4 @@ dependencies:
   esp_lvgl_port: "*"
   espressif/freetype: "^2.13.0"
   espressif/cjson: "*"
+  espressif/led_strip: "^3.0.0"
