@@ -3,12 +3,11 @@
  * @brief NeoPixel RGB LED灯带驱动实现 - 使用 ESP-IDF 官方 led_strip 组件 (RMT)
  *
  * 硬件：
- * - NeoPixel RGB (NEO_RGB 位序 R->G->B), 3 颗, 连接 GPIO14 (与蜂鸣器复用)
+ * - 3颗 WS2812B NeoPixel RGB（GRB 位序 G->R->B），连接 GPIO14
  * - 通过官方 espressif/led_strip 组件驱动，内部封装 RMT 时序编码与复位信号
  *
- * 与蜂鸣器互斥：
- * - GPIO14 同时连接蜂鸣器（LEDC PWM）和 NeoPixel RGB（RMT）
- * - 使用前需停止蜂鸣器，使用后释放 GPIO
+ * 蜂鸣器已拆除：
+ * - GPIO14 完全归 LED 使用，无复用冲突（main.c 已不再初始化 LEDC）
  */
 #include "drv_led_strip.h"
 #include "led_strip.h"
@@ -55,7 +54,7 @@ esp_err_t drv_led_strip_init(void)
         .strip_gpio_num = PIN_LED_STRIP,
         .max_leds = LED_STRIP_COUNT,
         .led_model = LED_MODEL_WS2812,
-        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_RGB,  /* R->G->B，NEO_RGB */
+        .color_component_format = LED_STRIP_COLOR_COMPONENT_FMT_GRB,  /* G->R->B，实际灯珠为 WS2812B 标准协议 */
         .flags.invert_out = false,
     };
     led_strip_rmt_config_t rmt_config = {

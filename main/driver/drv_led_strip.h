@@ -3,12 +3,12 @@
  * @brief NeoPixel RGB LED灯带驱动 - 官方 espressif/led_strip 组件（RMT）
  *
  * 硬件说明：
- * - 3颗 NeoPixel RGB（NEO_RGB 位序：R→G→B），连接在 GPIO14
+ * - 3颗 WS2812B NeoPixel RGB（GRB 位序：G→R→B），连接在 GPIO14
  * - 蜂鸣器已拆除，GPIO14 完全归 LED 使用（不再有 LEDC 抢占冲突）
  * - 使用官方 led_strip 组件驱动（内部封装 RMT 时序编码与复位信号）
  *
  * 注意：
- * - 官方组件 RMT 位序配置为 LED_STRIP_COLOR_COMPONENT_FMT_RGB（匹配 NEO_RGB）
+ * - 官方组件 RMT 位序配置为 LED_STRIP_COLOR_COMPONENT_FMT_GRB（WS2812B 标准协议）
  * - RMT mem_block_symbols 须 ≥ 3*24+复位 ≈ 73（3颗灯），驱动内已配置 128
  */
 #ifndef DRV_LED_STRIP_H
