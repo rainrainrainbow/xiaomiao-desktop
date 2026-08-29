@@ -156,6 +156,14 @@ lv_result_t lv_freetype_font_init(void)
     ESP_LOGI(TAG, "Attempting FreeType init (DRAM free=%lu, PSRAM free=%lu)",
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
              (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    /* 先 uninit 清空 ft_ctx 残留：
+     * LVGL v9.5 lv_freetype_init() 第一行检查 ft_ctx != NULL 就直接返回 INVALID
+     * （LV_LOG_WARN "freetype already initialized"），不走 FT_Init_FreeType。
+     * 真机诊断日志显示 FT_Init_FreeType direct probe SUCCEEDED 但 lv_freetype_init()
+     * 仍失败 —— 证明 ft_ctx 在进入 init() 前已是垃圾值（LVGL 全局变量未 zero-init）。
+     * 主动 uninit 让 ft_ctx=NULL，确保 init() 真正进入 FT_Init_FreeType 分支。
+     * lv_freetype_uninit() 内部有 if(!ctx) 保护，未初始化时调用安全 no-op。 */
+    lv_freetype_uninit();
     lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
     if (res != LV_RESULT_OK) {
         /* 打印最大空闲块（比 free 总量更能反映能否分配），并记录 LVGL 内部日志
@@ -342,6 +350,8 @@ lv_result_t lv_freetype_font_load_path(const char *path)
         ESP_LOGI(TAG, "Attempting FreeType init (load_path) (DRAM free=%lu, PSRAM free=%lu)",
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+        /* 与 init() 一致：先 uninit 清 ft_ctx 残留，确保进入真正的 FT_Init_FreeType 分支 */
+        lv_freetype_uninit();
         lv_result_t res = lv_freetype_init(FONT_CACHE_GLYPH_CNT);
         if (res != LV_RESULT_OK) {
             /* 与 init() 一致：失败时主动 uninit 清空 ft_ctx 残留，
