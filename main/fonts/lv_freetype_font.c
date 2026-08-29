@@ -40,8 +40,11 @@ static const char *TAG = "FONT";
 #define FONT_PATH_FLASH_1    "/flash/Fonts/NotoSansSC-Regular.otf"
 #define FONT_PATH_FLASH_2    "/flash/fonts/NotoSansSC-Regular.otf"
 
-/* 最大缓存字形数 */
-#define FONT_CACHE_GLYPH_CNT 256
+/* 最大缓存字形数
+ * 增大到 512 以减少 cache evict 频率，降低 LVGL v9.5 lv_cache_lru_rb_count
+ * 在高频 glyph lookup/evict 场景下的 UAF 风险（Issue #8526 相关）。
+ * 每个 glyph entry ~100 字节，512 个约 50KB PSRAM，可接受。 */
+#define FONT_CACHE_GLYPH_CNT 512
 
 /* FreeType 字体句柄（按尺寸缓存） */
 static lv_font_t *s_font_14 = NULL;
