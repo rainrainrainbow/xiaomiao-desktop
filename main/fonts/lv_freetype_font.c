@@ -120,6 +120,73 @@ static const char* find_font_file(void)
     return NULL;
 }
 
+/* 诊断：渲染测试字符，检查 pitch/stride 安全性
+ * 用于检测 LVGL v9.5 freetype_image_create_cb 的 memcpy(pitch) 越界风险。
+ * 若 pitch > stride，每行拷贝会越界写 (pitch - stride) 字节，破坏堆元数据。
+ * 子集化字体（~305KB）可能与完整版（16MB）有不同的字形度量。 */
+static void diagnose_glyph_pitch(const char *path, int size)
+{
+    FT_Library lib = NULL;
+    FT_Face face = NULL;
+    FT_Error err = FT_Init_FreeType(&lib);
+    if (err) {
+        ESP_LOGW(TAG, "FT_Init_FreeType failed for diagnosis: 0x%02X", (unsigned)err);
+        return;
+    }
+    err = FT_New_Face(lib, path, 0, &face);
+    if (err) {
+        ESP_LOGW(TAG, "FT_New_Face failed for diagnosis: 0x%02X", (unsigned)err);
+        FT_Done_FreeType(lib);
+        return;
+    }
+    FT_Set_Pixel_Sizes(face, 0, size);
+    
+    /* 扫描常见中文字符，检查 pitch vs width */
+    const unsigned long test_chars[] = {
+        0x4E2D,  /* 中 */
+        0x6587,  /* 文 */
+        0x8BBE,  /* 设 */
+        0x7F6E,  /* 置 */
+        0x4EAE,  /* 亮 */
+        0x5EA6,  /* 度 */
+        0x97F3,  /* 音 */
+        0x91CF,  /* 量 */
+        0x0041,  /* A */
+        0x0030,  /* 0 */
+        0xFF0C,  /* ， */
+        0x3002,  /* 。 */
+    };
+    int max_diff = 0;
+    unsigned long worst_cp = 0;
+    int worst_pitch = 0, worst_width = 0;
+    
+    for (int i = 0; i < sizeof(test_chars)/sizeof(test_chars[0]); i++) {
+        FT_UInt gi = FT_Get_Char_Index(face, test_chars[i]);
+        if (!gi) continue;
+        err = FT_Load_Glyph(face, gi, FT_LOAD_RENDER);
+        if (err) continue;
+        FT_Bitmap *b = &face->glyph->bitmap;
+        int diff = b->pitch - b->width;
+        if (diff > max_diff) {
+            max_diff = diff;
+            worst_cp = test_chars[i];
+            worst_pitch = b->pitch;
+            worst_width = b->width;
+        }
+    }
+    
+    if (max_diff > 0) {
+        ESP_LOGE(TAG, "GLYPH PITCH > WIDTH at %dpx! worst: U+%04lX pitch=%d width=%d diff=%d",
+                 size, worst_cp, worst_pitch, worst_width, max_diff);
+        ESP_LOGE(TAG, "This will cause heap corruption in LVGL v9.5 freetype_image_create_cb!");
+    } else {
+        ESP_LOGI(TAG, "Glyph pitch safety OK at %dpx (all pitch==width)", size);
+    }
+    
+    FT_Done_Face(face);
+    FT_Done_FreeType(lib);
+}
+
 /* 创建指定尺寸的 FreeType 字体 */
 static lv_font_t* create_freetype_font(const char *path, int size)
 {
@@ -131,6 +198,8 @@ static lv_font_t* create_freetype_font(const char *path, int size)
     );
     if (font) {
         ESP_LOGI(TAG, "FreeType font %dpx created from %s", size, path);
+        /* 诊断：检查 glyph pitch 安全性 */
+        diagnose_glyph_pitch(path, size);
     } else {
         ESP_LOGW(TAG, "Failed to create FreeType font %dpx from %s", size, path);
     }
