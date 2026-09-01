@@ -98,12 +98,11 @@ void wifi_auto_connect(void)
     /* WiFi 初始化配置 */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_wifi_init(&cfg);
-    if (ret == ESP_ERR_WIFI_INITED) {
-        ESP_LOGI(TAG, "WiFi already initialized, connecting...");
-    } else if (ret != ESP_OK) {
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
         ESP_LOGE(TAG, "WiFi init failed: %s", esp_err_to_name(ret));
         return;
     }
+    ESP_LOGI(TAG, "WiFi ready (init ret=%d)", (int)ret);
     
     /* 注册事件处理 */
     esp_event_handler_instance_t instance_any_id;
