@@ -27,6 +27,8 @@
 #define NVS_KEY_MUSIC_EQ     "music_eq"   // 音乐频谱模式 (0=关, 1=开)
 #define NVS_KEY_MUSIC_LRC    "music_lrc"  // 音乐歌词显示 (0=关, 1=开)
 #define NVS_KEY_MUSIC_MODE   "music_mode" // 音乐循环模式 (0=单曲, 1=列表, 2=随机)
+#define NVS_KEY_WIFI_SSID    "wifi_ssid"  // WiFi SSID
+#define NVS_KEY_WIFI_PASS    "wifi_pass"  // WiFi 密码
 
 /* ========== NVS存储接口 ========== */
 
@@ -158,11 +160,26 @@ int sys_nvs_load_music_lrc(void);
  * @param mode 0=单曲循环, 1=列表循环, 2=随机播放
  */
 void sys_nvs_save_music_mode(int mode);
-
 /**
  * 加载音乐循环模式
  * @return 0=单曲（默认）, 1=列表, 2=随机
  */
 int sys_nvs_load_music_mode(void);
+
+/**
+ * 保存 WiFi 凭据
+ * @param ssid WiFi 名称（最大 32 字节）
+ * @param password WiFi 密码（最大 64 字节）
+ */
+void sys_nvs_save_wifi_credentials(const char *ssid, const char *password);
+
+/**
+ * 加载 WiFi 凭据
+ * @param ssid 输出缓冲区（至少 33 字节）
+ * @param password 输出缓冲区（至少 65 字节）
+ * @return true 成功加载，false 无保存的凭据
+ */
+bool sys_nvs_load_wifi_credentials(char *ssid, char *password);
+
 
 #endif /* SYS_NVS_H */

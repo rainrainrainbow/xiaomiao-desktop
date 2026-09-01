@@ -62,6 +62,7 @@
 
 // 系统服务
 #include "system/sys_nvs.h"
+#include "system/wifi_debug.h"
 
 // 新架构：Poincaré MicroPython 运行时（启动时在 PSRAM 任务中预初始化，避免 main 任务栈溢出）
 #include "poincare/runtime.h"
@@ -970,6 +971,12 @@ void app_main(void)
     // 初始化网络接口（WiFi用，只需一次）
     esp_netif_init();
     esp_event_loop_create_default();
+    
+    // 初始化 WiFi 并自动连接默认网络
+    wifi_auto_connect();
+    
+    // 启动 WiFi 调试服务器（TCP 端口 3333）
+    wifi_debug_init();
     
     // 重要：先初始化按键，再初始化电池（因为GPIO34共享）
     drv_button_init();

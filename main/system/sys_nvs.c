@@ -256,3 +256,32 @@ int sys_nvs_load_music_mode(void)
     ESP_LOGI(TAG, "Music mode not found, using default (0=single)");
     return 0;
 }
+
+void sys_nvs_save_wifi_credentials(const char *ssid, const char *password)
+{
+    if (ssid) {
+        nvs_set_str(s_nvs_handle, NVS_KEY_WIFI_SSID, ssid);
+    }
+    if (password) {
+        nvs_set_str(s_nvs_handle, NVS_KEY_WIFI_PASS, password);
+    }
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "WiFi credentials saved: SSID=%s", ssid ? ssid : "(null)");
+}
+
+bool sys_nvs_load_wifi_credentials(char *ssid, char *password)
+{
+    size_t ssid_len = 33;
+    size_t pass_len = 65;
+    
+    esp_err_t err1 = nvs_get_str(s_nvs_handle, NVS_KEY_WIFI_SSID, ssid, &ssid_len);
+    esp_err_t err2 = nvs_get_str(s_nvs_handle, NVS_KEY_WIFI_PASS, password, &pass_len);
+    
+    if (err1 == ESP_OK && err2 == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi credentials loaded: SSID=%s", ssid);
+        return true;
+    }
+    
+    ESP_LOGI(TAG, "WiFi credentials not found in NVS");
+    return false;
+}
