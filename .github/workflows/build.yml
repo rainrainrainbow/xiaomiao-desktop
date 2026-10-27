@@ -51,6 +51,7 @@ jobs:
     # 需要写权限：构建成功后把固件回传到 firmware 分支
     permissions:
       contents: write
+      issues: write
 
     container:
       image: espressif/idf:release-v5.3
@@ -62,6 +63,26 @@ jobs:
         with:
           fetch-depth: 0
           lfs: false
+
+      # 诊断步骤：确认 Actions 的 GITHUB_TOKEN 是否有推送分支的权限
+      # （仓库若把默认工作流权限设为只读，后面的固件回传会失败）
+      - name: Probe Actions push permission (diagnostic)
+        run: |
+          set -x
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          R="probe-$(date -u +%Y%m%d%H%M%S)"
+          git checkout -B "$R" >/dev/null 2>&1
+          echo "$R" > probe.txt
+          git add -f probe.txt
+          git commit -m "probe: check push permission" >/dev/null 2>&1
+          if git push --force origin "$R" >/dev/null 2>&1; then
+            echo "PROBE_PUSH_OK (branch $R)"
+          else
+            echo "PROBE_PUSH_FAILED (branch $R)"
+          fi
+          git checkout - >/dev/null 2>&1 || true
 
       - name: Download MicroPython source
         run: |
@@ -504,7 +525,8 @@ jobs:
       - name: Publish firmware binaries to firmware branch
         if: success()
         run: |
-          set -e
+          {
+          set -x
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -530,6 +552,30 @@ jobs:
             git commit -m "chore(firmware): build ${GITHUB_RUN_ID} from ${GITHUB_SHA:0:7}"
             git push --force origin firmware
             echo "firmware published to branch 'firmware'"
+          fi
+          } > /tmp/publish.log 2>&1
+          rc=$?
+          cat /tmp/publish.log
+          if [ $rc -ne 0 ]; then
+            python3 << 'PYEOF'
+import json, urllib.request
+try:
+    body = open('/tmp/publish.log', errors='replace').read()[-8000:]
+except Exception as e:
+    body = 'cannot read log: %r' % e
+payload = json.dumps({"body": "firmware publish failed (run ${{ github.run_id }}):\n```\n" + body + "\n```"}).encode()
+req = urllib.request.Request("https://api.github.com/repos/${{ github.repository }}/issues/1/comments",
+                             data=payload, method="POST")
+req.add_header("Authorization", "Bearer ${{ secrets.GITHUB_TOKEN }}")
+req.add_header("Accept", "application/vnd.github+json")
+req.add_header("Content-Type", "application/json")
+try:
+    urllib.request.urlopen(req, timeout=30).read()
+    print("failure reported as issue comment")
+except Exception as e:
+    print("report failed:", e)
+PYEOF
+            exit 1
           fi
 
       - name: Upload build logs on failure
