@@ -104,31 +104,48 @@ static void wifi_driver_init(void)
 
     /* 注意：esp_netif_init() 和 esp_event_loop_create_default() 已在 app_main 中初始化一次 */
 
-    /* 创建STA和AP网络接口（各一次，模式切换时复用） */
+    /* 创建STA和AP网络接口（各一次，模式切换时复用）
+     * 注意：开机时 wifi_auto_connect() 可能已经创建过 STA netif，
+     * 重复调用 esp_netif_create_default_wifi_sta() 会再建一个实例，
+     * 因此先按 ifkey 查询，已存在则直接复用。 */
     if (!s_sta_netif_created) {
-        esp_netif_create_default_wifi_sta();
+        if (esp_netif_get_handle_from_ifkey("WIFI_STA_DEF") == NULL) {
+            esp_netif_create_default_wifi_sta();
+            ESP_LOGI(TAG, "STA netif created");
+        } else {
+            ESP_LOGI(TAG, "STA netif already exists, reuse");
+        }
         s_sta_netif_created = true;
-        ESP_LOGI(TAG, "STA netif created");
     }
     if (!s_ap_netif_created) {
-        esp_netif_create_default_wifi_ap();
+        if (esp_netif_get_handle_from_ifkey("WIFI_AP_DEF") == NULL) {
+            esp_netif_create_default_wifi_ap();
+            ESP_LOGI(TAG, "AP netif created");
+        } else {
+            ESP_LOGI(TAG, "AP netif already exists, reuse");
+        }
         s_ap_netif_created = true;
-        ESP_LOGI(TAG, "AP netif created");
     }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
         ESP_LOGE(TAG, "WiFi init failed: %s (DMA memory may be insufficient)", esp_err_to_name(ret));
         return;
     }
+    /* ESP_ERR_WIFI_INIT_STATE 表示 WiFi 已被初始化（开机 wifi_auto_connect 已做过），
+     * 这不算错误，继续走 set_mode/start/注册事件即可，否则本页功能会全部失效。 */
+    if (ret == ESP_ERR_WIFI_INIT_STATE) {
+        ESP_LOGI(TAG, "WiFi already initialized, reusing driver");
+    }
+
     ret = esp_wifi_set_mode(WIFI_MODE_APSTA);  /* 双模式，便于 STA/AP 切换 */
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "WiFi set mode failed: %s", esp_err_to_name(ret));
-        return;
+        ESP_LOGW(TAG, "WiFi set mode failed: %s", esp_err_to_name(ret));
+        /* 非致命：可能当前仍在连接过程中，保持已有模式继续 */
     }
     ret = esp_wifi_start();
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_STATE) {
         ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
         return;
     }
@@ -140,6 +157,24 @@ static void wifi_driver_init(void)
 
     s_wifi_initialized = true;
     s_wifi_state = WIFI_STATE_IDLE;
+
+    /* 若开机自动连接已经连上 AP，同步状态与已连接网络名，
+     * 否则状态行会一直显示"扫描到 0 个"，无法反映真实已连接状态 */
+    wifi_ap_record_t ap_info;
+    memset(&ap_info, 0, sizeof(ap_info));
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK && ap_info.ssid[0] != '\0') {
+        memmove(s_networks + 1, s_networks, sizeof(s_networks) - sizeof(s_networks[0]));
+        strncpy(s_networks[0].ssid, (const char *)ap_info.ssid, WIFI_SSID_MAX);
+        s_networks[0].ssid[WIFI_SSID_MAX] = '\0';
+        s_networks[0].rssi = ap_info.rssi;
+        s_networks[0].auth_mode = ap_info.authmode;
+        if (s_network_count < MAX_NETWORKS) s_network_count++;
+        else s_network_count = MAX_NETWORKS;
+        s_connected_idx = 0;
+        s_wifi_state = WIFI_STATE_CONNECTED;
+        ESP_LOGI(TAG, "Already associated to AP: %s", s_networks[0].ssid);
+    }
+
     ESP_LOGI(TAG, "WiFi driver initialized (APSTA)");
 }
 
@@ -213,6 +248,15 @@ static void wifi_scan(void)
 static void wifi_scan_done_handler(void)
 {
     uint16_t ap_count = 0;
+    /* 扫描会整体替换列表，先记住已连接的 SSID，扫描后重新定位索引，
+     * 否则 s_connected_idx 可能指向越界或错误的条目 */
+    char prev_ssid[WIFI_SSID_MAX + 1] = {0};
+    bool was_connected = (s_connected_idx >= 0 && s_connected_idx < s_network_count);
+    if (was_connected) {
+        strncpy(prev_ssid, s_networks[s_connected_idx].ssid, WIFI_SSID_MAX);
+        prev_ssid[WIFI_SSID_MAX] = '\0';
+    }
+
     esp_wifi_scan_get_ap_num(&ap_count);
     if (ap_count > MAX_NETWORKS) ap_count = MAX_NETWORKS;
     if (ap_count > 0) {
@@ -230,6 +274,20 @@ static void wifi_scan_done_handler(void)
     } else {
         s_network_count = 0;
     }
+
+    /* 重新定位已连接网络在新列表中的索引（找不到则清除连接标记） */
+    if (was_connected) {
+        s_connected_idx = -1;
+        for (int i = 0; i < s_network_count; i++) {
+            if (strcmp(s_networks[i].ssid, prev_ssid) == 0) {
+                s_connected_idx = i;
+                break;
+            }
+        }
+    } else if (s_connected_idx >= s_network_count) {
+        s_connected_idx = -1;
+    }
+
     s_wifi_state = WIFI_STATE_IDLE;
     ESP_LOGI(TAG, "WiFi scan complete: %d networks found", s_network_count);
     /* 通知 LVGL 主线程刷新 UI（事件线程不直接操作 LVGL） */
@@ -476,7 +534,8 @@ static void wifi_refresh_label(int idx)
             snprintf(buf, sizeof(buf), "%s", lang_get(STR_WIFI_SCANNING));
         } else if (s_wifi_state == WIFI_STATE_CONNECTING) {
             snprintf(buf, sizeof(buf), "%s", lang_get(STR_WIFI_CONNECTING));
-        } else if (s_wifi_state == WIFI_STATE_CONNECTED && s_connected_idx >= 0) {
+        } else if (s_wifi_state == WIFI_STATE_CONNECTED && s_connected_idx >= 0 &&
+                   s_connected_idx < s_network_count) {
             snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_WIFI_CONNECTED_PREFIX), s_networks[s_connected_idx].ssid);
         } else {
             snprintf(buf, sizeof(buf), "%s%d %s", lang_get(STR_WIFI_SCANNED_PREFIX), s_network_count, lang_get(STR_WIFI_SCAN_HINT));

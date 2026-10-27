@@ -5,11 +5,13 @@
 
 #include "wifi_debug.h"
 #include "sys_nvs.h"
+#include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_vfs_dev.h"
 #include "esp_wifi.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -36,6 +38,28 @@ static int s_client_fd = -1;
 static TaskHandle_t s_server_task_handle = NULL;
 static bool s_running = false;
 static vprintf_like_t s_original_vprintf = NULL;
+
+/*
+ * 重入保护：
+ * esp_log_set_vprintf() 安装的钩子会在所有 ESP_LOGx 调用路径上执行。
+ * 若钩子内部再调用 ESP_LOGx，就会递归回到本函数（曾经的写法会在
+ * "client disconnected" 分支里打日志）。这里用一个静态标志截断重入，
+ * 避免递归与在日志锁内再次进入日志路径。
+ */
+static bool s_in_hook = false;
+
+/* 标记客户端已断开，由钩子线程安全置位，任务侧统一关闭 */
+static volatile bool s_client_dead = false;
+
+/* 关闭客户端 fd（仅操作 fd，不打印日志，避免钩子重入） */
+static void debug_client_close(void)
+{
+    if (s_client_fd >= 0) {
+        shutdown(s_client_fd, SHUT_RDWR);
+        close(s_client_fd);
+        s_client_fd = -1;
+    }
+}
 
 /* 默认 WiFi 凭据 */
 #define DEFAULT_WIFI_SSID     "tiger8"
@@ -73,6 +97,13 @@ void wifi_auto_connect(void)
 {
     char ssid[33] = {0};
     char password[65] = {0};
+
+    /* 尊重用户在设置里的 WiFi 开关：关闭后重启不应再偷偷连上 */
+    ui_state_t *st = ui_state_get();
+    if (st && !st->wifi_on) {
+        ESP_LOGI(TAG, "WiFi is disabled in settings, skip auto-connect");
+        return;
+    }
     
     /* 尝试从 NVS 加载保存的 WiFi 凭据 */
     bool loaded = sys_nvs_load_wifi_credentials(ssid, password);
@@ -156,7 +187,16 @@ static int wifi_debug_vprintf(const char *fmt, va_list args)
 {
     char buf[256];
     int len = vsnprintf(buf, sizeof(buf), fmt, args);
-    
+
+    if (s_in_hook) {
+        /* 重入：只走原始输出，绝不再进入 TCP 发送与日志路径 */
+        if (s_original_vprintf) {
+            return s_original_vprintf(fmt, args);
+        }
+        return len;
+    }
+    s_in_hook = true;
+
     // 发送到原始输出（串口）
     if (s_original_vprintf) {
         va_list args_copy;
@@ -164,26 +204,36 @@ static int wifi_debug_vprintf(const char *fmt, va_list args)
         s_original_vprintf(fmt, args_copy);
         va_end(args_copy);
     }
-    
+
     // 发送到 TCP 客户端
     if (s_client_fd >= 0 && len > 0) {
-        // 确保发送完整数据
+        /*
+         * 必须使用非阻塞发送：
+         * 本钩子运行在"调用 ESP_LOG 的那个任务"上下文中（可能是 LVGL 任务、
+         * WiFi 任务或 IDLE 任务）。原来使用阻塞 send()，一旦客户端停止读取，
+         * 发送缓冲区写满后会把任意打印日志的任务永久挂住，整机卡死。
+         * 改为 MSG_DONTWAIT：写不进去就直接丢弃本次日志，绝不影响系统。
+         */
         int sent = 0;
         while (sent < len) {
-            int n = send(s_client_fd, buf + sent, len - sent, 0);
+            int n = send(s_client_fd, buf + sent, len - sent, MSG_DONTWAIT);
             if (n < 0) {
-                // 发送失败，可能是客户端断开
-                if (errno == EPIPE || errno == ECONNRESET) {
-                    close(s_client_fd);
-                    s_client_fd = -1;
-                    ESP_LOGI(TAG, "Debug client disconnected");
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    /* 发送缓冲区满：丢弃剩余日志，保持连接 */
+                    break;
                 }
+                /* 其他错误视为客户端已断开，交由任务侧关闭 */
+                s_client_dead = true;
                 break;
+            }
+            if (n == 0) {
+                break;  /* 防止 sent 不前进导致死循环 */
             }
             sent += n;
         }
     }
-    
+
+    s_in_hook = false;
     return len;
 }
 
@@ -238,33 +288,42 @@ static void wifi_debug_server_task(void *pvParameters)
     
     // 接受客户端连接
     while (s_running) {
+        /* 客户端在对端断开后由钩子置位，这里统一回收 fd */
+        if (s_client_dead) {
+            s_client_dead = false;
+            debug_client_close();
+            ESP_LOGI(TAG, "Debug client disconnected");
+        }
+
         int client_fd = accept(s_server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
         if (client_fd < 0) {
             if (s_running) {
                 ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
+                /* 避免 socket 异常时 accept 持续失败造成忙循环占满 CPU */
+                vTaskDelay(pdMS_TO_TICKS(200));
             }
             continue;
         }
         
         // 关闭旧连接
-        if (s_client_fd >= 0) {
-            close(s_client_fd);
-        }
-        
+        debug_client_close();
+
+        /* 新连接设置发送超时（兜底，钩子已使用 MSG_DONTWAIT） */
+        struct timeval snd_to = { .tv_sec = 1, .tv_usec = 0 };
+        setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &snd_to, sizeof(snd_to));
+
+        s_client_dead = false;
         s_client_fd = client_fd;
         ESP_LOGI(TAG, "Debug client connected from %s:%d", 
                  inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
         
         // 发送欢迎消息
         const char *welcome = "\r\n=== XiaoMiao WiFi Debug Console ===\r\n";
-        send(s_client_fd, welcome, strlen(welcome), 0);
+        send(s_client_fd, welcome, strlen(welcome), MSG_DONTWAIT);
     }
     
     // 清理
-    if (s_client_fd >= 0) {
-        close(s_client_fd);
-        s_client_fd = -1;
-    }
+    debug_client_close();
     if (s_server_fd >= 0) {
         close(s_server_fd);
         s_server_fd = -1;
@@ -307,15 +366,13 @@ void wifi_debug_deinit(void)
         s_original_vprintf = NULL;
     }
     
-    // 关闭 socket
-    if (s_client_fd >= 0) {
-        close(s_client_fd);
-        s_client_fd = -1;
-    }
+    // 关闭 socket：先 shutdown 让阻塞在 accept() 的任务立刻返回
     if (s_server_fd >= 0) {
+        shutdown(s_server_fd, SHUT_RDWR);
         close(s_server_fd);
         s_server_fd = -1;
     }
+    debug_client_close();
     
     // 删除任务
     if (s_server_task_handle) {
