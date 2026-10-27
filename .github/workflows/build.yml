@@ -48,6 +48,9 @@ jobs:
     runs-on: ubuntu-24.04
     # Timeout: ESP-IDF builds can take 15-30 minutes
     timeout-minutes: 45
+    # 需要写权限：构建成功后把固件回传到 firmware 分支
+    permissions:
+      contents: write
 
     container:
       image: espressif/idf:release-v5.3
@@ -495,6 +498,39 @@ jobs:
             build/config/sdkconfig.json
           if-no-files-found: warn
           retention-days: 30
+
+      # 把固件回传到 firmware 分支：Actions 的 artifact 只有登录网页才能下载，
+      # 提交到分支后可以用 git / codeload 直接取到二进制文件。
+      - name: Publish firmware binaries to firmware branch
+        if: success()
+        run: |
+          set -e
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -B firmware
+          mkdir -p firmware
+          cp "build/${PROJECT_NAME}.bin"            firmware/app.bin
+          cp build/bootloader/bootloader.bin        firmware/bootloader.bin
+          cp build/partition_table/partition-table.bin firmware/partition-table.bin
+          cp xiaomiao-desktop-merged.bin            firmware/xiaomiao-desktop-merged.bin
+          cp build/flash_args                       firmware/flash_args 2>/dev/null || true
+          cp build/config/sdkconfig.json            firmware/sdkconfig.json 2>/dev/null || true
+          {
+            echo "source_commit: ${GITHUB_SHA}"
+            echo "run_id: ${GITHUB_RUN_ID}"
+            echo "built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "flash: 0x1000 bootloader.bin / 0x8000 partition-table.bin / 0x10000 app.bin"
+          } > firmware/BUILD_INFO.txt
+          # .gitignore 忽略了 *.bin，这里必须强制添加
+          git add -f firmware
+          if git diff --cached --quiet; then
+            echo "firmware unchanged, skip commit"
+          else
+            git commit -m "chore(firmware): build ${GITHUB_RUN_ID} from ${GITHUB_SHA:0:7}"
+            git push --force origin firmware
+            echo "firmware published to branch 'firmware'"
+          fi
 
       - name: Upload build logs on failure
         if: failure()
