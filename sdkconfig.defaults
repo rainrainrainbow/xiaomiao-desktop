@@ -172,8 +172,11 @@ CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST=y
 # BT/BLE 动态内存分配（减少静态 BSS 占用）
 CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
 # 减少 BT 任务栈大小（节省内存）
-CONFIG_BT_BTC_TASK_STACK_SIZE=1536
-CONFIG_BT_BTU_TASK_STACK_SIZE=2048
+# BTC/BTU task stacks: 1536/2048 caused确定性 stack overflow in BTC_TASK
+# during A2DP Sink init -> device reboot loop (rst:0xc SW_CPU_RESET).
+# Raise to 4096 to leave headroom for Bluedroid + A2DP callbacks.
+CONFIG_BT_BTC_TASK_STACK_SIZE=4096
+CONFIG_BT_BTU_TASK_STACK_SIZE=4096
 # host 侧 ACL 连接数减到 1（仅 1 台手机，减少 L2CAP/BTM 静态连接控制块 BSS）
 CONFIG_BT_ACL_CONNECTIONS=1
 # 经典蓝牙 host 认证/一致性测试支持（默认 n，显式保持关闭）
