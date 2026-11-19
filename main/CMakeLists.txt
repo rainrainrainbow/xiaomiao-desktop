@@ -30,6 +30,7 @@ idf_component_register(
         "app/bg_manager.c"
         "app/app_ota.c"
         "app/app_led.c"
+        "app/app_test.c"
         "crash_screen.c"
         "driver/drv_button.c"
         "driver/drv_backlight.c"

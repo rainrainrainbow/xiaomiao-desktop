@@ -50,6 +50,7 @@
 #include "app/app_builtin.h"
 #include "app/app_micropython.h"
 #include "app/bg_manager.h"
+#include "app/app_test.h"  // 自动化测试接口
 
 // 驱动层
 #include "driver/drv_button.h"
@@ -990,6 +991,10 @@ void app_main(void)
     drv_led_strip_init(); // 初始化 NeoPixel RGB LED（GPIO14，官方 led_strip 组件 + RMT）
     drv_mic_init();      // 初始化 LMD2718 数字麦克风（GPIO21 DATA, GPIO15 CLK）
     audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
+    
+    // 初始化自动化测试接口（USB CDC / UART0 JSON 协议）
+    app_test_init();
+    ESP_LOGI(TAG, "Automated test interface initialized");
     
     // 启动按键任务（独立任务，5ms扫描周期）
     xTaskCreate(drv_button_task, "btn_task", 2048, NULL, 10, NULL);
