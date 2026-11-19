@@ -575,7 +575,7 @@ jobs:
                 print("failure reported as issue comment")
             except Exception as e:
                 print("report failed:", e)
-            PYEOF
+          PYEOF
             exit 1
           fi
 
