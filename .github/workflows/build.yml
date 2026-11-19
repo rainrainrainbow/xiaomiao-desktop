@@ -558,24 +558,11 @@ jobs:
           rc=$?
           cat /tmp/publish.log
           if [ $rc -ne 0 ]; then
-            sed -E 's/^ {12}//' << 'PYEOF' | python3
-            import json, urllib.request
-            try:
-                body = open('/tmp/publish.log', errors='replace').read()[-8000:]
-            except Exception as e:
-                body = 'cannot read log: %r' % e
-            payload = json.dumps({"body": "firmware publish failed (run ${{ github.run_id }}):\n```\n" + body + "\n```"}).encode()
-            req = urllib.request.Request("https://api.github.com/repos/${{ github.repository }}/issues/1/comments",
-                                         data=payload, method="POST")
-            req.add_header("Authorization", "Bearer ${{ secrets.GITHUB_TOKEN }}")
-            req.add_header("Accept", "application/vnd.github+json")
-            req.add_header("Content-Type", "application/json")
-            try:
-                urllib.request.urlopen(req, timeout=30).read()
-                print("failure reported as issue comment")
-            except Exception as e:
-                print("report failed:", e)
-          PYEOF
+            # The publish step itself failed. Dump the tail of its log so the
+            # failure is visible in the job output instead of being hidden
+            # inside /tmp/publish.log.
+            echo "=== publish step failed (tail of /tmp/publish.log) ==="
+            tail -n 100 /tmp/publish.log 2>/dev/null || true
             exit 1
           fi
 
