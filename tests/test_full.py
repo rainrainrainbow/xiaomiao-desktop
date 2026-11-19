@@ -462,21 +462,32 @@ class Runner:
         ]
         if not self.quick:
             items += [(5, "Bluetooth", 60)]
-        items += [(7, "SDCard", 40)]
 
         for item, name, timeout in items:
             def run(it=item, nm=name, to=timeout):
                 res, detail = self.cmd_run_test_and_result(it, timeout=to)
                 state = res.get("state", 0)
                 score = res.get("score", 0)
-                if it == 7 and state == 3:
-                    # No SD card inserted is a hardware condition, not a firmware bug.
-                    self.record(section, f"item{it} {nm}", WARN, detail)
-                    return True, detail
                 if state == 2:
                     return True, f"score={score} {detail}"
                 raise AssertionError(f"state={STATE_NAMES.get(state, state)} {detail}")
             self.check(section, f"item{item} {name}", run)
+
+        # SDCard depends on hardware presence: WARN (not FAIL), recorded once.
+        try:
+            res, detail = self.cmd_run_test_and_result(7, timeout=40)
+            state = res.get("state", 0)
+            if state == 2:
+                self.record(section, "item7 SDCard", PASS,
+                            f"score={res.get('score', 0)} {detail}")
+            elif state == 3:
+                self.record(section, "item7 SDCard", WARN,
+                            "no card inserted (hardware absent)")
+            else:
+                self.record(section, "item7 SDCard", FAIL,
+                            f"state={STATE_NAMES.get(state, state)} {detail}")
+        except Exception as e:
+            self.record(section, "item7 SDCard", FAIL, f"exception: {e}")
 
     def reset_checks(self):
         """Verify RESET_DEVICE and ENTER_BOOTLOADER actually reboot the device."""
