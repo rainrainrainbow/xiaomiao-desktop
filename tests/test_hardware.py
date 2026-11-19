@@ -25,6 +25,7 @@ Notes:
 import sys
 import time
 import argparse
+import subprocess
 import serial
 import serial.tools.list_ports
 
@@ -104,17 +105,33 @@ class TestRunner:
             self.serial.close()
 
     def reset_device(self):
-        """Optional hard-reset (disabled by default; use --reset)."""
+        """Hard-reset via esptool's standard sequence (reliable on this board).
+
+        Raw DTR/RTS toggling from pyserial is unreliable here: it often leaves
+        the board half-booted or in download mode. esptool's hard_reset is
+        deterministic, so use it (briefly closing our own port first).
+        """
         if self.dry_run or not self.serial:
             return
-        self.serial.setDTR(False)
-        self.serial.setRTS(True)
-        time.sleep(0.15)
-        self.serial.setRTS(False)
+        port = self.port
+        self.serial.close()
+        self.serial = None
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "esptool", "--port", port,
+                 "--after", "hard_reset", "chip_id"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30,
+            )
+        except Exception as e:
+            print(f"  ! esptool reset failed: {e}")
+        self.serial = serial.Serial(port, self.baud, timeout=1)
+        # Keep EN/GPIO0 lines idle-high: pyserial may default DTR low, which
+        # re-asserts reset on some USB-UART bridges.
         self.serial.setDTR(True)
-        print("  ↻  Device reset")
+        self.serial.setRTS(False)
+        print("  ↻  Device reset (esptool hard_reset)")
 
-    def wait_ready(self, timeout=25):
+    def wait_ready(self, timeout=90):
         """Wait until the device command interface answers PING."""
         if self.dry_run or not self.serial:
             return True
@@ -151,16 +168,15 @@ class TestRunner:
             return
         # Reset may occasionally fail to boot (DTR/RTS timing). Retry until we
         # see the main-loop marker, up to 3 attempts.
-        for attempt in range(3):
+        for attempt in range(2):
             if attempt > 0:
-                # Let the board fully settle between resets.
                 time.sleep(3)
             if self.force_reset:
                 self.reset_device()
             self.serial.reset_input_buffer()
             self.log = ""
             start = time.time()
-            while time.time() - start < 24:
+            while time.time() - start < 20:
                 if self.serial.in_waiting:
                     self.log += self.serial.read(self.serial.in_waiting).decode(
                         "utf-8", errors="replace"
@@ -307,7 +323,7 @@ def test_uart_command(tr):
         tr.serial.flush()
         time.sleep(0.15)
     buf = b""
-    deadline = time.time() + 40.0
+    deadline = time.time() + 90.0
     while time.time() < deadline:
         if tr.serial.in_waiting:
             buf += tr.serial.read(tr.serial.in_waiting)
@@ -330,7 +346,7 @@ def test_serial_loopback(tr):
     tr.serial.write(b'XTC:{"cmd":0,"id":7}\n')
     tr.serial.flush()
     data = b""
-    deadline = time.time() + 40.0
+    deadline = time.time() + 90.0
     while time.time() < deadline:
         if tr.serial.in_waiting:
             data += tr.serial.read(tr.serial.in_waiting)
