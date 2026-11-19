@@ -70,6 +70,10 @@ static const char *TAG = "APP_TEST";
 #define TEST_UART_NUM           UART_NUM_0    // USB CDC 使用 UART0
 #define TEST_UART_BAUD_RATE     115200
 #define TEST_UART_BUF_SIZE      4096
+/* 命令在 UART 任务内同步执行，PLAY_TONE/GET_INFO 等会触发深层调用链
+ * (cJSON + audio_output_tone/I2S + sinf)，4096 栈会溢出导致 SW_CPU_RESET。
+ * 给足栈余量。 */
+#define TEST_UART_TASK_STACK    12288
 #define TEST_TASK_STACK_SIZE    8192
 #define TEST_TASK_PRIORITY      10
 
@@ -105,10 +109,18 @@ typedef struct {
     int req_id;             // 请求 ID，用于关联响应
 } python_exec_ctx_t;
 
+/* 异步音调播放参数 */
+typedef struct {
+    uint32_t freq;          // 频率 Hz
+    uint32_t duration;      // 时长 ms
+    int req_id;             // 请求 ID，用于关联响应
+} tone_ctx_t;
+
 /* ========== 全局状态 ========== */
 static SemaphoreHandle_t s_result_mutex = NULL;
 static SemaphoreHandle_t s_uart_tx_mutex = NULL;   // 保护 UART 响应写入
 static SemaphoreHandle_t s_python_mutex = NULL;    // 序列化 MicroPython 解释器访问（不可重入）
+static SemaphoreHandle_t s_audio_mutex = NULL;     // 序列化音频输出（避免并发 I2S 写入）
 static test_result_t s_test_results[TEST_ITEM_ALL + 1] = {0};
 static test_state_t s_current_test_state = TEST_STATE_IDLE;
 static test_item_t s_current_test_item = TEST_ITEM_ALL;
@@ -123,6 +135,7 @@ static void test_handle_cmd(const test_cmd_t *cmd);
 static void test_run_single(test_item_t item);
 static void test_run_all(void);
 static void test_exec_python_task(void *arg);
+static void test_play_tone_task(void *arg);
 
 /* 线程安全输出缓冲追加 */
 static inline void test_output_append(const char *fmt, ...)
@@ -284,13 +297,18 @@ static void test_audio(void)
     s_test_output_len = 0;
     test_output_append("Audio test started\n");
 
-    /* 播放测试音调 */
+    /* 播放测试音调（串行化音频后端，避免与异步 tone 任务并发写 I2S） */
     const uint32_t tones[] = {440, 880, 1760, 3520};  // A4, A5, A6, A7
 
-    for (int i = 0; i < 4; i++) {
-        test_output_append("  Playing %lu Hz...\n", tones[i]);
-        audio_output_tone(tones[i], 300);
-        vTaskDelay(pdMS_TO_TICKS(400));
+    if (s_audio_mutex && xSemaphoreTake(s_audio_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+        for (int i = 0; i < 4; i++) {
+            test_output_append("  Playing %lu Hz...\n", tones[i]);
+            audio_output_tone(tones[i], 300);
+            vTaskDelay(pdMS_TO_TICKS(400));
+        }
+        xSemaphoreGive(s_audio_mutex);
+    } else {
+        test_output_append("  Audio backend busy, skipped tones\n");
     }
 
     if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -846,13 +864,32 @@ static void test_handle_cmd(const test_cmd_t *cmd)
         case TEST_CMD_PLAY_TONE: {
             cJSON *freq_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "freq") : NULL;
             cJSON *dur_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "duration") : NULL;
-            
+
             if (freq_json && cJSON_IsNumber(freq_json)) {
                 uint32_t freq = (uint32_t)freq_json->valueint;
                 uint32_t dur = dur_json && cJSON_IsNumber(dur_json) ? (uint32_t)dur_json->valueint : 500;
-                
-                audio_output_tone(freq, dur);
-                cJSON_AddStringToObject(response, "status", "ok");
+
+                /* 异步播放：audio_output_tone 内含 I2S 写入 + 浮点 sinf 合成，
+                 * 在命令任务里同步执行会栈溢出。放到独立任务，先回 accepted。 */
+                tone_ctx_t *tctx = calloc(1, sizeof(tone_ctx_t));
+                if (tctx) {
+                    tctx->freq = freq;
+                    tctx->duration = dur;
+                    tctx->req_id = cmd->id;
+                    if (xTaskCreate(test_play_tone_task, "tone_task",
+                                    TEST_TASK_STACK_SIZE, tctx,
+                                    TEST_TASK_PRIORITY, NULL) != pdPASS) {
+                        free(tctx);
+                        cJSON_AddStringToObject(response, "status", "error");
+                        cJSON_AddStringToObject(response, "msg", "Failed to start tone task");
+                        break;
+                    }
+                    cJSON_AddStringToObject(response, "status", "ok");
+                    cJSON_AddStringToObject(response, "msg", "Tone playback started");
+                } else {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Out of memory");
+                }
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
                 cJSON_AddStringToObject(response, "msg", "Missing 'freq' parameter");
@@ -975,6 +1012,21 @@ static void test_exec_python_task(void *arg)
     vTaskDelete(NULL);
 }
 
+/* ========== 异步音调播放任务 ========== */
+static void test_play_tone_task(void *arg)
+{
+    tone_ctx_t *ctx = (tone_ctx_t *)arg;
+    if (ctx) {
+        /* 音频后端非线程安全，串行化访问 */
+        if (s_audio_mutex && xSemaphoreTake(s_audio_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+            audio_output_tone(ctx->freq, ctx->duration);
+            xSemaphoreGive(s_audio_mutex);
+        }
+        free(ctx);
+    }
+    vTaskDelete(NULL);
+}
+
 /* ========== UART 接收任务 ========== */
 static void test_uart_task(void *arg)
 {
@@ -1077,7 +1129,8 @@ void app_test_init(void)
     s_result_mutex = xSemaphoreCreateMutex();
     s_uart_tx_mutex = xSemaphoreCreateMutex();
     s_python_mutex = xSemaphoreCreateMutex();
-    if (!s_result_mutex || !s_uart_tx_mutex || !s_python_mutex) {
+    s_audio_mutex = xSemaphoreCreateMutex();
+    if (!s_result_mutex || !s_uart_tx_mutex || !s_python_mutex || !s_audio_mutex) {
         ESP_LOGE(TAG, "Failed to create mutexes");
         return;
     }
@@ -1117,7 +1170,7 @@ void app_test_init(void)
     /* 启动 UART 接收任务 */
     /* Higher priority than the UI/button tasks so command responses are not
      * starved during the busy boot period (WiFi retries + BT A2DP init). */
-    xTaskCreate(test_uart_task, "test_uart", 4096, NULL, 20, NULL);
+    xTaskCreate(test_uart_task, "test_uart", TEST_UART_TASK_STACK, NULL, 20, NULL);
     
     ESP_LOGI(TAG, "Test interface ready on USB CDC (UART0)");
 }
