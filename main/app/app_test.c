@@ -1115,7 +1115,9 @@ void app_test_init(void)
     }
     
     /* 启动 UART 接收任务 */
-    xTaskCreate(test_uart_task, "test_uart", 4096, NULL, 12, NULL);
+    /* Higher priority than the UI/button tasks so command responses are not
+     * starved during the busy boot period (WiFi retries + BT A2DP init). */
+    xTaskCreate(test_uart_task, "test_uart", 4096, NULL, 20, NULL);
     
     ESP_LOGI(TAG, "Test interface ready on USB CDC (UART0)");
 }

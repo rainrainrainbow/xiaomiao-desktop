@@ -66,11 +66,12 @@ M = {
 # Test Runner
 # =============================================================================
 class TestRunner:
-    def __init__(self, port=None, baud=115200, dry_run=False, capture_s=26):
+    def __init__(self, port=None, baud=115200, dry_run=False, capture_s=5, force_reset=True):
         self.port = port
         self.baud = baud
         self.dry_run = dry_run
         self.capture_s = capture_s
+        self.force_reset = force_reset
         self.serial = None
         self.log = ""            # cumulative boot log buffer
         self.results = []
@@ -103,7 +104,7 @@ class TestRunner:
             self.serial.close()
 
     def reset_device(self):
-        """Hard-reset the ESP32 via DTR/RTS (EN/BOOT lines)."""
+        """Optional hard-reset (disabled by default; use --reset)."""
         if self.dry_run or not self.serial:
             return
         self.serial.setDTR(False)
@@ -111,22 +112,64 @@ class TestRunner:
         time.sleep(0.15)
         self.serial.setRTS(False)
         self.serial.setDTR(True)
-        print(f"  ↻  Device reset, capturing boot log for {self.capture_s}s ...")
+        print("  ↻  Device reset")
+
+    def wait_ready(self, timeout=25):
+        """Wait until the device command interface answers PING."""
+        if self.dry_run or not self.serial:
+            return True
+        deadline = time.time() + timeout
+        attempt = 0
+        while time.time() < deadline:
+            self.serial.reset_input_buffer()
+            self.serial.write(b'XTC:{"cmd":0,"id":%d}\n' % (900 + attempt))
+            self.serial.flush()
+            attempt += 1
+            time.sleep(0.15)
+            buf = b""
+            end = time.time() + 0.8
+            while time.time() < end:
+                if self.serial.in_waiting:
+                    buf += self.serial.read(self.serial.in_waiting)
+                if b"XTR" in buf or b"pong" in buf:
+                    print(f"  ✓ Device ready (after {attempt} probe(s))")
+                    return True
+                time.sleep(0.03)
+        print("  ✗ Device not answering PING after wait")
+        return False
 
     def collect_log(self):
-        """Reset once, then capture the whole boot log into self.log."""
+        """Passively capture whatever the device emits (no reset by default).
+
+        The firmware takes ~14s to boot. Unless --reset is given we do NOT
+        reset it here: repeated DTR/RTS resets can leave the board half-booted
+        and make the UART command task appear dead. We instead drain the log
+        stream and, if needed, probe PING until the device is ready.
+        """
         if self.dry_run:
             self.log = "\n".join(M.values())  # every marker "found"
             return
-        self.reset_device()
-        self.serial.reset_input_buffer()
-        start = time.time()
-        while time.time() - start < self.capture_s:
-            if self.serial.in_waiting:
-                self.log += self.serial.read(self.serial.in_waiting).decode(
-                    "utf-8", errors="replace"
-                )
-            time.sleep(0.05)
+        # Reset may occasionally fail to boot (DTR/RTS timing). Retry until we
+        # see the main-loop marker, up to 3 attempts.
+        for attempt in range(3):
+            if attempt > 0:
+                # Let the board fully settle between resets.
+                time.sleep(3)
+            if self.force_reset:
+                self.reset_device()
+            self.serial.reset_input_buffer()
+            self.log = ""
+            start = time.time()
+            while time.time() - start < 24:
+                if self.serial.in_waiting:
+                    self.log += self.serial.read(self.serial.in_waiting).decode(
+                        "utf-8", errors="replace"
+                    )
+                time.sleep(0.05)
+            if M["mainloop"] in self.log:
+                break
+            print(f"  ↻  Boot not detected (attempt {attempt + 1}), retrying reset ...")
+        time.sleep(1.0)
         self.uart_err_count = self.log.count(M["uart_err"])
         print(f"  ℹ️  Captured {len(self.log)} bytes, "
               f"uart driver errors: {self.uart_err_count}")
@@ -246,38 +289,56 @@ def test_uart_error(tr):
 
 
 def test_uart_command(tr):
-    """Probe the JSON command interface (PING)."""
+    """Probe the JSON command interface (PING).
+
+    The device takes ~14s to finish booting (WiFi retries + BT A2DP), and the
+    UART command task only becomes ready after the main loop starts. So keep
+    probing until ready instead of assuming boot finished after log capture.
+    """
     if tr.dry_run or not tr.serial:
         return
-    tr.serial.reset_input_buffer()
     sent = False
-    for cmd in (b'{"cmd":0,"id":1}\n', b'XTC:{"cmd":0,"id":1}\n'):
-        tr.serial.write(cmd)
+    # Send a few PINGs, then drain cumulatively for up to 20s. Do NOT clear the
+    # input buffer between probes: the low-priority UART task can delay a
+    # response by a second or more, and clearing would discard it.
+    tr.serial.reset_input_buffer()
+    for i in range(5):
+        tr.serial.write(b'XTC:{"cmd":0,"id":%d}\n' % (400 + i))
         tr.serial.flush()
-        time.sleep(0.6)
-        buf = b""
-        start = time.time()
-        while time.time() - start < 1.2:
-            if tr.serial.in_waiting:
-                buf += tr.serial.read(tr.serial.in_waiting)
-            time.sleep(0.05)
-        txt = buf.decode("utf-8", errors="replace")
-        if "pong" in txt.lower() or '"id"' in txt or "XTR" in txt:
+        time.sleep(0.15)
+    buf = b""
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        if tr.serial.in_waiting:
+            buf += tr.serial.read(tr.serial.in_waiting)
+        chunk = buf.decode("utf-8", errors="replace")
+        if "pong" in chunk.lower() or "XTR" in chunk:
             sent = True
-            print(f"  ✓ Command interface responded to {cmd[:12]!r}")
+            resp = [l for l in chunk.splitlines()
+                    if "XTR" in l or "pong" in l.lower()][:1]
+            print(f"  ✓ Command interface responded: {resp}")
             break
-    assert sent, "No response to PING — UART command interface not receiving"
+        time.sleep(0.1)
+    assert sent, "No response to PING after 20s — UART command interface not receiving"
 
 
 def test_serial_loopback(tr):
     if tr.dry_run:
         return
+    # A PING command is a reliable round-trip probe: write then expect bytes.
     tr.serial.reset_input_buffer()
-    tr.serial.write(b"\n")
-    time.sleep(0.5)
-    data = tr.serial.read(64)
-    assert len(data) > 0, "No serial bytes received"
-    print(f"  ✓ Serial TX/RX active ({len(data)} bytes)")
+    tr.serial.write(b'XTC:{"cmd":0,"id":7}\n')
+    tr.serial.flush()
+    data = b""
+    deadline = time.time() + 20.0
+    while time.time() < deadline:
+        if tr.serial.in_waiting:
+            data += tr.serial.read(tr.serial.in_waiting)
+        if data:
+            break
+        time.sleep(0.1)
+    assert len(data) > 0, "No serial bytes received after write"
+    print(f"  ✓ Serial TX/RX active ({len(data)} bytes received)")
 
 
 def test_keypad(tr):
@@ -297,7 +358,9 @@ def main():
     parser.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate")
     parser.add_argument("--dry-run", "-n", action="store_true", help="Dry run without hardware")
     parser.add_argument("--all", "-a", action="store_true", help="Run all tests")
-    parser.add_argument("--capture", type=int, default=26, help="Boot log capture seconds")
+    parser.add_argument("--capture", type=int, default=5, help="Log drain seconds (default 5)")
+    parser.add_argument("--reset", action="store_true",
+                        help="Hard-reset device first to capture full boot log")
     parser.add_argument(
         "--test", "-t",
         choices=["boot", "display", "buttons", "battery", "led", "mic", "audio",
@@ -307,7 +370,8 @@ def main():
     args = parser.parse_args()
 
     tr = TestRunner(port=args.port, baud=args.baud,
-                    dry_run=args.dry_run, capture_s=args.capture)
+                    dry_run=args.dry_run, capture_s=args.capture,
+                    force_reset=args.reset)
 
     if not tr.connect():
         sys.exit(1)
@@ -318,6 +382,11 @@ def main():
         tr.collect_log()
 
         all_tests = args.test == "all" or args.all
+        # Run live serial probes first, right after boot (device is freshest).
+        if all_tests or args.test == "cmd":
+            tr.test("JSON Command Interface", lambda: test_uart_command(tr))
+        if all_tests or args.test == "serial":
+            tr.test("Serial Loopback", lambda: test_serial_loopback(tr))
         if all_tests or args.test == "boot":
             tr.test("Boot Sequence", lambda: test_boot(tr))
         if all_tests or args.test == "display":
@@ -340,10 +409,6 @@ def main():
             tr.test("SD Card", lambda: test_sd_card(tr), soft=True)
         if all_tests or args.test == "uart":
             tr.test("UART Driver Health", lambda: test_uart_error(tr))
-        if all_tests or args.test == "cmd":
-            tr.test("JSON Command Interface", lambda: test_uart_command(tr))
-        if all_tests or args.test == "serial":
-            tr.test("Serial Loopback", lambda: test_serial_loopback(tr))
         if all_tests or args.test == "keypad":
             tr.test("Keypad Navigation", lambda: test_keypad(tr))
 
