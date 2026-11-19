@@ -998,6 +998,12 @@ static void test_uart_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(10));
         }
 
+        if (len < 0) {
+            /* driver 未就绪/读错误：延时后再试，避免高速空转刷屏 */
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+
         if (len > 0) {
             buf_len += len;
             buf[buf_len] = '\0';
@@ -1073,6 +1079,29 @@ void app_test_init(void)
     s_python_mutex = xSemaphoreCreateMutex();
     if (!s_result_mutex || !s_uart_tx_mutex || !s_python_mutex) {
         ESP_LOGE(TAG, "Failed to create mutexes");
+        return;
+    }
+
+    /* UART0 默认作为 console，日志经 ROM 直出，但 UART driver 未安装时
+     * uart_read_bytes()/uart_write_bytes() 会返回 -1 并刷 "uart driver error"。
+     * 显式配置并安装 driver（若已被 console 安装则视为成功）。 */
+    uart_config_t uart_cfg = {
+        .baud_rate = TEST_UART_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+    };
+    esp_err_t uart_err = uart_param_config(TEST_UART_NUM, &uart_cfg);
+    if (uart_err != ESP_OK) {
+        ESP_LOGE(TAG, "uart_param_config failed: %d", uart_err);
+        return;
+    }
+    uart_err = uart_driver_install(TEST_UART_NUM,
+                                   TEST_UART_BUF_SIZE * 2,
+                                   TEST_UART_BUF_SIZE, 0, NULL, 0);
+    if (uart_err != ESP_OK && uart_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "uart_driver_install failed: %d", uart_err);
         return;
     }
 
