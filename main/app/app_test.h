@@ -76,29 +76,32 @@ const test_result_t* app_test_get_result(test_item_t item);
 
 /* ========== 命令协议说明 ========== */
 /*
- * 所有命令均为 JSON 格式，以 \n 结尾发送，响应也为 JSON 格式以 \n 结尾。
- * 
+ * 命令与响应均为单行文本，以 \n 结尾：
+ *  - 命令以 "XTC:" 前缀开头（兼容无前缀的纯 JSON）
+ *  - 响应以 "XTR:" 前缀开头，便于与 ESP32 普通日志区分
+ *
  * 命令格式：
- * {"cmd": <命令码>, "id": <请求ID>, "params": {...}}
- * 
+ * XTC:{"cmd": <命令码>, "id": <请求ID>, "params": {...}}
+ *
  * 响应格式：
- * {"id": <请求ID>, "cmd": <命令码>, "status": "ok|error", "msg": "...", "data": {...}}
- * 
+ * XTR:{"id": <请求ID>, "cmd": <命令码>, "status": "ok|error|accepted", "msg": "...", "data": {...}}
+ *
  * 命令码：
  * 0  - TEST_CMD_PING              无参数，返回 pong
  * 1  - TEST_CMD_GET_INFO          无参数，返回设备信息
  * 2  - TEST_CMD_RUN_TEST          params: {"item": <test_item_t>} 启动测试
  * 3  - TEST_CMD_GET_TEST_RESULT   params: {"item": <test_item_t>?} 获取结果
- * 4  - TEST_CMD_EXEC_PYTHON       params: {"script": "<python代码>"} 执行Python
+ * 4  - TEST_CMD_EXEC_PYTHON       params: {"script": "<python代码>"} 异步执行，
+ *                                 先返回 status=accepted，执行完成后推送含 output/ret 的响应
  * 5  - TEST_CMD_SIMULATE_KEY      params: {"key": 0-5, "long": true/false} 模拟按键
- * 6  - TEST_CMD_SET_LED           params: {"index": 0-2, "color": 0xRRGGBB} 设置LED
- * 7  - TEST_CMD_SET_BACKLIGHT     params: {"brightness": 0-255} 设置背光
- * 8  - TEST_CMD_PLAY_TONE         params: {"freq": Hz, "duration": ms, "volume": 0-1} 播放音调
+ * 6  - TEST_CMD_SET_LED           params: {"index": 0-2, "r": 0-255, "g": 0-255, "b": 0-255} 设置LED
+ * 7  - TEST_CMD_SET_BACKLIGHT     params: {"brightness": 0-100} 设置背光百分比
+ * 8  - TEST_CMD_PLAY_TONE         params: {"freq": Hz, "duration": ms} 播放音调
  * 9  - TEST_CMD_GET_BATTERY       无参数，返回电池电压和电量
  * 10 - TEST_CMD_LIST_TESTS        无参数，返回可用测试列表
  * 11 - TEST_CMD_RESET_DEVICE      无参数，复位设备
  * 12 - TEST_CMD_ENTER_BOOTLOADER  无参数，进入下载模式
- * 
+ *
  * 测试项目：
  * 0 - Buttons, 1 - Display, 2 - Audio, 3 - LED, 4 - Battery,
  * 5 - Bluetooth, 6 - MicroPython, 7 - SDCard, 8 - WiFi, 9 - All

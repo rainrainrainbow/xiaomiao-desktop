@@ -55,6 +55,15 @@
 - [x] 应用开发指南（app-dev-guide.md，C/Python双语言 + API参考 + 故障排查）
 - [x] README 项目文档完善
 - [x] CI/CD 路径修复（validate-apps → examples/apps）
+- [x] 自动化测试接口代码审查与修复（app_test.c/h）
+  - [x] 修复请求 ID 空指针解引用崩溃
+  - [x] 补齐缺失头文件（uart/stdlib/esp_system 等）
+  - [x] 结果数组与全局状态加互斥锁保护（消除竞态）
+  - [x] 输出缓冲区改为边界安全的追加函数
+  - [x] Python 执行改为异步任务 + 解释器串行化
+  - [x] 修复 cJSON 参数内存泄漏 / UART 缓冲区越界
+  - [x] XTC:/XTR: 命令响应前缀协议落地并对齐文档
+  - [x] 消除硬编码（屏幕尺寸/LED 数量常量化）
 - [ ] 实际硬件烧录测试（需硬件）
 - [ ] 按键响应验证（需硬件）
 - [ ] SD卡应用加载测试（需硬件）
