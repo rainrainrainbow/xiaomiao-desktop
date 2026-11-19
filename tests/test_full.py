@@ -403,7 +403,7 @@ class Runner:
         r = self.dev.send_cmd(4, {"script": script}, timeout=25,
                               terminal_status="ok")
         if not r:
-            raise AssertionError("no completion response for async python")
+            raise AssertionError("no response for EXEC_PYTHON (device may have crashed)")
         if r.get("status") != "ok":
             raise AssertionError(f"python exec failed: {r}")
         out = r.get("output", "")

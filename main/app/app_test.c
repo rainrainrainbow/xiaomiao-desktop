@@ -103,12 +103,6 @@ typedef struct {
     cJSON *params;          // 命令参数（JSON）
 } test_cmd_t;
 
-/* 异步 Python 执行参数 */
-typedef struct {
-    char *script;           // 脚本副本（堆分配）
-    int req_id;             // 请求 ID，用于关联响应
-} python_exec_ctx_t;
-
 /* 异步音调播放参数 */
 typedef struct {
     uint32_t freq;          // 频率 Hz
@@ -134,7 +128,6 @@ static esp_err_t test_send_response(cJSON *response);
 static void test_handle_cmd(const test_cmd_t *cmd);
 static void test_run_single(test_item_t item);
 static void test_run_all(void);
-static void test_exec_python_task(void *arg);
 static void test_play_tone_task(void *arg);
 
 /* 线程安全输出缓冲追加 */
@@ -467,44 +460,29 @@ static void test_micropython(void)
         }
     }
 
-    /* 执行测试脚本 */
-    const char *test_script =
-        "import xiaomiao\n"
-        "xiaomiao.init()\n"
-        "print('MicroPython OK')\n"
-        "print('Screen:', xiaomiao.width(), 'x', xiaomiao.height())\n"
-        "fb = xiaomiao.display_get_framebuffer()\n"
-        "print('Framebuffer:', fb is not None)\n"
-        "xiaomiao.fill(0xFF0000)\n"
-        "xiaomiao.show()\n"
-        "xiaomiao.sleep_ms(200)\n"
-        "xiaomiao.fill(0x00FF00)\n"
-        "xiaomiao.show()\n"
-        "xiaomiao.sleep_ms(200)\n"
-        "xiaomiao.fill(0x0000FF)\n"
-        "xiaomiao.show()\n"
-        "print('Display test done')\n"
-        "print('Keys:', xiaomiao.KEY_UP, xiaomiao.KEY_DOWN, xiaomiao.KEY_LEFT, xiaomiao.KEY_RIGHT, xiaomiao.KEY_A, xiaomiao.KEY_B)\n"
-        "print('All tests passed')\n";
-
-    int ret = -1;
-    if (s_python_mutex && xSemaphoreTake(s_python_mutex, pdMS_TO_TICKS(30000)) == pdTRUE) {
-        ret = poincare_runtime_exec(test_script, "test_script");
-        xSemaphoreGive(s_python_mutex);
-    }
+    /* 注意：MicroPython 运行时在 ui_init_task(长期任务) 中初始化，其 TLS/线程
+     * 状态绑定于该任务。若在此测试任务(短生命周期，返回即删除)中调用
+     * poincare_runtime_exec()，任务删除时会触发 FreeRTOS
+     * "TLSP deletion callback at index 0 overwritten" abort。
+     * 因此本项只验证运行时就绪 + xiaomiao framebuffer 可用；
+     * 实际脚本执行能力由 EXEC_PYTHON 命令(在 UART 长期任务中同步执行)覆盖。 */
+    bool ready = poincare_runtime_is_ready();
+    uint16_t *fb = xiaomiao_display_get_framebuffer();
+    bool fb_ok = (fb != NULL);
 
     if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        if (ret == 0) {
+        if (ready && fb_ok) {
             res->state = TEST_STATE_COMPLETED;
             res->score = 100;
-            snprintf(res->detail, sizeof(res->detail), "MicroPython runtime + xiaomiao module functional");
+            snprintf(res->detail, sizeof(res->detail),
+                     "MicroPython runtime ready; xiaomiao framebuffer available");
             test_output_append("MicroPython test PASSED\n");
         } else {
             res->state = TEST_STATE_FAILED;
-            res->score = 0;
-            const char *err = poincare_runtime_get_last_error();
-            snprintf(res->detail, sizeof(res->detail), "Exec failed: %s", err ? err : "unknown");
-            test_output_append("FAILED: %s\n", err ? err : "unknown");
+            res->score = ready ? 60 : 0;
+            snprintf(res->detail, sizeof(res->detail),
+                     "runtime_ready=%d framebuffer=%d", ready, fb_ok);
+            test_output_append("FAILED: runtime_ready=%d framebuffer=%d\n", ready, fb_ok);
         }
         xSemaphoreGive(s_result_mutex);
     }
@@ -760,32 +738,31 @@ static void test_handle_cmd(const test_cmd_t *cmd)
         case TEST_CMD_EXEC_PYTHON: {
             cJSON *script_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "script") : NULL;
             if (script_json && cJSON_IsString(script_json)) {
-                /* 异步执行：避免长时间脚本阻塞 UART 接收任务 */
-                python_exec_ctx_t *ctx = calloc(1, sizeof(python_exec_ctx_t));
-                if (!ctx) {
-                    cJSON_AddStringToObject(response, "status", "error");
-                    cJSON_AddStringToObject(response, "msg", "Out of memory");
-                    break;
+                /* 同步执行：MicroPython TLS/线程状态绑定到初始化它的任务，
+                 * 在新创建的短生命周期任务里执行会在任务删除时触发 FreeRTOS
+                 * "TLSP deletion callback at index 0 overwritten" abort。
+                 * 因此改为在长期存活的 UART 命令任务中同步执行并直接返回结果。
+                 * UART 任务栈已提升到 TEST_UART_TASK_STACK(12KB) 足以容纳调用链。 */
+                int ret = -1;
+                const char *err = NULL;
+                if (s_python_mutex && xSemaphoreTake(s_python_mutex, pdMS_TO_TICKS(30000)) == pdTRUE) {
+                    if (!poincare_runtime_is_ready()) {
+                        poincare_runtime_init(64 * 1024);
+                    }
+                    s_test_output_len = 0;
+                    ret = poincare_runtime_exec(script_json->valuestring, "host_cmd");
+                    err = poincare_runtime_get_last_error();
+                    xSemaphoreGive(s_python_mutex);
+                } else {
+                    err = "Python runtime busy or init timeout";
                 }
-                /* 手动复制脚本字符串（避免依赖 strdup 特性宏） */
-                size_t script_len = strlen(script_json->valuestring) + 1;
-                ctx->script = (char *)malloc(script_len);
-                if (ctx->script) {
-                    memcpy(ctx->script, script_json->valuestring, script_len);
+
+                cJSON_AddStringToObject(response, "status", ret == 0 ? "ok" : "error");
+                cJSON_AddNumberToObject(response, "ret", ret);
+                if (err && err[0]) {
+                    cJSON_AddStringToObject(response, "error", err);
                 }
-                ctx->req_id = cmd->id;
-                if (!ctx->script ||
-                    xTaskCreate(test_exec_python_task, "py_exec", TEST_TASK_STACK_SIZE * 2,
-                                ctx, TEST_TASK_PRIORITY, NULL) != pdPASS) {
-                    free(ctx->script);
-                    free(ctx);
-                    cJSON_AddStringToObject(response, "status", "error");
-                    cJSON_AddStringToObject(response, "msg", "Failed to start Python task");
-                    break;
-                }
-                /* 立即返回 accepted，实际结果由异步任务推送 */
-                cJSON_AddStringToObject(response, "status", "accepted");
-                cJSON_AddStringToObject(response, "msg", "Python execution started");
+                cJSON_AddStringToObject(response, "output", s_test_output_buffer);
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
                 cJSON_AddStringToObject(response, "msg", "Missing 'script' parameter");
@@ -968,48 +945,6 @@ static esp_err_t test_send_response(cJSON *response)
     }
     cJSON_Delete(response);
     return ESP_OK;
-}
-
-/* ========== 异步 Python 执行任务 ========== */
-static void test_exec_python_task(void *arg)
-{
-    python_exec_ctx_t *ctx = (python_exec_ctx_t *)arg;
-    if (!ctx || !ctx->script) {
-        free(ctx);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    int ret = -1;
-    const char *err = NULL;
-
-    /* MicroPython 解释器不可重入，串行化访问 */
-    if (s_python_mutex && xSemaphoreTake(s_python_mutex, pdMS_TO_TICKS(30000)) == pdTRUE) {
-        if (!poincare_runtime_is_ready()) {
-            poincare_runtime_init(64 * 1024);
-        }
-        s_test_output_len = 0;
-        ret = poincare_runtime_exec(ctx->script, "host_cmd");
-        err = poincare_runtime_get_last_error();
-        xSemaphoreGive(s_python_mutex);
-    } else {
-        err = "Python runtime busy or init timeout";
-    }
-
-    cJSON *response = cJSON_CreateObject();
-    cJSON_AddNumberToObject(response, "id", ctx->req_id);
-    cJSON_AddNumberToObject(response, "cmd", TEST_CMD_EXEC_PYTHON);
-    cJSON_AddStringToObject(response, "status", ret == 0 ? "ok" : "error");
-    cJSON_AddNumberToObject(response, "ret", ret);
-    if (err && err[0]) {
-        cJSON_AddStringToObject(response, "error", err);
-    }
-    cJSON_AddStringToObject(response, "output", s_test_output_buffer);
-    test_send_response(response);
-
-    free(ctx->script);
-    free(ctx);
-    vTaskDelete(NULL);
 }
 
 /* ========== 异步音调播放任务 ========== */
