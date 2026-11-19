@@ -579,7 +579,8 @@ static void test_wifi(void)
 
 /* ========== 测试运行器 ========== */
 
-static void test_run_single(test_item_t item)
+/* 实际执行单项测试（不负责删除任务，供任务入口与 run_all 复用） */
+static void test_run_single_impl(test_item_t item)
 {
     if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         s_current_test_item = item;
@@ -608,6 +609,14 @@ static void test_run_single(test_item_t item)
     }
 }
 
+/* FreeRTOS 任务入口：单项测试。任务函数正常 return 会跳到非法地址触发
+ * IllegalInstruction，必须显式删除自身。 */
+static void test_run_single(test_item_t item)
+{
+    test_run_single_impl(item);
+    vTaskDelete(NULL);
+}
+
 static void test_run_all(void)
 {
     if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -624,15 +633,16 @@ static void test_run_all(void)
     };
     
     for (int i = 0; i < 9; i++) {
-        test_run_single(items[i]);
+        test_run_single_impl(items[i]);
         vTaskDelay(pdMS_TO_TICKS(500));  // 间隔
     }
-    
+
     if (xSemaphoreTake(s_result_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         s_current_test_state = TEST_STATE_COMPLETED;
         s_test_running = false;
         xSemaphoreGive(s_result_mutex);
     }
+    vTaskDelete(NULL);
 }
 
 /* ========== 命令处理 ========== */
