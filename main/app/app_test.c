@@ -73,36 +73,7 @@ typedef enum {
     TEST_CMD_ENTER_BOOTLOADER,
 } test_cmd_type_t;
 
-/* ========== 测试项目 ========== */
-typedef enum {
-    TEST_ITEM_BUTTONS = 0,
-    TEST_ITEM_DISPLAY,
-    TEST_ITEM_AUDIO,
-    TEST_ITEM_LED,
-    TEST_ITEM_BATTERY,
-    TEST_ITEM_BLUETOOTH,
-    TEST_ITEM_MICROPYTHON,
-    TEST_ITEM_SDCARD,
-    TEST_ITEM_WIFI,
-    TEST_ITEM_ALL,
-} test_item_t;
-
-/* ========== 测试状态 ========== */
-typedef enum {
-    TEST_STATE_IDLE = 0,
-    TEST_STATE_RUNNING,
-    TEST_STATE_COMPLETED,
-    TEST_STATE_FAILED,
-} test_state_t;
-
-/* ========== 测试结果 ========== */
-typedef struct {
-    test_item_t item;
-    test_state_t state;
-    int score;              // 0-100
-    char detail[256];       // 详细信息
-    uint32_t timestamp;     // 完成时间戳
-} test_result_t;
+/* 测试项目、测试状态、测试结果类型定义见 app_test.h */
 
 /* ========== 命令结构 ========== */
 typedef struct {
