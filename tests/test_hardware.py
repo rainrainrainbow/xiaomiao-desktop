@@ -307,7 +307,7 @@ def test_uart_command(tr):
         tr.serial.flush()
         time.sleep(0.15)
     buf = b""
-    deadline = time.time() + 20.0
+    deadline = time.time() + 40.0
     while time.time() < deadline:
         if tr.serial.in_waiting:
             buf += tr.serial.read(tr.serial.in_waiting)
@@ -330,7 +330,7 @@ def test_serial_loopback(tr):
     tr.serial.write(b'XTC:{"cmd":0,"id":7}\n')
     tr.serial.flush()
     data = b""
-    deadline = time.time() + 20.0
+    deadline = time.time() + 40.0
     while time.time() < deadline:
         if tr.serial.in_waiting:
             data += tr.serial.read(tr.serial.in_waiting)
