@@ -19,27 +19,30 @@
 #include "freertos/semphr.h"
 #include "driver/uart.h"
 #include "cJSON.h"
+#include "driver/drv_led_strip.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <dirent.h>
 
 /* 外部依赖 */
 extern bool drv_button_get_event(btn_event_t *evt);
-extern void xiaomiao_button_push(const xm_btn_event_t *evt);
+extern bool xiaomiao_button_push(const xm_btn_event_t *evt);
 extern bool xiaomiao_button_task_is_active(void);
 extern uint16_t *xiaomiao_display_get_framebuffer(void);
 extern void xiaomiao_display_set_flush_cb(xm_flush_fn cb);
 extern bool xiaomiao_display_init(void);
 extern float drv_battery_get_voltage(void);
 extern int drv_battery_get_percent(float voltage);
-extern void drv_led_strip_set_pixel(int index, uint32_t color);
-extern void drv_led_strip_refresh(void);
+extern esp_err_t drv_led_strip_set_pixel(int index, led_rgb_t color);
+extern esp_err_t drv_led_strip_refresh(void);
 extern esp_err_t audio_output_init(void);
-extern void audio_output_play_tone(uint32_t freq_hz, uint32_t duration_ms, float volume);
-extern void drv_backlight_set_brightness(uint8_t brightness);
+extern void audio_output_tone(uint32_t freq_hz, uint32_t duration_ms);
+extern void drv_backlight_set_brightness(int percent);
 extern const char *app_manager_get_current_name(void);
 extern void ui_statusbar_update_time(void);
 extern bool poincare_runtime_is_ready(void);
+extern bool poincare_runtime_init(size_t heap_size);
 extern int poincare_runtime_exec(const char *source, const char *source_name);
 extern const char *poincare_runtime_get_last_error(void);
 
@@ -274,7 +277,7 @@ static void test_audio(void)
         s_test_output_len += snprintf(s_test_output_buffer + s_test_output_len,
                                        sizeof(s_test_output_buffer) - s_test_output_len,
                                        "  Playing %lu Hz...\n", tones[i]);
-        audio_output_play_tone(tones[i], 300, 0.5f);
+        audio_output_tone(tones[i], 300);
         vTaskDelay(pdMS_TO_TICKS(400));
     }
     
@@ -300,7 +303,15 @@ static void test_led(void)
                                    sizeof(s_test_output_buffer) - s_test_output_len,
                                    "LED test started\n");
     
-    const uint32_t colors[] = {0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF, 0xFFFFFF};
+    const led_rgb_t colors[] = {
+        {0xFF, 0x00, 0x00},  // Red
+        {0x00, 0xFF, 0x00},  // Green
+        {0x00, 0x00, 0xFF},  // Blue
+        {0xFF, 0xFF, 0x00},  // Yellow
+        {0xFF, 0x00, 0xFF},  // Magenta
+        {0x00, 0xFF, 0xFF},  // Cyan
+        {0xFF, 0xFF, 0xFF},  // White
+    };
     const char *names[] = {"Red", "Green", "Blue", "Yellow", "Magenta", "Cyan", "White"};
     
     for (int i = 0; i < 7; i++) {
@@ -316,8 +327,9 @@ static void test_led(void)
     }
     
     /* 关闭所有 LED */
+    led_rgb_t off = {0, 0, 0};
     for (int led = 0; led < 3; led++) {
-        drv_led_strip_set_pixel(led, 0x000000);
+        drv_led_strip_set_pixel(led, off);
     }
     drv_led_strip_refresh();
     
@@ -415,7 +427,7 @@ static void test_micropython(void)
         s_test_output_len += snprintf(s_test_output_buffer + s_test_output_len,
                                        sizeof(s_test_output_buffer) - s_test_output_len,
                                        "  Initializing runtime...\n");
-        if (!poincare_runtime_init(0)) {
+        if (!poincare_runtime_init(64 * 1024)) {
             res->state = TEST_STATE_FAILED;
             res->score = 0;
             snprintf(res->detail, sizeof(res->detail), "Runtime init failed");
@@ -685,7 +697,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 const char *script = script_json->valuestring;
                 
                 if (!poincare_runtime_is_ready()) {
-                    poincare_runtime_init(0);
+                    poincare_runtime_init(64 * 1024);
                 }
                 
                 int ret = poincare_runtime_exec(script, "host_cmd");
@@ -729,11 +741,20 @@ static void test_handle_cmd(const test_cmd_t *cmd)
         }
         case TEST_CMD_SET_LED: {
             cJSON *index_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "index") : NULL;
-            cJSON *color_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "color") : NULL;
+            cJSON *r_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "r") : NULL;
+            cJSON *g_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "g") : NULL;
+            cJSON *b_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "b") : NULL;
             
-            if (index_json && cJSON_IsNumber(index_json) && color_json && cJSON_IsNumber(color_json)) {
+            if (index_json && cJSON_IsNumber(index_json) && 
+                r_json && cJSON_IsNumber(r_json) &&
+                g_json && cJSON_IsNumber(g_json) &&
+                b_json && cJSON_IsNumber(b_json)) {
                 int index = index_json->valueint;
-                uint32_t color = (uint32_t)color_json->valueint;
+                led_rgb_t color = {
+                    .r = (uint8_t)r_json->valueint,
+                    .g = (uint8_t)g_json->valueint,
+                    .b = (uint8_t)b_json->valueint
+                };
                 
                 if (index >= 0 && index < 3) {
                     drv_led_strip_set_pixel(index, color);
@@ -745,33 +766,33 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 }
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
-                cJSON_AddStringToObject(response, "msg", "Missing 'index' or 'color' parameter");
+                cJSON_AddStringToObject(response, "msg", "Missing 'index', 'r', 'g', or 'b' parameter");
             }
             break;
         }
         case TEST_CMD_SET_BACKLIGHT: {
             cJSON *brightness_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "brightness") : NULL;
             if (brightness_json && cJSON_IsNumber(brightness_json)) {
-                uint8_t brightness = (uint8_t)brightness_json->valueint;
-                drv_backlight_set_brightness(brightness);
+                int percent = brightness_json->valueint;
+                if (percent < 0) percent = 0;
+                if (percent > 100) percent = 100;
+                drv_backlight_set_brightness(percent);
                 cJSON_AddStringToObject(response, "status", "ok");
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
-                cJSON_AddStringToObject(response, "msg", "Missing 'brightness' parameter (0-255)");
+                cJSON_AddStringToObject(response, "msg", "Missing 'brightness' parameter (0-100)");
             }
             break;
         }
         case TEST_CMD_PLAY_TONE: {
             cJSON *freq_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "freq") : NULL;
             cJSON *dur_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "duration") : NULL;
-            cJSON *vol_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "volume") : NULL;
             
             if (freq_json && cJSON_IsNumber(freq_json)) {
                 uint32_t freq = (uint32_t)freq_json->valueint;
                 uint32_t dur = dur_json && cJSON_IsNumber(dur_json) ? (uint32_t)dur_json->valueint : 500;
-                float vol = vol_json && cJSON_IsNumber(vol_json) ? (float)vol_json->valuedouble : 0.5f;
                 
-                audio_output_play_tone(freq, dur, vol);
+                audio_output_tone(freq, dur);
                 cJSON_AddStringToObject(response, "status", "ok");
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
