@@ -19,6 +19,7 @@ idf_component_register(
         "app/app_settings_sleep.c"
         "app/app_settings_datetime.c"
         "app/app_settings_audio.c"
+        "app/app_settings_bt.c"
         "app/app_list.c"
         # "app/app_editor.c" 已删除（改为MicroPython应用）
         "app/app_store.c"

@@ -30,7 +30,7 @@ static const char *TAG = "APP_SETTINGS";
 static int s_settings_row_h = 14;
 static int s_settings_vis_rows = 6;
 
-/* 设置项：18项，分组显示 */
+/* 设置项：19项，分组显示 */
 static const char *s_settings_items[] = {
     "亮度",       // 0 - 显示 → 二级页面  (deprecated, use lang_get)
     "主题",       // 1
@@ -50,13 +50,14 @@ static const char *s_settings_items[] = {
     "恢复默认",   // 15
     "保存并退出", // 16
     "返回Loader", // 17
+    "蓝牙",       // 18 - 蓝牙设置（状态/配对）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[18] = {0};
+static lv_obj_t *s_settings_labels[19] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -114,9 +115,10 @@ static void settings_refresh_label(int idx)
             lang_get(STR_LAYOUT), lang_get(STR_FONT), lang_get(STR_FONT_SOURCE), lang_get(STR_LANGUAGE),
             lang_get(STR_SOUND), lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT),
             lang_get(STR_DATE_TIME), lang_get(STR_OTA_IDLE), lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT),
-            lang_get(STR_RESET_DEFAULT), lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER)
+            lang_get(STR_RESET_DEFAULT), lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER),
+            lang_get(STR_BLUETOOTH)
         };
-        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 18 ? def_items[idx] : "");
+        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 19 ? def_items[idx] : "");
         break;
     }
     }
@@ -442,6 +444,13 @@ static bool settings_on_key(int key)
             return_to_loader_setup();
             esp_restart();
             return true;
+        case 18:
+            /* 蓝牙 → 二级页面 */
+            if (key == KEY_A) {
+                ui_stack_push(PAGE_APP_PLACEHOLDER, &g_bt_settings_callbacks, NULL);
+                return true;
+            }
+            break;
         }
         settings_refresh_label(s_settings_sel);
         return true;

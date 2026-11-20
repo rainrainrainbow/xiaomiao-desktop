@@ -30,5 +30,14 @@ void wifi_debug_deinit(void);
  */
 bool wifi_debug_is_connected(void);
 
+/**
+ * 暂停/恢复开机自动重连逻辑。
+ * 当用户在 WiFi 设置页主动选择网络连接时，必须暂停自动重连，
+ * 否则本模块的 STA_DISCONNECTED 处理器会用旧凭据不断 esp_wifi_connect()，
+ * 覆盖用户正在建立的新连接，导致"连接失败/一直重试"。
+ * @param pause true=暂停自动重连，false=恢复
+ */
+void wifi_debug_pause_autoreconnect(bool pause);
+
 #endif /* WIFI_DEBUG_H */
 

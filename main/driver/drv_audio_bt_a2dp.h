@@ -65,6 +65,19 @@ bool bt_a2dp_is_connected(void);
  */
 esp_err_t bt_a2dp_get_peer_name(char *buf, size_t len);
 
+/**
+ * @brief 查询蓝牙协议栈是否已初始化
+ * @return true=已初始化并可被发现, false=未初始化
+ */
+bool bt_a2dp_is_initialized(void);
+
+/**
+ * @brief 让本机重新进入"可被发现/可连接"模式，方便手机搜索配对。
+ * 连接断开后本机可能退出 discoverable 模式，用户点击配对时调用此接口重新开启。
+ * @return ESP_OK 成功
+ */
+esp_err_t bt_a2dp_start_discoverable(void);
+
 #ifdef __cplusplus
 }
 #endif

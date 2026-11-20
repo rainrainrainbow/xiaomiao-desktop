@@ -22,6 +22,8 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "system/sys_nvs.h"
+#include "system/wifi_debug.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -353,6 +355,10 @@ static void wifi_scan_done_handler(void)
 }
 /* ========== WiFi连接/断开 ========== */
 static volatile int s_pending_connect_idx = -1; /* 等待密码输入的网络索引 */
+/* 暂存本次连接的密码：连接成功后写入 NVS，供下次开机自动重连使用。
+ * 开放网络该缓冲为空字符串。用户通过 UI 选网连接的凭据必须持久化，
+ * 否则重启后又退回 wifi_debug 的默认 tiger8，表现为"WiFi连接失败"。 */
+static char s_pending_password[65] = {0};
 
 /* 密码输入回调 */
 static void wifi_password_callback(const char *password, void *user_data)
@@ -366,6 +372,12 @@ static void wifi_password_callback(const char *password, void *user_data)
         wifi_rebuild_visible();   /* 立即显示"连接中"反馈 */
     }
     s_connect_start_tick = lv_tick_get();
+
+    /* 用户在设置页主动连网：暂停开机自动重连，避免旧凭据覆盖本次连接 */
+    wifi_debug_pause_autoreconnect(true);
+    /* 暂存密码，GOT_IP 成功后持久化到 NVS */
+    memset(s_pending_password, 0, sizeof(s_pending_password));
+    strncpy(s_pending_password, password, sizeof(s_pending_password) - 1);
     
     wifi_config_t wifi_config = {
         .sta = {
@@ -424,6 +436,10 @@ static void wifi_connect(int idx)
     s_wifi_state = WIFI_STATE_CONNECTING;
     s_connected_idx = -1;
     s_connect_start_tick = lv_tick_get();
+
+    /* 用户主动连网：暂停自动重连；开放网络密码为空 */
+    wifi_debug_pause_autoreconnect(true);
+    memset(s_pending_password, 0, sizeof(s_pending_password));
     
     wifi_config_t wifi_config = {
         .sta = {
@@ -523,7 +539,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             /* 连接成功，更新状态 */
             if (s_pending_connect_idx >= 0) {
                 s_connected_idx = s_pending_connect_idx;
+                /* 关键修复：把用户在设置页选的 WiFi 凭据写入 NVS，
+                 * 否则重启后 wifi_debug 又用默认 tiger8 连接失败。 */
+                sys_nvs_save_wifi_credentials(s_networks[s_connected_idx].ssid,
+                                              s_pending_password);
+                ESP_LOGI(TAG, "WiFi credentials saved for: %s", s_networks[s_connected_idx].ssid);
                 s_pending_connect_idx = -1;
+                memset(s_pending_password, 0, sizeof(s_pending_password));
             }
             s_wifi_state = WIFI_STATE_CONNECTED;
             s_connect_start_tick = 0;
@@ -778,6 +800,9 @@ static void wifi_timer_cb(lv_timer_t *timer)
             s_connected_idx = -1;
             s_pending_connect_idx = -1;
             s_connect_start_tick = 0;
+            memset(s_pending_password, 0, sizeof(s_pending_password));
+            /* 连接失败：恢复开机自动重连，让用户仍可通过已保存凭据上网 */
+            wifi_debug_pause_autoreconnect(false);
             wifi_rebuild_visible();
         }
     }
@@ -853,6 +878,11 @@ static void wifi_settings_destroy(void)
     }
     s_scan_ui_dirty = false;
     s_connect_start_tick = 0;
+    s_pending_connect_idx = -1;
+    memset(s_pending_password, 0, sizeof(s_pending_password));
+    /* 退出页面时恢复自动重连：否则连接中途按 B 退出会让暂停状态永久残留，
+     * 之后STA断开也不会重连（timer 已删、超时保护丢失）。 */
+    wifi_debug_pause_autoreconnect(false);
     /* 取消注册事件处理（精确注销我们注册的 instance） */
     wifi_events_unregister();
     s_wifi_list = NULL;

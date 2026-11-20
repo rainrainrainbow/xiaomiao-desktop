@@ -97,6 +97,11 @@ extern const page_callbacks_t g_datetime_settings_callbacks;
 extern const page_callbacks_t g_audio_settings_callbacks;
 
 /**
+ * 蓝牙设置二级页面回调
+ */
+extern const page_callbacks_t g_bt_settings_callbacks;
+
+/**
  * 字库选择设置二级页面回调
  */
 extern const page_callbacks_t g_font_source_settings_callbacks;

@@ -32,6 +32,8 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 
 static int s_retry_num = 0;
 static bool s_wifi_connected = false;
+/* 用户在设置页主动连接期间暂停自动重连，避免旧凭据覆盖用户的新连接 */
+static volatile bool s_autoreconnect_paused = false;
 
 static int s_server_fd = -1;
 static int s_client_fd = -1;
@@ -74,6 +76,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "WiFi STA started, connecting...");
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        /* 用户在设置页主动连接期间：不自动重连，避免用旧凭据覆盖新连接 */
+        if (s_autoreconnect_paused) {
+            s_wifi_connected = false;
+            ESP_LOGI(TAG, "Autoreconnect paused (user managing WiFi in settings)");
+            return;
+        }
         if (s_retry_num < MAX_WIFI_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -177,6 +185,18 @@ void wifi_auto_connect(void)
 bool wifi_debug_is_connected(void)
 {
     return s_client_fd >= 0 && s_wifi_connected;
+}
+
+void wifi_debug_pause_autoreconnect(bool pause)
+{
+    s_autoreconnect_paused = pause;
+    if (pause) {
+        /* 暂停时清零重试计数，避免恢复后立刻用旧状态暴力重连 */
+        s_retry_num = 0;
+        ESP_LOGI(TAG, "Autoreconnect PAUSED");
+    } else {
+        ESP_LOGI(TAG, "Autoreconnect RESUMED");
+    }
 }
 
 /**

@@ -14,14 +14,12 @@
 #include "cJSON.h"
 #include <string.h>
 #include <stdio.h>
-#include <sys/stat.h>
 
 static const char *TAG = "APP_OTA";
 
 /* GitHub API配置 */
 #define GITHUB_API_URL "https://api.github.com/repos/rainrainrainbow/xiaomiao-desktop/releases/latest"
 #define FIRMWARE_FILENAME "xiaomiao-desktop.bin"
-#define FIRMWARE_PATH "/sdcard/ota/" FIRMWARE_FILENAME
 
 /* OTA状态 */
 typedef enum {
@@ -81,10 +79,10 @@ static void ota_check_latest_version(void)
 {
     ESP_LOGI(TAG, "Checking latest version from GitHub...");
     
-    /* 4096 字节缓冲改为静态分配：原先在 ota_task 的 8192 字节栈上，
-     * 叠加 HTTPS/TLS 握手的数 KB 栈开销，会触发栈溢出重启（与已修复的
-     * PLAY_TONE 栈溢出同类）。静态分配彻底消除该栈压力。 */
-    static char response_buffer[4096];
+    /* 静态分配：原先在 ota_task 栈上，叠加 HTTPS/TLS 握手数 KB 开销会栈溢出。
+     * 增大到 8KB：GitHub latest release JSON 含 release notes(markdown)，
+     * 常超过 4KB，截断会导致 cJSON_Parse 失败 → OTA 检查假失败。 */
+    static char response_buffer[8192];
     memset(response_buffer, 0, sizeof(response_buffer));
     
     esp_http_client_config_t config = {
@@ -92,6 +90,7 @@ static void ota_check_latest_version(void)
         .event_handler = _http_event_handler,
         .timeout_ms = 10000,          /* 版本检查请求超时10秒，避免无网络时卡死 */
         .buffer_size = 4096,
+        .skip_cert_common_name_check = true,  /* 设备时间未同步时放宽证书 CN 校验 */
     };
     
     esp_http_client_handle_t client = esp_http_client_init(&config);
@@ -172,249 +171,181 @@ static void ota_check_latest_version(void)
         s_ota_state = OTA_STATE_ERROR;
     }
 }
-/* 下载固件到SD卡 */
-static void ota_download_firmware(void)
+/* ========== 流式 OTA：边下载边写入 OTA 分区，不依赖 SD 卡 ==========
+ * 旧实现先把固件下载到 /sdcard/ota/ 再回读刷写，强依赖 SD 卡。
+ * 本设备 SD 卡为可选（经常未插），导致 OTA 必然失败；且中转文件占用
+ * 额外 flash 与内存。改为 esp_http_client_read() 直接喂给 esp_ota_write()，
+ * 只需一个小缓冲，SD 卡有无均可升级。 */
+#define OTA_HTTP_BUFFER_SIZE  2048
+#define OTA_MIN_FIRMWARE_SIZE (64 * 1024)   /* 小于此值视为无效响应(如错误页) */
+
+static void ota_stream_download_flash(void)
 {
-    ESP_LOGI(TAG, "Downloading firmware to %s", FIRMWARE_PATH);
-    
-    /* 创建目录 */
-    mkdir("/sdcard/ota", 0755);
-    
-    FILE *fp = fopen(FIRMWARE_PATH, "wb");
-    if (fp == NULL) {
-        ESP_LOGE(TAG, "Failed to open file for writing");
+    ESP_LOGI(TAG, "Stream OTA from: %s", s_download_url);
+
+    /* 目标分区：launcher(ota_0)。当前系统也运行于此分区，属于原地升级；
+     * 分区表只有一个 OTA slot，无 A/B 备份，故必须在刷写前完成全部校验。 */
+    const esp_partition_t *partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, "launcher");
+    if (partition == NULL) {
+        ESP_LOGE(TAG, "Failed to find launcher(ota_0) partition");
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
+    ESP_LOGI(TAG, "Target partition: %s (offset=0x%lx, size=%lu)",
+             partition->label, (unsigned long)partition->address,
+             (unsigned long)partition->size);
+
     esp_http_client_config_t config = {
         .url = s_download_url,
         .event_handler = _http_event_handler,
-        .timeout_ms = 30000,          /* 固件下载超时30秒 */
+        .timeout_ms = 30000,
+        .buffer_size = OTA_HTTP_BUFFER_SIZE,
+        .buffer_size_tx = OTA_HTTP_BUFFER_SIZE,
+        .skip_cert_common_name_check = true,  /* ESP32 时间未同步时放宽证书 CN 校验 */
     };
-    
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (client == NULL) {
         ESP_LOGE(TAG, "Failed to init HTTP client");
-        fclose(fp);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
+
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
-        fclose(fp);
         esp_http_client_cleanup(client);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    int content_length = esp_http_client_fetch_headers(client);
-    ESP_LOGI(TAG, "Content length: %d", content_length);
-    
-    char *buffer = heap_caps_malloc(1024, MALLOC_CAP_8BIT);
-    if (buffer == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate buffer");
-        fclose(fp);
-        esp_http_client_cleanup(client);
-        s_ota_state = OTA_STATE_ERROR;
-        return;
-    }
-    
-    int total_read = 0;
-    while (1) {
-        int read_len = esp_http_client_read(client, buffer, 1024);
-        if (read_len <= 0) {
-            break;
-        }
-        
-        fwrite(buffer, 1, read_len, fp);
-        total_read += read_len;
-        
-        if (content_length > 0) {
-            s_download_progress = (total_read * 100) / content_length;
-            if (s_download_progress > 100) s_download_progress = 100;
-        } else {
-            /* 未知总大小，显示已下载字节数（取模100显示） */
-            s_download_progress = (total_read / 1024) % 100;
-        }
-        /* 每10%打印一次日志，避免刷屏 */
-        static int last_log_progress = -1;
-        if (s_download_progress != last_log_progress) {
-            ESP_LOGI(TAG, "Download progress: %d%% (%d KB)", s_download_progress, total_read / 1024);
-            last_log_progress = s_download_progress;
-        }
-    }
-    
-    heap_caps_free(buffer);
-    fclose(fp);
-    esp_http_client_cleanup(client);
-    
-    if (total_read > 0 && (content_length <= 0 || total_read == content_length)) {
-        ESP_LOGI(TAG, "Download complete: %d bytes", total_read);
-        s_ota_state = OTA_STATE_READY;
-    } else if (total_read > 0) {
-        /* 下载不完整：实际字节数与 Content-Length 不符，视为失败 */
-        ESP_LOGE(TAG, "Download incomplete: got %d / %d bytes, discarding",
-                 total_read, content_length);
-        remove(FIRMWARE_PATH);   /* 清理不完整的固件文件 */
-        s_ota_state = OTA_STATE_ERROR;
-    }
-}
 
-/* 从SD卡刷写固件到OTA分区 */
-static void ota_flash_from_sdcard(void)
-{
-    ESP_LOGI(TAG, "Flashing firmware from SD card...");
-    
-    FILE *fp = fopen(FIRMWARE_PATH, "rb");
-    if (fp == NULL) {
-        ESP_LOGE(TAG, "Failed to open firmware file: %s", FIRMWARE_PATH);
+    /* fetch_headers 先读响应头，之后 get_status_code 才有有效值 */
+    int content_length = esp_http_client_fetch_headers(client);
+    int status_code = esp_http_client_get_status_code(client);
+    ESP_LOGI(TAG, "HTTP status=%d content_length=%d", status_code, content_length);
+    if (status_code != 200) {
+        ESP_LOGE(TAG, "Download HTTP status %d != 200", status_code);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    /* 获取文件大小 */
-    fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    
-    if (file_size <= 0) {
-        ESP_LOGE(TAG, "Invalid firmware file size: %ld", file_size);
-        fclose(fp);
+    /* Content-Length 必须合理：过大超分区、过小是错误页 */
+    if (content_length > 0 &&
+        ((size_t)content_length > partition->size || content_length < OTA_MIN_FIRMWARE_SIZE)) {
+        ESP_LOGE(TAG, "Invalid content_length=%d (partition=%lu, min=%d)",
+                 content_length, (unsigned long)partition->size, OTA_MIN_FIRMWARE_SIZE);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    ESP_LOGI(TAG, "Firmware size: %ld bytes", file_size);
-    
-    /* 获取launcher(ota_0)分区 */
-    const esp_partition_t *partition = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP,
-        ESP_PARTITION_SUBTYPE_APP_OTA_0,
-        "launcher"
-    );
-    
-    if (partition == NULL) {
-        ESP_LOGE(TAG, "Failed to find launcher partition");
-        fclose(fp);
+
+    /* 分配缓冲：优先内部 RAM（esp_ota_write 需要），不足则退回普通堆 */
+    uint8_t *buf = heap_caps_malloc(OTA_HTTP_BUFFER_SIZE, MALLOC_CAP_8BIT);
+    if (!buf) {
+        ESP_LOGE(TAG, "Failed to allocate OTA buffer");
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    ESP_LOGI(TAG, "Target partition: %s (offset=0x%lx, size=%lu)", 
-             partition->label, (unsigned long)partition->address, (unsigned long)partition->size);
-    
-    /* 验证固件大小是否适合分区 */
-    if ((size_t)file_size > partition->size) {
-        ESP_LOGE(TAG, "Firmware too large for partition: %ld > %lu", file_size, (unsigned long)partition->size);
-        fclose(fp);
-        s_ota_state = OTA_STATE_ERROR;
-        return;
-    }
-    
-    /* 开始OTA更新 */
+
     esp_ota_handle_t update_handle = 0;
-    esp_err_t err = esp_ota_begin(partition, file_size, &update_handle);
+    err = esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &update_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
-        fclose(fp);
+        heap_caps_free(buf);
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    /* 分配读取缓冲区 */
-    uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_8BIT);
-    if (!buf) {
-        ESP_LOGE(TAG, "Failed to allocate flash buffer");
-        esp_ota_abort(update_handle);
-        fclose(fp);
-        s_ota_state = OTA_STATE_ERROR;
-        return;
-    }
-    
-    /* 分块读取并写入 */
-    int total_written = 0;
+
+    int total_read = 0;
+    int last_log_pct = -10;
+    bool first_chunk = true;
     while (1) {
-        size_t read_len = fread(buf, 1, 4096, fp);
-        if (read_len == 0) break;
-        
+        int read_len = esp_http_client_read(client, (char *)buf, OTA_HTTP_BUFFER_SIZE);
+        if (read_len < 0) {
+            ESP_LOGE(TAG, "HTTP read error at %d bytes", total_read);
+            break;
+        }
+        if (read_len == 0) break;  /* 流结束 */
+
+        /* 首块校验：ESP32 app image 必须以 0xE9 魔数开头 */
+        if (first_chunk) {
+            first_chunk = false;
+            if ((uint8_t)buf[0] != 0xE9) {
+                ESP_LOGE(TAG, "Invalid firmware magic 0x%02x (expected 0xE9)", buf[0]);
+                break;
+            }
+        }
+
         err = esp_ota_write(update_handle, buf, read_len);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
-            heap_caps_free(buf);
-            esp_ota_abort(update_handle);
-            fclose(fp);
-            s_ota_state = OTA_STATE_ERROR;
-            return;
+            break;
         }
-        
-        total_written += read_len;
-        
-        /* 更新进度 */
-        if (file_size > 0) {
-            s_download_progress = (total_written * 100) / file_size;
-            if (s_download_progress > 100) s_download_progress = 100;
-        }
-        
-        /* 每10%打印一次日志 */
-        static int last_log_progress = -1;
-        if (s_download_progress >= last_log_progress + 10) {
-            ESP_LOGI(TAG, "Flash progress: %d%% (%d/%ld KB)", 
-                     s_download_progress, total_written / 1024, file_size / 1024);
-            last_log_progress = s_download_progress;
+        total_read += read_len;
+
+        int pct = content_length > 0 ? (total_read * 100) / content_length
+                                     : (total_read / 1024) % 100;
+        if (pct > 100) pct = 100;
+        s_download_progress = pct;
+        if (pct >= last_log_pct + 10) {
+            ESP_LOGI(TAG, "OTA progress: %d%% (%d KB)", pct, total_read / 1024);
+            last_log_pct = pct;
         }
     }
-    
+
     heap_caps_free(buf);
-    fclose(fp);
-    
-    /* 完成OTA更新 */
-    err = esp_ota_end(update_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_end failed: %s", esp_err_to_name(err));
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+
+    /* 下载不完整 / 无数据：放弃 */
+    if (total_read < OTA_MIN_FIRMWARE_SIZE ||
+        (content_length > 0 && total_read != content_length)) {
+        ESP_LOGE(TAG, "Download incomplete: got %d / %d bytes, abort OTA",
+                 total_read, content_length);
+        esp_ota_abort(update_handle);
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    /* 设置启动分区 */
+
+    /* esp_ota_end 会校验镜像完整性(sha/长度) */
+    err = esp_ota_end(update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end failed: %s (firmware image invalid)", esp_err_to_name(err));
+        s_ota_state = OTA_STATE_ERROR;
+        return;
+    }
+
+    /* 设置启动分区：同时会重建当前无效的 otadata，修复 "ota data invalid" */
     err = esp_ota_set_boot_partition(partition);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
         s_ota_state = OTA_STATE_ERROR;
         return;
     }
-    
-    ESP_LOGI(TAG, "OTA flash complete! New boot partition: %s", partition->label);
-    ESP_LOGI(TAG, "Rebooting in 2 seconds...");
-    
-    /* 延迟2秒后重启 */
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    esp_restart();
+
+    ESP_LOGI(TAG, "OTA ready: %d bytes written to %s. Reboot to apply.",
+             total_read, partition->label);
+    s_download_progress = 100;
+    s_ota_state = OTA_STATE_READY;
 }
 
-/* OTA任务 */
+/* OTA任务：检查版本 + 流式下载刷写（一体化，不依赖 SD 卡） */
 static void ota_task(void *pvParameters)
 {
     /* 检查最新版本 */
     ota_check_latest_version();
-    
-    if (s_ota_state == OTA_STATE_DOWNLOADING && strlen(s_download_url) > 0) {
-        /* 下载固件 */
-        ota_download_firmware();
-    }
-    
-    vTaskDelete(NULL);
-}
 
-/* 刷写任务：从SD卡刷写固件（独立任务，避免阻塞LVGL主线程导致UI冻结） */
-static void ota_flash_task(void *pvParameters)
-{
-    (void)pvParameters;
-    s_ota_state = OTA_STATE_FLASHING;
-    s_download_progress = 0;
-    ota_flash_from_sdcard();
+    if (s_ota_state == OTA_STATE_DOWNLOADING && strlen(s_download_url) > 0) {
+        /* 流式下载并直接刷写 OTA 分区 */
+        ota_stream_download_flash();
+    }
+
     vTaskDelete(NULL);
 }
 
@@ -594,16 +525,9 @@ static bool ota_on_key(int key)
             /* 重新开始OTA */
             ota_start();
         } else if (s_ota_state == OTA_STATE_READY) {
-            /* 开始刷写固件：放入独立任务，避免阻塞 LVGL 主线程 */
-            ESP_LOGI(TAG, "Starting firmware flash from SD card...");
-            s_ota_state = OTA_STATE_FLASHING;
-            s_download_progress = 0;
-            BaseType_t rt = xTaskCreate(ota_flash_task, "ota_flash", 8192, NULL, 5, NULL);
-            if (rt != pdPASS) {
-                ESP_LOGE(TAG, "xTaskCreate(ota_flash) failed! mem free=%lu",
-                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
-                s_ota_state = OTA_STATE_ERROR;
-            }
+            /* 流式 OTA 已在后台完成刷写并设好启动分区，这里直接重启生效 */
+            ESP_LOGI(TAG, "OTA firmware written, rebooting to apply...");
+            esp_restart();
         }
         return true;
     }

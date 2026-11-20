@@ -414,6 +414,26 @@ bool bt_a2dp_is_connected(void)
     return s_a2dp_connected;
 }
 
+bool bt_a2dp_is_initialized(void)
+{
+    return s_bt_initialized;
+}
+
+esp_err_t bt_a2dp_start_discoverable(void)
+{
+    if (!s_bt_initialized) {
+        ESP_LOGW(TAG, "BT stack not initialized, cannot set discoverable");
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t ret = esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Set discoverable failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "Bluetooth discoverable mode enabled: %s", BT_DEVICE_NAME);
+    return ESP_OK;
+}
+
 esp_err_t bt_a2dp_get_peer_name(char *buf, size_t len)
 {
     if (!buf || len == 0) {
