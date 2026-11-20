@@ -187,6 +187,15 @@ static int wifi_debug_vprintf(const char *fmt, va_list args)
 {
     char buf[256];
     int len = vsnprintf(buf, sizeof(buf), fmt, args);
+    /* vsnprintf 返回的是"未截断时应写入的长度"，可能远超缓冲区。
+     * 直接拿它作为 send 长度会越界读栈缓冲、向 TCP 客户端泄露栈数据甚至崩溃。
+     * 夹紧到实际写入的字节数。 */
+    if (len > (int)sizeof(buf) - 1) {
+        len = (int)sizeof(buf) - 1;
+    }
+    if (len < 0) {
+        len = 0;
+    }
 
     if (s_in_hook) {
         /* 重入：只走原始输出，绝不再进入 TCP 发送与日志路径 */

@@ -759,7 +759,11 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     if (!poincare_runtime_is_ready()) {
                         poincare_runtime_init(64 * 1024);
                     }
+                    /* 重置长度的同时清空首字节：print 输出走 UART console，
+                     * 不经 test_output_append，若上次 RUN_TEST 留下旧内容，
+                     * 这里只把 len 置 0 会让 output 字段返回陈旧文本。 */
                     s_test_output_len = 0;
+                    s_test_output_buffer[0] = '\0';
                     ret = poincare_runtime_exec(script_json->valuestring, "host_cmd");
                     err = poincare_runtime_get_last_error();
                     xSemaphoreGive(s_python_mutex);

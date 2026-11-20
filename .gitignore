@@ -37,3 +37,13 @@ __pycache__/
 # IDF Component Manager
 managed_components/sdkconfig
 sdkconfig.old
+
+# Local firmware downloads / test artifacts (not source)
+fw_new/
+firmware_v71/
+full_test_*.log
+gh_*.json
+*_blob.json
+*_content.json
+otadata*.bin
+part.bin

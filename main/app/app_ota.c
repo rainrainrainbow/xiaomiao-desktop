@@ -81,7 +81,11 @@ static void ota_check_latest_version(void)
 {
     ESP_LOGI(TAG, "Checking latest version from GitHub...");
     
-    char response_buffer[4096] = {0};
+    /* 4096 字节缓冲改为静态分配：原先在 ota_task 的 8192 字节栈上，
+     * 叠加 HTTPS/TLS 握手的数 KB 栈开销，会触发栈溢出重启（与已修复的
+     * PLAY_TONE 栈溢出同类）。静态分配彻底消除该栈压力。 */
+    static char response_buffer[4096];
+    memset(response_buffer, 0, sizeof(response_buffer));
     
     esp_http_client_config_t config = {
         .url = GITHUB_API_URL,
@@ -417,8 +421,11 @@ static void ota_flash_task(void *pvParameters)
 /* 启动OTA任务 */
 static void ota_start(void)
 {
-    if (s_ota_state != OTA_STATE_IDLE) {
-        ESP_LOGW(TAG, "OTA already in progress");
+    /* 允许从 ERROR 状态重试：之前只接受 IDLE，导致无网络/无固件资产后
+     * 进入 ERROR 状态，UI 显示"重试"但按键调用 ota_start 被直接拒绝，
+     * 永久卡死在 ERROR。 */
+    if (s_ota_state != OTA_STATE_IDLE && s_ota_state != OTA_STATE_ERROR) {
+        ESP_LOGW(TAG, "OTA already in progress (state=%d)", s_ota_state);
         return;
     }
     
@@ -427,7 +434,9 @@ static void ota_start(void)
     memset(s_latest_version, 0, sizeof(s_latest_version));
     memset(s_download_url, 0, sizeof(s_download_url));
     
-    xTaskCreate(ota_task, "ota_task", 8192, NULL, 5, NULL);
+    /* 提到 12KB：即便 response_buffer 已静态分配，HTTPS/TLS 握手本身
+     * 仍需数 KB 栈，给足余量避免与已修复的栈溢出同类问题。 */
+    xTaskCreate(ota_task, "ota_task", 12288, NULL, 5, NULL);
 }
 
 /* 前向声明 */

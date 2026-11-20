@@ -400,6 +400,10 @@ class Runner:
         script = ("print('FULLTEST', 6*7)\n"
                   "import xiaomiao\n"
                   "print('SIZE', xiaomiao.width(), xiaomiao.height())\n")
+        # MicroPython print() goes to UART console, not the JSON output field.
+        # Snapshot the log position so we can look only at lines produced by
+        # this execution (the device echoes script stdout on the same UART).
+        before = len(self.dev.log_lines) if hasattr(self.dev, "log_lines") else 0
         r = self.dev.send_cmd(4, {"script": script}, timeout=25,
                               terminal_status="ok")
         if not r:
@@ -407,11 +411,14 @@ class Runner:
         if r.get("status") != "ok":
             raise AssertionError(f"python exec failed: {r}")
         out = r.get("output", "")
-        if "FULLTEST 42" not in out:
-            # Some builds may not expose print capture; accept ret==0 but warn.
-            self.record("command", "EXEC_PYTHON output capture", WARN,
-                        f"no captured print output (ret={r.get('ret')}); raw={out[:120]!r}")
-        return True, f"ret={r.get('ret')} output={out[:80]!r}"
+        serial_out = "\n".join(self.dev.log_lines[before:]) if hasattr(self.dev, "log_lines") else ""
+        captured = out + "\n" + serial_out
+        if "FULLTEST 42" not in captured:
+            # ret==0 still means the script ran; only the console echo is missing.
+            self.record("command", "EXEC_PYTHON print echo", WARN,
+                        f"no print echo on UART (ret={r.get('ret')}); "
+                        f"output={out[:80]!r} serial={serial_out[:80]!r}")
+        return True, f"ret={r.get('ret')} print_echo={'FULLTEST 42' in captured}"
 
     def cmd_run_test_and_result(self, item, timeout=90):
         r = self.dev.send_cmd(2, {"item": item}, timeout=8)
