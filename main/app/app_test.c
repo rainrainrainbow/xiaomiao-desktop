@@ -63,6 +63,7 @@ extern bool poincare_runtime_is_ready(void);
 extern bool poincare_runtime_init(size_t heap_size);
 extern int poincare_runtime_exec(const char *source, const char *source_name);
 extern const char *poincare_runtime_get_last_error(void);
+extern void wifi_diag_trigger_scan(void);
 
 static const char *TAG = "APP_TEST";
 
@@ -92,6 +93,7 @@ typedef enum {
     TEST_CMD_LIST_TESTS,
     TEST_CMD_RESET_DEVICE,
     TEST_CMD_ENTER_BOOTLOADER,
+    TEST_CMD_DIAG_WIFI_SCAN,   /* 诊断：直接触发 WiFi 扫描 */
 } test_cmd_type_t;
 
 /* 测试项目、测试状态、测试结果类型定义见 app_test.h */
@@ -805,6 +807,14 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 cJSON_AddStringToObject(response, "status", "error");
                 cJSON_AddStringToObject(response, "msg", "Missing 'key' parameter");
             }
+            break;
+        }
+        case TEST_CMD_DIAG_WIFI_SCAN: {
+            /* 在 UART 命令任务内同步触发扫描发起，扫描完成回调在系统事件任务执行。
+             * 命令立即返回，随后用串口日志观察是否卡死/重启。 */
+            wifi_diag_trigger_scan();
+            cJSON_AddStringToObject(response, "status", "ok");
+            cJSON_AddStringToObject(response, "msg", "WiFi scan triggered");
             break;
         }
         case TEST_CMD_SET_LED: {

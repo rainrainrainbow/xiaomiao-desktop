@@ -105,6 +105,7 @@ const test_result_t* app_test_get_result(test_item_t item);
  * 10 - TEST_CMD_LIST_TESTS        无参数，返回可用测试列表
  * 11 - TEST_CMD_RESET_DEVICE      无参数，复位设备
  * 12 - TEST_CMD_ENTER_BOOTLOADER  无参数，进入下载模式
+ * 13 - TEST_CMD_DIAG_WIFI_SCAN    无参数，直接触发 WiFi 扫描（诊断用）
  *
  * 测试项目：
  * 0 - Buttons, 1 - Display, 2 - Audio, 3 - LED, 4 - Battery,

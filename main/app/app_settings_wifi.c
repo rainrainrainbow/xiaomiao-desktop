@@ -880,6 +880,26 @@ static bool wifi_settings_on_key(int key)
     return false;
 }
 
+/* ========== 诊断接口：供自动化测试直接触发扫描 ==========
+ * 说明：串口 SIMULATE_KEY 注入的是 Python 专用按键队列，无法导航主 UI，
+ * 因此测试无法自然走到本页发起扫描。此接口让全测能真正覆盖扫描路径。 */
+void wifi_diag_trigger_scan(void)
+{
+    ESP_LOGI(TAG, "DIAG: trigger scan (init=%d)", (int)s_wifi_initialized);
+    ui_state_t *st = ui_state_get();
+    if (st) st->wifi_on = true;
+    if (!s_wifi_initialized) {
+        wifi_driver_init();
+    }
+    s_mode_sel = WIFI_MODE_SEL_STA;
+    wifi_apply_mode();
+    /* 确保事件处理已注册（页面 destroy 可能已注销） */
+    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
+    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    wifi_scan();
+    ESP_LOGI(TAG, "DIAG: scan requested");
+}
+
 /* ========== 页面回调定义 ========== */
 const page_callbacks_t g_wifi_settings_callbacks = {
     .init = wifi_settings_init,
