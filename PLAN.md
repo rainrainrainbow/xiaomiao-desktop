@@ -82,7 +82,7 @@
 - 最终全测：41 项 36 PASS / 0 FAIL / 3 WARN / 2 SKIP（WARN 均为 SD 卡未插 / 输出捕获，SKIP 为物理按键/重复项）
 - 最终固件 commit：6d84962（CI run 44573986977 success）
 
-### 第六阶段：深度审查加固（进行中）
+### 第六阶段：深度审查加固（完成）
 对未在全测覆盖的应用/驱动/桥接层做三路深度代码审查，修复与已修 bug 同类的隐患：
 1. **OTA 栈溢出**：`response_buffer[4096]` 从 8192 字节任务的栈移到静态区，`ota_task` 栈 8192→12288（与 PLAY_TONE 栈溢出同类）
 2. **OTA ERROR 死锁**：`ota_start` 允许从 ERROR 状态重试（之前只接受 IDLE，重试键无效）
@@ -97,6 +97,38 @@
 - `app_micropython.c`：放弃未退出的 Python 任务后重进应用，两任务并发执行解释器（TLS abort 同类）
 - `drv_audio_output.c`：音频后端全局状态跨音乐/BTC/主循环无锁
 - `drv_battery.c`：运行期 `ESP_ERROR_CHECK` 且句柄未判空，初始化失败会 abort
+
+### 第七阶段：修复 WiFi 扫描卡死重启（用户实机反馈，完成）
+**现象**：用户反馈"扫描 WiFi 时直接卡死重启"。
+
+**测试盲区根因**：串口 `SIMULATE_KEY`（cmd5）注入的是 Python 专用按键队列（`s_py_btn_queue`），
+主 UI 导航读的是 `drv_button` 的 `s_btn_queue`——两者不通，所以全测从来无法进入 WiFi 设置页；
+而 `test_wifi`（item8）只检查 WiFi 栈状态、从不发起扫描。该崩溃路径一直在测试覆盖之外。
+
+**崩溃根因（COM6 实机日志确认）**：
+```
+I APP_WIFI: DIAG: trigger scan (init=0)
+W wifi:sta_scan: STA is connecting, scan are not allowed!
+W APP_WIFI: WiFi scan start failed: ESP_ERR_WIFI_STATE
+***ERROR*** A stack overflow in task sys_evt has been detected.
+rst:0xc (SW_CPU_RESET),boot:0x13
+```
+- `wifi_scan_done_handler()` 运行在 system_event 任务（sys_evt），
+  该任务栈仅 `CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE` 默认 2048 字节。
+  原代码在栈上放 `wifi_ap_record_t ap_records[8]`（约 928 字节）+ `prev_ssid[33]`，
+  叠加 `esp_wifi_scan_get_ap_records()` 的深层调用链 → 栈溢出 → 重启。
+
+**修复（CI run 44663375041 success，固件已烧录 COM6 验证）**：
+1. 扫描结果缓冲 `ap_records` 从栈移到 `static`（事件循环单线程，无重入）— 根因修复
+2. `CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE` 2048→4096 — 防御性余量
+3. WiFi 事件处理器改用 `esp_event_handler_instance_*` + 幂等标志，消除
+   "handler already registered, overwriting"（页面反复进出/诊断命令重复注册）
+4. 扫描被 STA 连接拒绝时（ESP_ERR_WIFI_STATE）先 disconnect 再重试一次；
+   失败时状态复位 IDLE，避免 UI 永久停在"正在扫描"
+5. 新增 cmd13（DIAG_WIFI_SCAN）诊断命令 + 全测 crash-guard 检查项，永久覆盖扫描路径
+
+**验证**：修复后连续 3 次扫描全部 `scan complete`，0 崩溃 / 0 重启 / 最终 PING 正常；
+完整全测 42 项 0 FAIL（仅 SD 卡未插 2 WARN、物理按键/重复项 2 SKIP）。
 
 ## 硬件规格
 - MCU: ESP32-WROVER-B (4MB Flash + 8MB PSRAM)

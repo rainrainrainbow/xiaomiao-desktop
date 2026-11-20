@@ -5,14 +5,14 @@
     "dry_run": false,
     "fw_version": "v71.1"
   },
-  "generated": "2026-11-20 10:09:24",
+  "generated": "2026-11-20 11:09:58",
   "summary": {
-    "total": 41,
-    "pass": 37,
+    "total": 42,
+    "pass": 38,
     "fail": 0,
     "warn": 2,
     "skip": 2,
-    "pass_rate": 90.2
+    "pass_rate": 90.5
   },
   "results": [
     {
@@ -139,7 +139,7 @@
       "section": "command",
       "name": "cmd0 PING",
       "status": "PASS",
-      "detail": "id=1013 rtt-ok"
+      "detail": "id=1012 rtt-ok"
     },
     {
       "section": "command",
@@ -157,7 +157,7 @@
       "section": "command",
       "name": "cmd9 GET_BATTERY",
       "status": "PASS",
-      "detail": "4000 mV, 86%"
+      "detail": "3859 mV, 61%"
     },
     {
       "section": "command",
@@ -188,6 +188,12 @@
       "name": "cmd4 EXEC_PYTHON",
       "status": "PASS",
       "detail": "ret=0 script executed OK; print_echo=n/a (stdout not routed to console by design)"
+    },
+    {
+      "section": "command",
+      "name": "cmd13 DIAG_WIFI_SCAN (crash guard)",
+      "status": "PASS",
+      "detail": "scan OK, device survived; WiFi scan complete: 3 networks found\u001b[0m"
     },
     {
       "section": "command",

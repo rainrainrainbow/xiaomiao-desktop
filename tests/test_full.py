@@ -425,6 +425,40 @@ class Runner:
         return True, (f"ret={r.get('ret')} script executed OK; "
                       f"print_echo={'yes' if echoed else 'n/a (stdout not routed to console by design)'}")
 
+    def cmd_wifi_scan(self):
+        """cmd13: trigger a real WiFi scan and assert the device survives it.
+
+        Regression guard for a sys_evt stack overflow (SW_CPU_RESET reboot)
+        that occurred whenever the WiFi settings page scanned. SIMULATE_KEY
+        cannot navigate the main UI (it feeds the Python-only key queue), so
+        this diagnostic command is the only way to cover the scan path.
+        """
+        self.dev.clear_log()
+        r = self.dev.send_cmd(13, timeout=8, terminal_status="ok")
+        if not r or r.get("status") != "ok":
+            raise AssertionError(f"cmd13 did not trigger scan: {r}")
+        # Scan completes asynchronously (~2-4s) on the system event task.
+        self.dev._pump(6.0)
+        log = self.dev.log_text()
+        crash = any(m in log for m in ("stack overflow", "Stack overflow",
+                                       "Guru Meditation", "rst:0xc",
+                                       "SW_CPU_RESET", "Backtrace", "abort()"))
+        if crash:
+            raise AssertionError("device crashed/rebooted during WiFi scan")
+        scan_done = ("WiFi scan complete" in log) or ("WiFi scan done (async)" in log)
+        if not scan_done:
+            raise AssertionError("no scan-completion event observed")
+        # Device must still respond after the scan.
+        pong = self.dev.send_cmd(0, timeout=5)
+        if not pong or pong.get("status") != "ok":
+            raise AssertionError("device unresponsive after WiFi scan")
+        networks = ""
+        for line in log.splitlines():
+            if "WiFi scan complete" in line:
+                networks = line.split("APP_WIFI:")[-1].strip()
+                break
+        return True, f"scan OK, device survived; {networks}"
+
     def cmd_run_test_and_result(self, item, timeout=90):
         r = self.dev.send_cmd(2, {"item": item}, timeout=8)
         if not r or r.get("status") not in ("started", "ok"):
@@ -450,7 +484,7 @@ class Runner:
 
     def command_checks(self):
         section = "command"
-        print("\n=== Command interface checks (13/13) ===")
+        print("\n=== Command interface checks (14/14) ===")
         self.check(section, "cmd0 PING", self.cmd_ping)
         self.check(section, "cmd1 GET_INFO", self.cmd_get_info)
         self.check(section, "cmd10 LIST_TESTS", self.cmd_list_tests)
@@ -460,6 +494,7 @@ class Runner:
         self.check(section, "cmd7 SET_BACKLIGHT", self.cmd_set_backlight)
         self.check(section, "cmd8 PLAY_TONE", self.cmd_play_tone)
         self.check(section, "cmd4 EXEC_PYTHON", self.cmd_exec_python)
+        self.check(section, "cmd13 DIAG_WIFI_SCAN (crash guard)", self.cmd_wifi_scan)
         self.check(section, "cmd2 RUN_TEST + cmd3 GET_TEST_RESULT",
                    lambda: (lambda res: (res[0].get("state") == 2,
                                          f"battery item state={res[0].get('state')} "
@@ -625,8 +660,11 @@ def main():
     else:
         # Synthetic device for dry-run.
         class DryDev:
-            log_lines = list(MARKERS.values())
-            def log_text(self): return "\n".join(MARKERS.values())
+            log_lines = list(MARKERS.values()) + ["I (1) APP_WIFI: WiFi scan complete: 4 networks found"]
+            def log_text(self):
+                return "\n".join(self.log_lines)
+            def clear_log(self):
+                self.log_lines = ["I (1) APP_WIFI: WiFi scan complete: 4 networks found"]
             def send_cmd(self, cmd, params=None, **kw):
                 statuses = {0: "pong"}
                 r = {"id": 1, "cmd": cmd, "status": "ok"}
