@@ -177,6 +177,12 @@ CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
 # Raise to 4096 to leave headroom for Bluedroid + A2DP callbacks.
 CONFIG_BT_BTC_TASK_STACK_SIZE=4096
 CONFIG_BT_BTU_TASK_STACK_SIZE=4096
+
+# system_event 任务栈：WiFi 事件回调（SCAN_DONE/STA_DISCONNECTED 等）在此上下文执行。
+# 默认 2048 字节实测在 WiFi 扫描 + 自动重连并发时触发
+# "A stack overflow in task sys_evt" → SW_CPU_RESET 重启。
+# 虽然已把扫描结果大数组移到静态区，仍增大到 4096 给事件回调链留足余量。
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
 # host 侧 ACL 连接数减到 1（仅 1 台手机，减少 L2CAP/BTM 静态连接控制块 BSS）
 CONFIG_BT_ACL_CONNECTIONS=1
 # 经典蓝牙 host 认证/一致性测试支持（默认 n，显式保持关闭）

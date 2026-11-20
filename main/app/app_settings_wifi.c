@@ -22,6 +22,8 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -57,6 +59,35 @@ static bool s_sta_netif_created = false;  /* STA netif 是否已创建 */
 static bool s_ap_netif_created = false;   /* AP netif 是否已创建 */
 static wifi_mode_sel_t s_mode_sel = WIFI_MODE_SEL_STA;
 static volatile int s_ap_sta_count = 0;            /* AP模式下已连接设备数 */
+
+/* 事件处理器注册状态：用 instance 句柄确保幂等注册/精确注销，
+ * 避免页面反复进入/退出与诊断命令重复注册导致 "handler already registered" 覆盖。 */
+static bool s_events_registered = false;
+static esp_event_handler_instance_t s_evt_wifi_any = NULL;
+static esp_event_handler_instance_t s_evt_ip_got_ip = NULL;
+
+/* 幂等注册事件处理器（ wifi_event_handler 定义在下方，此处用前向声明 ） */
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data);
+static void wifi_events_register(void)
+{
+    if (s_events_registered) return;
+    esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
+                                        &wifi_event_handler, NULL, &s_evt_wifi_any);
+    esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+                                        &wifi_event_handler, NULL, &s_evt_ip_got_ip);
+    s_events_registered = true;
+}
+
+static void wifi_events_unregister(void)
+{
+    if (!s_events_registered) return;
+    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_evt_wifi_any);
+    esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, s_evt_ip_got_ip);
+    s_evt_wifi_any = NULL;
+    s_evt_ip_got_ip = NULL;
+    s_events_registered = false;
+}
 
 /* 扫描到的网络列表 */
 typedef struct {
@@ -97,8 +128,7 @@ static void wifi_driver_init(void)
 {
     if (s_wifi_initialized) {
         /* 页面 destroy 时可能已注销事件，重新注册（幂等） */
-        esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+        wifi_events_register();
         return;
     }
 
@@ -150,9 +180,8 @@ static void wifi_driver_init(void)
         return;
     }
 
-    /* 注册WiFi事件处理 */
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    /* 注册WiFi事件处理（幂等） */
+    wifi_events_register();
     /* IP_EVENT_STA_LOST_IP 在部分ESP-IDF版本中不存在，跳过注册 */
 
     s_wifi_initialized = true;
@@ -233,16 +262,42 @@ static void wifi_scan(void)
         .channel = 0,
         .show_hidden = false,
     };
+    /* 开机 wifi_debug 会自动连接 STA。ESP32 在 STA 连接过程中不允许扫描
+     * （"STA is connecting, scan are not allowed" → ESP_ERR_WIFI_STATE）。
+     * 用户主动发起扫描时，若正处于 CONNECTING，先断开再扫描；否则扫描会因
+     * 状态冲突被拒，且 s_wifi_state 卡在 SCANNING，UI 永远显示"正在扫描"。 */
+    if (s_wifi_state == WIFI_STATE_CONNECTING) {
+        ESP_LOGI(TAG, "Disconnecting in-progress STA before scan");
+        esp_wifi_disconnect();
+    }
     /* 异步扫描：立即返回，结果在 WIFI_EVENT_SCAN_DONE 事件回调中获取。
      * 避免阻塞式扫描导致 UI（LVGL）冻结数秒。 */
     esp_err_t ret = esp_wifi_scan_start(&scan_config, false);
+    if (ret == ESP_ERR_WIFI_STATE) {
+        /* STA 仍在后台连接（wifi_debug 自动重连），扫描被拒。
+         * 断开 STA 后重试一次，否则用户点扫描只会看到永远"正在扫描"。 */
+        ESP_LOGW(TAG, "Scan blocked by STA busy, disconnect & retry");
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        ret = esp_wifi_scan_start(&scan_config, false);
+    }
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "WiFi scan start failed: %s", esp_err_to_name(ret));
-        s_wifi_state = WIFI_STATE_IDLE;
+        s_wifi_state = WIFI_STATE_IDLE;  /* 失败必须复位，否则卡在 SCANNING */
+        s_scan_ui_dirty = true;
         return;
     }
     ESP_LOGI(TAG, "WiFi async scan started");
 }
+/* 扫描结果缓冲区改为静态分配：
+ * wifi_scan_done_handler 运行在 system_event 任务（sys_evt）上下文，
+ * 该任务栈默认仅 CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=2048 字节。
+ * 原先在栈上放 ap_records[8]（每个 wifi_ap_record_t 约 116 字节，共 ~928 字节）
+ * 加上 prev_ssid 与 esp_wifi_scan_get_ap_records 的深层调用链，实测触发
+ * "A stack overflow in task sys_evt" → SW_CPU_RESET 重启。
+ * 该事件回调串行执行（事件循环单线程），静态缓冲无并发冲突。 */
+static wifi_ap_record_t s_scan_ap_records[MAX_NETWORKS];
+
 /* 扫描完成回调（在 WiFi 事件循环线程中执行，不操作 LVGL）：
  * 仅更新数据状态；UI 刷新由后续 LVGL 主循环调用 rebuild/refresh 完成 */
 static void wifi_scan_done_handler(void)
@@ -257,17 +312,20 @@ static void wifi_scan_done_handler(void)
         prev_ssid[WIFI_SSID_MAX] = '\0';
     }
 
-    esp_wifi_scan_get_ap_num(&ap_count);
+    esp_err_t err = esp_wifi_scan_get_ap_num(&ap_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "scan_get_ap_num failed: %s", esp_err_to_name(err));
+        ap_count = 0;
+    }
     if (ap_count > MAX_NETWORKS) ap_count = MAX_NETWORKS;
     if (ap_count > 0) {
-        wifi_ap_record_t ap_records[MAX_NETWORKS];
-        memset(ap_records, 0, sizeof(ap_records));
-        if (esp_wifi_scan_get_ap_records(&ap_count, ap_records) == ESP_OK) {
+        memset(s_scan_ap_records, 0, sizeof(s_scan_ap_records));
+        if (esp_wifi_scan_get_ap_records(&ap_count, s_scan_ap_records) == ESP_OK) {
             for (int i = 0; i < ap_count && i < MAX_NETWORKS; i++) {
-                strncpy(s_networks[i].ssid, (const char*)ap_records[i].ssid, WIFI_SSID_MAX);
+                strncpy(s_networks[i].ssid, (const char*)s_scan_ap_records[i].ssid, WIFI_SSID_MAX);
                 s_networks[i].ssid[WIFI_SSID_MAX] = '\0';
-                s_networks[i].rssi = ap_records[i].rssi;
-                s_networks[i].auth_mode = ap_records[i].authmode;
+                s_networks[i].rssi = s_scan_ap_records[i].rssi;
+                s_networks[i].auth_mode = s_scan_ap_records[i].authmode;
             }
             s_network_count = ap_count;
         }
@@ -795,9 +853,8 @@ static void wifi_settings_destroy(void)
     }
     s_scan_ui_dirty = false;
     s_connect_start_tick = 0;
-    /* 取消注册事件处理 */
-    esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler);
-    esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler);
+    /* 取消注册事件处理（精确注销我们注册的 instance） */
+    wifi_events_unregister();
     s_wifi_list = NULL;
     s_wifi_switch = NULL;
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
@@ -893,9 +950,8 @@ void wifi_diag_trigger_scan(void)
     }
     s_mode_sel = WIFI_MODE_SEL_STA;
     wifi_apply_mode();
-    /* 确保事件处理已注册（页面 destroy 可能已注销） */
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
+    /* 确保事件处理已注册（幂等，页面 destroy 可能已注销） */
+    wifi_events_register();
     wifi_scan();
     ESP_LOGI(TAG, "DIAG: scan requested");
 }
