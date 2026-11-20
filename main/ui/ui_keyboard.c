@@ -157,31 +157,31 @@ static void kb_clear_pending(void)
 /* ========== 刷新：输入框 ========== */
 static void kb_refresh_input(void)
 {
-    if (!s_kb_input) return;
+    if (!s_input) return;
 
     if (s_kb_text_len == 0) {
-        lv_label_set_text(s_kb_input, s_kb_config.placeholder ? s_kb_config.placeholder : "");
+        lv_label_set_text(s_input, s_kb_config.placeholder ? s_kb_config.placeholder : "");
         const theme_colors_t *colors = ui_theme_colors();
-        if (colors) lv_obj_set_style_text_color(s_kb_input, lv_color_hex(colors->text_dim), 0);
+        if (colors) lv_obj_set_style_text_color(s_input, lv_color_hex(colors->text_dim), 0);
     } else {
         if (s_kb_config.password_mode) {
             char masked[128];
             int len = s_kb_text_len < 64 ? s_kb_text_len : 64;
             memset(masked, '*', len);
             masked[len] = '\0';
-            lv_label_set_text(s_kb_input, masked);
+            lv_label_set_text(s_input, masked);
         } else {
-            lv_label_set_text(s_kb_input, s_kb_text);
+            lv_label_set_text(s_input, s_kb_text);
         }
         const theme_colors_t *colors = ui_theme_colors();
-        if (colors) lv_obj_set_style_text_color(s_kb_input, lv_color_hex(colors->text), 0);
+        if (colors) lv_obj_set_style_text_color(s_input, lv_color_hex(colors->text), 0);
     }
 }
 
 /* ========== 刷新：模式标签 (abc/ABC/123/#$%) ========== */
 static void kb_refresh_mode_label(void)
 {
-    if (!s_kb_mode_label) return;
+    if (!s_mode_label) return;
     const char *mode_text = "";
     switch (s_kb_mode) {
     case KB_MODE_LOWER:  mode_text = "abc"; break;
@@ -190,14 +190,14 @@ static void kb_refresh_mode_label(void)
     case KB_MODE_SYMBOL: mode_text = "#$%"; break;
     default: break;
     }
-    lv_label_set_text(s_kb_mode_label, mode_text);
+    lv_label_set_text(s_mode_label, mode_text);
 }
 
 /* ========== 刷新：布局标签 (QW / T9) ========== */
 static void kb_refresh_layout_label(void)
 {
-    if (!s_kb_layout_label) return;
-    lv_label_set_text(s_kb_layout_label, s_kb_layout == KB_LAYOUT_T9 ? "T9" : "QW");
+    if (!s_layout_label) return;
+    lv_label_set_text(s_layout_label, s_kb_layout == KB_LAYOUT_T9 ? "T9" : "QW");
 }
 
 /* ========== 刷新：QWERTY 网格文字 + 选中高亮 ========== */
