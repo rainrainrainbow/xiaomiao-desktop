@@ -349,8 +349,15 @@ static void music_start_playback(int idx)
         lrc_parser_load(&s_lrc, lrc_base);
     }
 
-    xTaskCreate(music_play_task, "music_play", 4096,
-                (void*)(intptr_t)idx, 5, &s_play_task);
+    BaseType_t rt = xTaskCreate(music_play_task, "music_play", 4096,
+                                (void*)(intptr_t)idx, 5, &s_play_task);
+    if (rt != pdPASS) {
+        /* 任务创建失败（内存不足）：复位播放状态，避免 UI 误判为正在播放 */
+        ESP_LOGE(TAG, "xTaskCreate(music_play) failed");
+        s_is_playing = false;
+        s_playing_idx = -1;
+        s_play_task = NULL;
+    }
 }
 
 static void music_stop_playback(void)

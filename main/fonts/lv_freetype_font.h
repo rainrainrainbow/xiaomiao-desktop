@@ -2,8 +2,9 @@
  * @file lv_freetype_font.h
  * @brief 中文字体管理 - 统一获取入口
  *
- * 使用 LVGL FreeType 引擎从 SD 卡加载 TTF/OTF 字体文件，
- * 支持多尺寸中文字体渲染。
+ * 优先使用 LVGL FreeType 引擎从 SD 卡加载 TTF/OTF 字体文件（多尺寸中文），
+ * 未插 SD 卡 / 加载失败 / 内置模式时回退到固件内建的精简中文字库
+ * lv_font_xiaomiao_cn_14（仅 14px，其余尺寸由 LVGL 缩放），确保无 SD 卡也有中文。
  * 字体文件路径：/sdcard/Fonts/NotoSansSC-Regular.otf
  */
 
@@ -25,27 +26,28 @@ lv_result_t lv_freetype_font_init(void);
 
 /**
  * @brief 获取中文显示字体（14px）
- * @return const lv_font_t* 字体指针（失败时返回 NULL）
+ * @return const lv_font_t* 字体指针（始终有效：FreeType 字体或内置精简中文字库兜底，绝不返回 NULL）
  */
 const lv_font_t* lv_font_cn_14(void);
 
 /**
  * @brief 获取中文显示字体（16px）
- * @return const lv_font_t* 字体指针（失败时返回 NULL）
+ * @return const lv_font_t* 字体指针（始终有效：FreeType 字体或内置精简中文字库兜底，绝不返回 NULL）
  */
 const lv_font_t* lv_font_cn_16(void);
 
 /**
  * @brief 获取中文显示字体（20px）
- * @return const lv_font_t* 字体指针（失败时返回 NULL）
+ * @return const lv_font_t* 字体指针（始终有效：FreeType 字体或内置精简中文字库兜底，绝不返回 NULL）
  */
 const lv_font_t* lv_font_cn_20(void);
 
 /**
  * @brief 根据指定大小获取中文显示字体
- * 支持大小：14、16、20、24，其他大小回退到14px。
+ * FreeType 就绪时支持大小 14、16、20、24（其他大小回退 14px）；
+ * 未就绪时（内置模式/无 SD 卡/加载失败）统一返回内置精简中文字库（14px，LVGL 按需缩放）。
  * @param size 字体大小（px）
- * @return const lv_font_t* 字体指针（失败时返回 NULL）
+ * @return const lv_font_t* 字体指针（始终有效：FreeType 字体或内置精简中文字库兜底，绝不返回 NULL）
  */
 const lv_font_t* lv_font_cn_get(int size);
 
@@ -70,7 +72,7 @@ int lv_freetype_font_scan(char paths[][128], int max_paths);
  * @brief 卸载 FreeType 字体并释放资源
  * 关闭 FreeType 引擎，清空所有字体句柄。
  * 调用后 lv_freetype_font_is_ready() 返回 false，
- * 所有字体获取函数回退到内置 Montserrat 字体。
+ * 所有字体获取函数回退到固件内建的精简中文字库。
  */
 void lv_freetype_font_deinit(void);
 

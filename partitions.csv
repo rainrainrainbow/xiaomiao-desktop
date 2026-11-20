@@ -1,16 +1,22 @@
 # Xiaomiao ROM Loader partition table (must match xiaomiao-loader!)
-# Flash: 4MB QIO 80MHz, partition table at 0x8000
+# Flash: 16MB QIO 80MHz, partition table at 0x8000
 #
-# factory      - Loader firmware (persistent, never overwritten by OTA)
-# launcher     - OTA slot (合并后的单个大 ota_0 分区，覆盖原 launcher + retro-core 空间)
-# otadata      - Boot selection
+# factory      - Loader/Recovery 固件（常驻，OTA 永不覆盖，label 保持 factory）
+# launcher     - OTA 槽 A (ota_0)，label 必须保持 launcher（app_ota.c 按此 label 查找）
+# launcher_b   - OTA 槽 B (ota_1)，预留给未来 A/B 安全升级
+# otadata      - OTA 启动选择
+# retro-core   - FAT 数据分区，挂载到 /flash（字库/图标/内置音乐），label 必须保持 retro-core
 #
-# 说明：原 launcher (ota_0, 0x240000) 与 retro-core (原 ota_1/fat, 0x120000)
-#       已合并为单个 ota_0 (0x360000 = 3.375MB)，固件空间充足。
+# 16MB 布局：factory 1MB + ota_0 4MB + ota_1 4MB + storage(FAT) 5MB
+# 对齐规则：data 分区 0x1000 对齐；app 分区 (factory/ota_0/ota_1) 0x10000 对齐
+# 总容量 0x1000000 (16MB)，所有分区不重叠、不越界。
+# 注：otadata(0x110000~0x112000) 与 ota_0(0x120000) 之间的 0xE000 空隙用于满足 app 分区 64KB 对齐。
 
 # Name,       Type, SubType, Offset,   Size,     Flags
-nvs,          data, nvs,     0xA000,   0x5000,
+nvs,          data, nvs,     0x9000,   0x6000,
 phy_init,     data, phy,     0xF000,   0x1000,
-factory,      app,  factory, 0x10000,  0x8E000,
-otadata,      data, ota,     0x9E000,  0x2000,
-launcher,     app,  ota_0,   0xA0000,  0x360000,
+factory,      app,  factory, 0x10000,  0x100000,
+otadata,      data, ota,     0x110000, 0x2000,
+launcher,     app,  ota_0,   0x120000, 0x400000,
+launcher_b,   app,  ota_1,   0x520000, 0x400000,
+retro-core,   data, fat,     0x920000, 0x500000,

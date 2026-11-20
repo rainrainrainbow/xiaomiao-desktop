@@ -130,22 +130,100 @@ rst:0xc (SW_CPU_RESET),boot:0x13
 **验证**：修复后连续 3 次扫描全部 `scan complete`，0 崩溃 / 0 重启 / 最终 PING 正常；
 完整全测 42 项 0 FAIL（仅 SD 卡未插 2 WARN、物理按键/重复项 2 SKIP）。
 
+## 第八阶段：用户反馈三问题修复（WiFi连不上 / 蓝牙无界面 / OTA失败重启）
+
+实机 COM6 抓日志 + 代码审查定位三个独立根因：
+
+### 1. WiFi 连接失败
+**根因A**：UI（`app_settings_wifi.c`）里用户选网连接成功后**从未保存凭据到 NVS**，
+只有 `wifi_debug.c` 用默认凭据（tiger8/12345678）保存。重启后 `wifi_auto_connect()`
+又用 tiger8 连接 → 实机日志显示 `WiFi connection failed, retrying... (1/5)~(5/5)`。
+用户每次设置的 WiFi 都留不住。
+**根因B**：`wifi_debug.c` 与 `app_settings_wifi.c` 都注册 WIFI_EVENT 处理器，
+前者在 STA_DISCONNECTED 时用旧凭据自动重连，覆盖用户在设置页正在建立的新连接。
+**修复**：
+- GOT_IP 成功时用 `sys_nvs_save_wifi_credentials()` 持久化用户选的 SSID/密码
+- 新增 `wifi_debug_pause_autoreconnect(bool)`，用户主动连网期间暂停开机自动重连，
+  连接失败超时/退出设置页时恢复，避免与设置页 handler 打架
+
+### 2. 蓝牙没有界面
+**根因**：蓝牙只有 A2DP Sink 音频后端（`drv_audio_bt_a2dp.c`），无独立 UI 页面，
+仅在"音频输出"页作为一个设备行出现且未连接时显示"不可用"，用户无从配对。
+**修复**：
+- 新增 `app_settings_bt.c` 蓝牙设置页：初始化状态/连接状态/对端设备名/本机蓝牙名 +
+  A 键重新进入可被发现模式（手机可搜索配对），500ms 定时器刷新
+- 暴露 `bt_a2dp_is_initialized()` / `bt_a2dp_start_discoverable()` API
+- 加入设置菜单第 19 项 + 中英文语言字符串
+
+### 3. OTA 升级失败（重启）
+**根因A**：旧实现先把固件下载到 `/sdcard/ota/` 再回读刷写，**强依赖 SD 卡**；
+本设备 SD 卡可选且实机未插 → `fopen` 失败 → OTA 必然失败。
+**根因B**：版本检查响应缓冲仅 4KB，GitHub latest release JSON 含 release notes
+常超 4KB，截断致 `cJSON_Parse` 失败 → 假"检查失败"。
+**根因C**：启动日志见 `ota data partition invalid`，otadata 分区当前无效。
+**修复**：
+- 改为**流式 OTA**：`esp_http_client_read()` 直接喂 `esp_ota_write()`，去 SD 卡依赖
+- 四重校验：HTTP 状态 200 / Content-Length 合理 / 固件魔数 0xE9 / esp_ota_end 完整性
+- 版本检查缓冲 4KB→8KB
+- `esp_ota_set_boot_partition()` 会重建无效 otadata，顺带修复 "ota data invalid"
+- READY 后按 A 直接重启生效（不再二次从 SD 卡刷写）
+
+**提交**：本地 `3b086cb`，远程 `0b4864f2ed75`，CI run `44670460745`。
+
+## 第九阶段：16MB 分区重构 + Recovery + 内置字库 + 5键键盘 + app 加固
+
+用户确认硬件 Flash 实为 **16MB**（原按 4MB 配置），并要求：重规划分区表、补齐 loader/recovery
+（类安卓恢复模式）、内建精简常用汉字库、完善各 app、构建适合 5 键的键盘。派 5 个并行 agent 分工完成。
+
+### 1. 16MB 分区表重规划（partitions.csv / sdkconfig.defaults / build.yml / docs/ota-guide.md）
+- 新布局：nvs(24KB) + phy_init(4KB) + factory(1MB, recovery) + otadata(8KB) +
+  launcher=ota_0(4MB, **label 保持 launcher** 兼容 app_ota.c) + launcher_b=ota_1(4MB) +
+  retro-core=FAT(5MB, label 保持兼容 main.c 挂载 /flash)。data 分区 0x1000 对齐、app 分区 0x10000 对齐，无重叠/越界。
+- flash size 配置 4MB→16MB；CI merge_bin 改为 4 段：0x1000 bootloader / 0x8000 分区表 /
+  0x110000 otadata / 0x120000 app（不再把 2.4MB app 写到 1MB factory 造成覆盖）。
+- **启动 otadata**：CI 新增 Python 生成 `otadata_launcher.bin`（seq=1 指向 ota_0 + CRC32 校验，
+  符合 esp_ota_select_entry_t 32B 布局），替换 ESP-IDF 默认全 FF 空分区——否则空 otadata
+  会让 bootloader 回退到空 factory 而无法启动。发布到 firmware 分支为 `otadata.bin`。
+
+### 2. Recovery 恢复模式（新增 app_recovery.c/.h + 菜单/语言/CMake 集成）
+- 7 项菜单：恢复出厂 / 清 WiFi 凭据 / 重新开始 OTA / 从 SD 卡刷机(仅提示不盲刷) /
+  查看系统信息(版本+分区+内存) / 重启到主系统 / 重启到 Loader(factory)。二次确认防误触。
+- 从设置页第 20 项「恢复模式」进入（索引 19）。所有破坏性操作需 A 二次确认。
+- **约束**：重启到 factory 仅显式点击触发，开机/崩溃等自动路径绝不调用 return_to_loader_setup
+  （尊重用户此前"取消崩溃后回退 factory"的明确要求）。
+
+### 3. 内建精简汉字库（lv_freetype_font.c/.h + sys_nvs.c）
+- 默认字体源 0→1（内置），新设备无 SD 卡也有中文。内置 `lv_font_xiaomiao_cn_14`（约 371KB，
+  常用汉字集）正式编入 CMake；FreeType 就绪时按 14/16/20/24 用大字体，否则一律回退内置 14px，
+  **任何情况不返回 NULL**。解决"没 SD 卡就没中文/英文降级"。
+
+### 4. 5 键友好虚拟键盘（ui_keyboard.c 重写）
+- 默认 T9 九宫格大按键（3×3，方向键导航 + A 输入/1.2s 多输循环 + B 退格），QWERTY 可选(6×5)。
+- 公共 API 六个函数签名与类型完全不变，调用方零改动。清理原 T9 死代码，全部对象判空。
+
+### 5. 各 app 加固（app_music.c / app_filemgr.c）
+- music_play_task 创建失败时复位播放状态；filemgr 路径 strcpy→strncpy+显式 \0。
+- app_shell/store/led 审查确认已健壮，未改动。
+
+**验证**：Gh Actions 编译通过 → 按新分区表烧录 COM6 → 全功能测试。待补 CI run id 与测试结果。
+
 ## 硬件规格
-- MCU: ESP32-WROVER-B (4MB Flash + 8MB PSRAM)
+- MCU: ESP32-WROVER-B (**16MB Flash** + 8MB PSRAM)
 - 显示: ST7735 160×128 TFT (横屏 RGB565)
-- 按键: 6键手柄 (UP/DOWN/LEFT/RIGHT/A/B)
-- 存储: MicroSD 卡槽 (SPI模式)
+- 按键: 6键手柄 (UP/DOWN/LEFT/RIGHT/A/B)，UI 针对 5 键(T9 键盘)优化
+- 存储: MicroSD 卡槽 (SPI模式) + 板载 5MB FAT 分区(/flash)
 - 音频: 蜂鸣器 PWM
 - LED: GD32 协处理器 (I2C)
 - 电池: 锂电池 + ADC 检测 (GPIO34)
 - 背光: GPIO0 PWM
 
-## 分区表
+## 分区表（16MB）
 | 分区 | 类型 | 偏移 | 大小 |
 |------|------|------|------|
-| nvs | data | 0xA000 | 20KB |
-| otadata | data | 0xF000 | 8KB |
-| phy_init | data | 0x11000 | 4KB |
-| factory | app | 0x12000 | 568KB |
-| launcher (ota_0) | app | 0xA0000 | 2.17MB |
-| retro_core (ota_1) | app | 0x2C0000 | 1.25MB |
+| nvs | data/nvs | 0x9000 | 24KB |
+| phy_init | data/phy | 0xF000 | 4KB |
+| factory | app/factory | 0x10000 | 1MB |
+| otadata | data/ota | 0x110000 | 8KB |
+| launcher (ota_0) | app/ota_0 | 0x120000 | 4MB |
+| launcher_b (ota_1) | app/ota_1 | 0x520000 | 4MB |
+| retro-core | data/fat | 0x920000 | 5MB |

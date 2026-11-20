@@ -240,6 +240,29 @@ typedef enum {
     STR_FONT_ENGINE_BUILTIN, // 字体引擎: 内置
     STR_MEM_MIN_FREE,        // 内存最低空闲
     STR_MEM_MAX_BLOCK,       // 内存最大连续块
+    // 恢复模式（Recovery）
+    STR_RECOVERY,            // 恢复模式
+    STR_REC_FACTORY_RESET,   // 恢复出厂设置
+    STR_REC_CLEAR_WIFI,      // 清除WiFi凭据
+    STR_REC_OTA_RESTART,     // 重新开始OTA升级
+    STR_REC_SD_FLASH,        // 从SD卡刷机
+    STR_REC_SYS_INFO,        // 查看系统信息
+    STR_REC_REBOOT_MAIN,     // 重启到主系统
+    STR_REC_HINT,            // 操作提示
+    STR_REC_CONFIRM,         // 二次确认提示
+    STR_REC_CANCELED,        // 已取消
+    STR_REC_FACTORY_DONE,    // 设置已清空
+    STR_REC_FAIL,            // 操作失败
+    STR_REC_WIFI_DONE,       // WiFi凭据已清除
+    STR_REC_SD_MOUNTED,      // SD卡已挂载
+    STR_REC_SD_UNMOUNTED,    // SD卡未挂载
+    STR_REC_SD_NOFW,         // 未发现固件
+    STR_REC_SD_FOUND,        // 发现固件
+    STR_REC_OTA_HINT,        // OTA升级提示
+    STR_REC_REBOOTING,       // 正在重启
+    STR_REC_INFO_BOOT,       // 启动分区
+    STR_REC_INFO_PARTS,      // 分区数量
+    STR_REC_INFO_MEM,        // 可用内存
     // 总数
     STR_COUNT
 } str_id_t;

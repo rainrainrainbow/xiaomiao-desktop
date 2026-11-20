@@ -3,7 +3,8 @@
  * @brief 中文字体管理实现 - 使用 LVGL FreeType 引擎从 SD 卡加载字体
  *
  * 使用 LVGL 内置的 FreeType 字体引擎，从 SD 卡加载 TTF/OTF 字体文件，
- * 支持多尺寸中文渲染。不再依赖巨大的内置位图字体（lv_font_xiaomiao_cn_14 约 371KB）。
+ * 支持多尺寸中文渲染。当 FreeType 未初始化/加载失败（如未插 SD 卡、内置模式）时，
+ * 回退到已编入固件的内置精简中文字库 lv_font_xiaomiao_cn_14，确保无 SD 卡也有中文。
  *
  * 字体文件路径：/sdcard/Fonts/NotoSansSC-Regular.otf
  * 备选路径：/flash/Fonts/NotoSansSC-Regular.otf（retro-core 分区）
@@ -23,6 +24,18 @@
 #include <dirent.h>
 
 static const char *TAG = "FONT";
+
+/* 内置精简中文字库（由 lv_font_xiaomiao_cn_14.c 提供，已编入固件，不依赖 SD 卡）。
+ * 符号定义在 LVGL_VERSION_MAJOR >= 8 分支下为 const lv_font_t（本项目 v9.5 符合）。
+ * 内置库仅 14px 一种尺寸，size>14 时返回它并由 LVGL 按需缩放。 */
+extern const lv_font_t lv_font_xiaomiao_cn_14;
+
+/* 返回内置精简中文字库：任何情况下都可用，绝不返回 NULL，
+ * 避免中文变方框或降级为纯英文（Montserrat）。 */
+static const lv_font_t* lv_font_cn_builtin(void)
+{
+    return &lv_font_xiaomiao_cn_14;
+}
 
 /* 字体文件路径 - 支持多种大小写变体
  * 优先使用子集化字体（~260KB，适合 ESP32 资源受限环境），
@@ -244,7 +257,7 @@ lv_result_t lv_freetype_font_init(void)
          * 导致后续调用永远走 "already initialized" WARN 分支。此处主动 uninit
          * 清空残留状态，让后续重试（如用户再次选择字体）真正重新初始化。 */
         lv_freetype_uninit();
-        ESP_LOGE(TAG, "lv_freetype_init failed (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - using built-in Montserrat font",
+        ESP_LOGE(TAG, "lv_freetype_init failed (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - falling back to built-in Chinese font",
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
@@ -280,7 +293,7 @@ lv_result_t lv_freetype_font_init(void)
 
     /* 至少 14px 字体必须成功 */
     if (!s_font_14) {
-        ESP_LOGE(TAG, "Failed to create 14px FreeType font - fallback will use Montserrat");
+        ESP_LOGE(TAG, "Failed to create 14px FreeType font - fallback will use built-in Chinese font");
         lv_freetype_uninit();
         return LV_RESULT_INVALID;
     }
@@ -293,30 +306,40 @@ lv_result_t lv_freetype_font_init(void)
 
 const lv_font_t* lv_font_cn_14(void)
 {
-    return s_font_14 ? s_font_14 : &lv_font_montserrat_14;
+    /* 优先使用已成功加载的 FreeType 14px 字体；
+     * 未就绪（内置模式 / SD 卡缺失 / 加载失败）时回退到内置精简中文字库。
+     * 不再返回纯英文字体 &lv_font_montserrat_14。 */
+    return s_font_14 ? s_font_14 : lv_font_cn_builtin();
 }
 
 const lv_font_t* lv_font_cn_16(void)
 {
     if (s_font_16) return s_font_16;
-    return lv_font_cn_14();
+    return lv_font_cn_14();  /* 逐级回退，最终落到内置中文字库 */
 }
 
 const lv_font_t* lv_font_cn_20(void)
 {
     if (s_font_20) return s_font_20;
-    return lv_font_cn_16();
+    return lv_font_cn_16();  /* 逐级回退，最终落到内置中文字库 */
 }
 
 const lv_font_t* lv_font_cn_get(int size)
 {
-    switch (size) {
-        case 14: return lv_font_cn_14();
-        case 16: return lv_font_cn_16();
-        case 20: return lv_font_cn_20();
-        case 24: return s_font_24 ? s_font_24 : lv_font_cn_20();
-        default: return lv_font_cn_14();
+    /* 优先级：FreeType 引擎已就绪时使用对应尺寸的 FreeType 字体（保留大字体能力）；
+     * 内置模式 / FreeType 未初始化 / 加载失败时统一返回内置精简中文字库。
+     * 内置库只有 14px 一种尺寸：size<=14 直接返回，size>14 时也返回它
+     * （由 LVGL 按需缩放/接受），任何情况下都不返回 NULL。 */
+    if (lv_freetype_font_is_ready()) {
+        switch (size) {
+            case 14: return s_font_14 ? s_font_14 : lv_font_cn_builtin();
+            case 16: return s_font_16 ? s_font_16 : lv_font_cn_14();
+            case 20: return s_font_20 ? s_font_20 : lv_font_cn_16();
+            case 24: return s_font_24 ? s_font_24 : lv_font_cn_20();
+            default: return lv_font_cn_14();
+        }
     }
+    return lv_font_cn_builtin();
 }
 
 bool lv_freetype_font_is_ready(void)
@@ -387,7 +410,7 @@ void lv_freetype_font_deinit(void)
 {
     if (!s_initialized) return;
 
-    /* 清空所有字体句柄，后续 lv_font_cn_*() 将回退到 Montserrat */
+    /* 清空所有字体句柄，后续 lv_font_cn_*() 将回退到内置精简中文字库 */
     s_font_14 = NULL;
     s_font_16 = NULL;
     s_font_20 = NULL;
@@ -397,7 +420,7 @@ void lv_freetype_font_deinit(void)
     /* 关闭 FreeType 引擎（释放所有缓存字形） */
     lv_freetype_uninit();
 
-    ESP_LOGI(TAG, "FreeType font engine deinitialized, UI will use built-in Montserrat");
+    ESP_LOGI(TAG, "FreeType font engine deinitialized, UI will use built-in Chinese font");
 }
 
 /* ========== 从指定路径加载字体 ========== */
@@ -429,7 +452,7 @@ lv_result_t lv_freetype_font_load_path(const char *path)
             /* 与 init() 一致：失败时主动 uninit 清空 ft_ctx 残留，
              * 避免后续调用永久卡在 "already initialized" WARN 分支。 */
             lv_freetype_uninit();
-            ESP_LOGE(TAG, "lv_freetype_init failed (load_path) (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - using built-in Montserrat font",
+            ESP_LOGE(TAG, "lv_freetype_init failed (load_path) (DRAM free=%lu, DRAM max_block=%lu, PSRAM free=%lu, PSRAM max_block=%lu) - falling back to built-in Chinese font",
                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),

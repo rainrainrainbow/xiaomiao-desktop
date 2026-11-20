@@ -306,6 +306,7 @@ static void filemgr_scan_dir(const char *path)
     s_filemgr_sel = 0;
     s_filemgr_scroll = 0;
     strncpy(s_filemgr_current_path, path, FILEMGR_PATH_LEN - 1);
+    s_filemgr_current_path[FILEMGR_PATH_LEN - 1] = '\0';
     DIR *dir = opendir(path);
     if (!dir) {
         ESP_LOGW(TAG, "Cannot open directory: %s", path);
@@ -408,7 +409,8 @@ static bool filemgr_on_key(int key)
             if (last_slash && last_slash != s_filemgr_current_path) {
                 *last_slash = '\0';
             } else {
-                strcpy(s_filemgr_current_path, "/sdcard");
+                strncpy(s_filemgr_current_path, "/sdcard", FILEMGR_PATH_LEN - 1);
+                s_filemgr_current_path[FILEMGR_PATH_LEN - 1] = '\0';
             }
             filemgr_scan_dir(s_filemgr_current_path);
             filemgr_refresh_list();

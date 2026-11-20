@@ -117,6 +117,11 @@ extern const page_callbacks_t g_language_settings_callbacks;
 extern const page_callbacks_t g_ota_callbacks;
 
 /**
+ * 恢复模式页面回调（类安卓 Recovery 的系统维护菜单）
+ */
+extern const page_callbacks_t g_recovery_callbacks;
+
+/**
  * 灯效应用页面回调
  */
 extern const page_callbacks_t g_led_callbacks;

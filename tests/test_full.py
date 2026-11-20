@@ -180,17 +180,33 @@ class Device:
         return matched[0] if matched else None
 
     def wait_ready(self, timeout=90.0, verbose=True):
-        """Poll PING until the command interface answers."""
+        """Poll PING until the command interface answers AND stays stable.
+
+        After a hard reset the command interface comes up before WiFi
+        auto-connect finishes (~12s of retries) and before the UI task settles.
+        Commands sent during that window can be dropped, which previously
+        produced spurious FAILs for PLAY_TONE / DIAG_WIFI_SCAN / RUN_TEST.
+        Require two PONGs several seconds apart before declaring ready.
+        """
         deadline = time.monotonic() + timeout
         attempts = 0
+        first_pong = 0.0
         while time.monotonic() < deadline:
             attempts += 1
             r = self.send_cmd(0, timeout=1.0)
             if r and r.get("msg") == "pong":
-                if verbose:
-                    print(f"  device ready after {attempts} PING(s)")
-                return True
-            time.sleep(0.2)
+                if first_pong == 0.0:
+                    first_pong = time.monotonic()
+                    continue
+                # second consecutive PONG after a short settle window
+                if time.monotonic() - first_pong >= 2.0:
+                    if verbose:
+                        print(f"  device ready after {attempts} PING(s), settled")
+                    self._pump(0.5)
+                    return True
+            else:
+                first_pong = 0.0  # reset stability counter on any miss
+            time.sleep(0.3)
         return False
 
     def wait_test_idle(self, timeout=90.0):
@@ -433,8 +449,15 @@ class Runner:
         cannot navigate the main UI (it feeds the Python-only key queue), so
         this diagnostic command is the only way to cover the scan path.
         """
-        self.dev.clear_log()
-        r = self.dev.send_cmd(13, timeout=8, terminal_status="ok")
+        # Retry once: a just-reset device may drop the first command while the
+        # WiFi auto-connect / UI task is still settling.
+        r = None
+        for attempt in range(2):
+            self.dev.clear_log()
+            r = self.dev.send_cmd(13, timeout=8, terminal_status="ok")
+            if r and r.get("status") == "ok":
+                break
+            time.sleep(1.0)
         if not r or r.get("status") != "ok":
             raise AssertionError(f"cmd13 did not trigger scan: {r}")
         # Scan completes asynchronously (~2-4s) on the system event task.
@@ -460,7 +483,13 @@ class Runner:
         return True, f"scan OK, device survived; {networks}"
 
     def cmd_run_test_and_result(self, item, timeout=90):
-        r = self.dev.send_cmd(2, {"item": item}, timeout=8)
+        # Retry once on a dropped command (device may still be settling).
+        r = None
+        for attempt in range(2):
+            r = self.dev.send_cmd(2, {"item": item}, timeout=8)
+            if r and r.get("status") in ("started", "ok"):
+                break
+            time.sleep(0.5)
         if not r or r.get("status") not in ("started", "ok"):
             raise AssertionError(f"RUN_TEST {item} not started: {r}")
         # Poll GET_RESULT until the item reaches a terminal state instead of

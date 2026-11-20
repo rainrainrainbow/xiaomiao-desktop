@@ -20,6 +20,7 @@ idf_component_register(
         "app/app_settings_datetime.c"
         "app/app_settings_audio.c"
         "app/app_settings_bt.c"
+        "app/app_recovery.c"
         "app/app_list.c"
         # "app/app_editor.c" 已删除（改为MicroPython应用）
         "app/app_store.c"
@@ -47,6 +48,7 @@ idf_component_register(
         "system/sys_nvs.c"
         "system/wifi_debug.c"
         # "return_to_loader.c" 已删除 — 统一使用 components/return_to_loader
+        "fonts/lv_font_xiaomiao_cn_14.c"
         "fonts/lv_freetype_font.c"
         "../ion/display.c"
         "../ion/button.c"

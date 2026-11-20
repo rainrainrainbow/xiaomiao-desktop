@@ -147,13 +147,15 @@ void sys_nvs_save_font_source(int font_source)
 
 int sys_nvs_load_font_source(void)
 {
-    int32_t val = 0;  // 默认 FreeType
+    /* 默认使用内置精简中文字库（1）：新设备/未配置设备无需 SD 卡即可显示中文。
+     * 用户仍可在设置中显式选择 0（FreeType/SD 卡）以使用可切换的大字体。 */
+    int32_t val = 1;  // 默认内置精简中文字库
     if (nvs_get_i32(s_nvs_handle, NVS_KEY_FONT_SOURCE, &val) == ESP_OK) {
         ESP_LOGI(TAG, "Font source loaded: %d", (int)val);
         return (int)val;
     }
-    ESP_LOGI(TAG, "Font source not found, using default (0=FreeType)");
-    return 0;
+    ESP_LOGI(TAG, "Font source not found, using default (1=built-in 内置字库)");
+    return 1;
 }
 
 /* ========== 语言存储 ========== */

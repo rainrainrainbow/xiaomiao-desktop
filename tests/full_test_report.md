@@ -1,13 +1,13 @@
 # XiaoMiao Desktop OS — Full Functional Test Report
 
-- Generated: 2026-11-20 11:09:58
+- Generated: 2026-11-20 12:17:47
 - Port: COM6  Firmware: v71.1
 
 ## Summary
 
 | Total | PASS | FAIL | WARN | SKIP | Pass rate |
 |---:|---:|---:|---:|---:|---:|
-| 42 | 38 | 0 | 2 | 2 | 90.5% |
+| 42 | 37 | 1 | 2 | 2 | 88.1% |
 
 ## Details
 
@@ -33,16 +33,16 @@
 | boot-log | No reboot-loop | PASS | rst: count=0 |
 | boot-log | No stack overflow | PASS | overflow count=0 |
 | boot-log | No UART driver error | PASS | error count=0 |
-| command | cmd0 PING | PASS | id=1012 rtt-ok |
+| command | cmd0 PING | PASS | id=1018 rtt-ok |
 | command | cmd1 GET_INFO | PASS | Xiaomiao Desktop v71.1 screen=160x128 btns=6 leds=3 mpy=True |
 | command | cmd10 LIST_TESTS | PASS | 9 test items listed |
-| command | cmd9 GET_BATTERY | PASS | 3859 mV, 61% |
+| command | cmd9 GET_BATTERY | PASS | 4008 mV, 87% |
 | command | cmd5 SIMULATE_KEY | PASS | 6 keys + long-press injected; invalid key rejected |
 | command | cmd6 SET_LED | PASS | 3 LEDs set R/G/B; invalid index rejected; LEDs off |
 | command | cmd7 SET_BACKLIGHT | PASS | 100/50/10/100% applied; missing param rejected |
 | command | cmd8 PLAY_TONE | PASS | 440Hz + 880Hz tones played; missing param rejected |
 | command | cmd4 EXEC_PYTHON | PASS | ret=0 script executed OK; print_echo=n/a (stdout not routed to console by design) |
-| command | cmd13 DIAG_WIFI_SCAN (crash guard) | PASS | scan OK, device survived; WiFi scan complete: 3 networks found[0m |
+| command | cmd13 DIAG_WIFI_SCAN (crash guard) | PASS | scan OK, device survived; WiFi scan complete: 1 networks found[0m |
 | command | cmd2 RUN_TEST + cmd3 GET_TEST_RESULT | PASS | battery item state=2 score=100 |
 | hardware-item | item0 Buttons (via SIMULATE_KEY) | SKIP | covered by cmd5 SIMULATE_KEY; physical presses need human |
 | hardware-item | item4 Battery | SKIP | covered in command checks |
@@ -51,7 +51,7 @@
 | hardware-item | item6 MicroPython | PASS | score=100 MicroPython runtime ready; xiaomiao framebuffer available |
 | hardware-item | item8 WiFi | PASS | score=90 WiFi stack initialized, debug server running |
 | hardware-item | item2 Audio | PASS | score=100 Test tones played via I2S DAC |
-| hardware-item | item5 Bluetooth | PASS | score=80 Bluetooth A2DP initialized, manual pairing test needed |
+| hardware-item | item5 Bluetooth | FAIL | state=IDLE  |
 | hardware-item | item7 SDCard | WARN | no card inserted (hardware absent) |
 | reset | cmd11 RESET_DEVICE | PASS | ack=True rebooted-and-back=True |
 | reset | cmd12 ENTER_BOOTLOADER | PASS | ack=True rebooted-and-back=True |
