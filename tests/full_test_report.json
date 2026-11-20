@@ -1,0 +1,265 @@
+{
+  "meta": {
+    "port": "COM6",
+    "quick": false,
+    "dry_run": false,
+    "fw_version": "v71.1"
+  },
+  "generated": "2026-11-20 10:09:24",
+  "summary": {
+    "total": 41,
+    "pass": 37,
+    "fail": 0,
+    "warn": 2,
+    "skip": 2,
+    "pass_rate": 90.2
+  },
+  "results": [
+    {
+      "section": "boot-log",
+      "name": "Boot header / firmware version",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Main loop running",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Display ON",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "LVGL initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Framebuffer ready",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Button task created",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Battery ADC initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "RGB LED strip initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "LMD2718 digital mic initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "I2S DAC backend ready",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Bluetooth A2DP Sink initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "MicroPython runtime initialized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Desktop page loaded",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "6 builtin apps registered",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "Test interface ready",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "SD card not inserted",
+      "status": "WARN",
+      "detail": "hardware absent; Chinese font falls back to English"
+    },
+    {
+      "section": "boot-log",
+      "name": "Font fallback (expected w/o SD)",
+      "status": "PASS",
+      "detail": "English UI in use"
+    },
+    {
+      "section": "boot-log",
+      "name": "No reboot-loop",
+      "status": "PASS",
+      "detail": "rst: count=0"
+    },
+    {
+      "section": "boot-log",
+      "name": "No stack overflow",
+      "status": "PASS",
+      "detail": "overflow count=0"
+    },
+    {
+      "section": "boot-log",
+      "name": "No UART driver error",
+      "status": "PASS",
+      "detail": "error count=0"
+    },
+    {
+      "section": "command",
+      "name": "cmd0 PING",
+      "status": "PASS",
+      "detail": "id=1013 rtt-ok"
+    },
+    {
+      "section": "command",
+      "name": "cmd1 GET_INFO",
+      "status": "PASS",
+      "detail": "Xiaomiao Desktop v71.1 screen=160x128 btns=6 leds=3 mpy=True"
+    },
+    {
+      "section": "command",
+      "name": "cmd10 LIST_TESTS",
+      "status": "PASS",
+      "detail": "9 test items listed"
+    },
+    {
+      "section": "command",
+      "name": "cmd9 GET_BATTERY",
+      "status": "PASS",
+      "detail": "4000 mV, 86%"
+    },
+    {
+      "section": "command",
+      "name": "cmd5 SIMULATE_KEY",
+      "status": "PASS",
+      "detail": "6 keys + long-press injected; invalid key rejected"
+    },
+    {
+      "section": "command",
+      "name": "cmd6 SET_LED",
+      "status": "PASS",
+      "detail": "3 LEDs set R/G/B; invalid index rejected; LEDs off"
+    },
+    {
+      "section": "command",
+      "name": "cmd7 SET_BACKLIGHT",
+      "status": "PASS",
+      "detail": "100/50/10/100% applied; missing param rejected"
+    },
+    {
+      "section": "command",
+      "name": "cmd8 PLAY_TONE",
+      "status": "PASS",
+      "detail": "440Hz + 880Hz tones played; missing param rejected"
+    },
+    {
+      "section": "command",
+      "name": "cmd4 EXEC_PYTHON",
+      "status": "PASS",
+      "detail": "ret=0 script executed OK; print_echo=n/a (stdout not routed to console by design)"
+    },
+    {
+      "section": "command",
+      "name": "cmd2 RUN_TEST + cmd3 GET_TEST_RESULT",
+      "status": "PASS",
+      "detail": "battery item state=2 score=100"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item0 Buttons (via SIMULATE_KEY)",
+      "status": "SKIP",
+      "detail": "covered by cmd5 SIMULATE_KEY; physical presses need human"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item4 Battery",
+      "status": "SKIP",
+      "detail": "covered in command checks"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item1 Display",
+      "status": "PASS",
+      "detail": "score=100 Display patterns shown (160x128 RGB565)"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item3 LED",
+      "status": "PASS",
+      "detail": "score=100 RGB LED strip tested (3 LEDs)"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item6 MicroPython",
+      "status": "PASS",
+      "detail": "score=100 MicroPython runtime ready; xiaomiao framebuffer available"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item8 WiFi",
+      "status": "PASS",
+      "detail": "score=90 WiFi stack initialized, debug server running"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item2 Audio",
+      "status": "PASS",
+      "detail": "score=100 Test tones played via I2S DAC"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item5 Bluetooth",
+      "status": "PASS",
+      "detail": "score=80 Bluetooth A2DP initialized, manual pairing test needed"
+    },
+    {
+      "section": "hardware-item",
+      "name": "item7 SDCard",
+      "status": "WARN",
+      "detail": "no card inserted (hardware absent)"
+    },
+    {
+      "section": "reset",
+      "name": "cmd11 RESET_DEVICE",
+      "status": "PASS",
+      "detail": "ack=True rebooted-and-back=True"
+    },
+    {
+      "section": "reset",
+      "name": "cmd12 ENTER_BOOTLOADER",
+      "status": "PASS",
+      "detail": "ack=True rebooted-and-back=True"
+    }
+  ]
+}

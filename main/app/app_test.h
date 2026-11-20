@@ -92,7 +92,11 @@ const test_result_t* app_test_get_result(test_item_t item);
  * 2  - TEST_CMD_RUN_TEST          params: {"item": <test_item_t>} 启动测试
  * 3  - TEST_CMD_GET_TEST_RESULT   params: {"item": <test_item_t>?} 获取结果
  * 4  - TEST_CMD_EXEC_PYTHON       params: {"script": "<python代码>"} 同步执行，
- *                                 直接返回 status=ok|error 与 output/ret/error
+ *                                 直接返回 status=ok|error 与 ret/error。
+ *                                 注意：本板级 MicroPython 未把 print() 路由到
+ *                                 任何 console（应用输出走 framebuffer），故
+ *                                 output 字段通常为空；执行成功以 ret=0 为准，
+ *                                 解释器/模块可用性由 RUN_TEST item6 单独验证。
  * 5  - TEST_CMD_SIMULATE_KEY      params: {"key": 0-5, "long": true/false} 模拟按键
  * 6  - TEST_CMD_SET_LED           params: {"index": 0-2, "r": 0-255, "g": 0-255, "b": 0-255} 设置LED
  * 7  - TEST_CMD_SET_BACKLIGHT     params: {"brightness": 0-100} 设置背光百分比
