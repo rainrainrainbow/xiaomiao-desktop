@@ -15,6 +15,7 @@
 
 #include "app_test.h"
 #include "esp_log.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -77,6 +78,11 @@ static const char *TAG = "APP_TEST";
 #define TEST_UART_TASK_STACK    12288
 #define TEST_TASK_STACK_SIZE    8192
 #define TEST_TASK_PRIORITY      10
+
+/* UART 命令任务长期驻留，12KB 动态栈原本固定占内部 DRAM；
+ * 改为 PSRAM 静态栈，给后续动态任务（tone/test）留出内部 RAM。 */
+EXT_RAM_BSS_ATTR static StackType_t s_test_uart_stack[TEST_UART_TASK_STACK / sizeof(StackType_t)];
+EXT_RAM_BSS_ATTR static StaticTask_t s_test_uart_tcb;
 
 /* ========== 命令类型 ========== */
 typedef enum {
@@ -682,6 +688,8 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                                     (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
             cJSON_AddNumberToObject(info, "heap_internal_min_free_bytes",
                                     (double)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+            cJSON_AddNumberToObject(info, "heap_internal_largest_block",
+                                    (double)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
             cJSON_AddNumberToObject(info, "screen_w", XIAOMIAO_SCREEN_WIDTH);
             cJSON_AddNumberToObject(info, "screen_h", XIAOMIAO_SCREEN_HEIGHT);
             cJSON_AddNumberToObject(info, "buttons", 6);
@@ -1151,9 +1159,15 @@ void app_test_init(void)
     /* 启动 UART 接收任务 */
     /* Higher priority than the UI/button tasks so command responses are not
      * starved during the busy boot period (WiFi retries + BT A2DP init). */
-    xTaskCreate(test_uart_task, "test_uart", TEST_UART_TASK_STACK, NULL, 20, NULL);
-    
-    ESP_LOGI(TAG, "Test interface ready on USB CDC (UART0)");
+    TaskHandle_t uart_task_handle = xTaskCreateStatic(
+        test_uart_task, "test_uart", TEST_UART_TASK_STACK / sizeof(StackType_t),
+        NULL, 20, s_test_uart_stack, &s_test_uart_tcb);
+    if (!uart_task_handle) {
+        ESP_LOGE(TAG, "xTaskCreateStatic failed for test_uart");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Test interface ready on USB CDC (UART0), stack in PSRAM");
 }
 
 bool app_test_is_running(void)

@@ -27,6 +27,7 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -851,8 +852,13 @@ static bool recents_page_on_key(int key)
  * 在真机上可能因 PSRAM 碎片化或配置问题回退到 DRAM，导致 64KB 栈在 DRAM 中不稳定。
  * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
  */
-#define UI_TASK_STACK_SIZE   (32 * 1024)   // 32KB 栈，优先从 PSRAM 分配（64KB在真机上分配失败）
-/* (UI_TASK_STACK_DRAM, s_ui_task_tcb, s_ui_task_stack removed - no longer needed) */
+#define UI_TASK_STACK_SIZE   (32 * 1024)
+/* UI 任务栈固定放 PSRAM。原先用 xTaskCreate，IDF v5.3 中动态任务栈仍固定
+ * 从内部 DRAM 分配（相关 FreeRTOS_* PSRAM 配置在 v5.3 已不存在），
+ * 32KB 内部 RAM 被长期占用，导致 PLAY_TONE 等后续任务创建偶发失败。
+ * EXT_RAM_BSS_ATTR + xTaskCreateStatic 是 IDF 官方支持的 PSRAM 栈路径。 */
+EXT_RAM_BSS_ATTR static StackType_t s_ui_task_stack[UI_TASK_STACK_SIZE / sizeof(StackType_t)];
+EXT_RAM_BSS_ATTR static StaticTask_t s_ui_task_tcb;
 
 static void ui_init_task(void *arg)
 {
@@ -1077,20 +1083,16 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务（使用 xTaskCreate，FreeRTOS 自动从 PSRAM 分配栈）
-    // CONFIG_FREERTOS_TASK_STACK_ALLOCATION_FROM_SPIRAM_FIRST=y 时：
-    // 1. FreeRTOS 自动优先从 PSRAM 分配栈（64KB）
-    // 2. 如果 PSRAM 分配失败，自动回退到内部 DRAM
-    // 3. 任务完成后保持空闲循环，避免栈被释放
-    TaskHandle_t ui_task_handle = NULL;
-    BaseType_t ret = xTaskCreate(
+    // 创建 UI 初始化任务：静态栈已由 EXT_RAM_BSS_ATTR 放入 PSRAM，
+    // 不再占用 32KB 内部 DRAM，也避免动态任务栈分配偶发失败。
+    TaskHandle_t ui_task_handle = xTaskCreateStatic(
         ui_init_task, "ui_init", UI_TASK_STACK_SIZE / sizeof(StackType_t),
-        NULL, 5, &ui_task_handle);
-    if (ret == pdPASS) {
-        ESP_LOGI(TAG, "ui_init_task created via xTaskCreate (stack_size=%d)", 
-                 UI_TASK_STACK_SIZE);
+        NULL, 5, s_ui_task_stack, &s_ui_task_tcb);
+    if (ui_task_handle) {
+        ESP_LOGI(TAG, "ui_init_task created with PSRAM static stack (size=%d, stack=%p)",
+                 UI_TASK_STACK_SIZE, (void *)s_ui_task_stack);
     } else {
-        ESP_LOGE(TAG, "xTaskCreate failed for ui_init_task (ret=%d)", ret);
+        ESP_LOGE(TAG, "xTaskCreateStatic failed for ui_init_task");
     }
     
     /* 等待 ui_init_task 完成全部 LVGL 对象构建后才进入主循环。
