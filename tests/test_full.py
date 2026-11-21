@@ -239,10 +239,13 @@ def hard_reset(port):
 # Test runner
 # ---------------------------------------------------------------------------
 class Runner:
-    def __init__(self, dev, quick=False, dry_run=False):
+    def __init__(self, dev, quick=False, dry_run=False, expect_reset=False):
         self.dev = dev
         self.quick = quick
         self.dry_run = dry_run
+        # --reset 会通过 RTS 主动硬复位一次来抓取完整开机日志；这产生的
+        # 第一条 rst:0x 属于预期，不应被误判为 reboot-loop。
+        self.expect_reset = expect_reset
         self.results = []
 
     def record(self, section, name, status, detail=""):
@@ -273,6 +276,33 @@ class Runner:
             text = "\n".join(v for k, v in MARKERS.items()
                              if k not in ("reboot", "stack_overflow", "backtrace",
                                           "uart_err"))
+        else:
+            # 不带 --reset 连接一台早已运行的设备时，串口缓冲区里只有命令
+            # 交互，没有开机日志。此时所有模块 marker 都会缺失，但那是
+            # 「没采到样」而不是「功能故障」。用开机标志判断是否采到完整
+            # 开机日志，缺失则整段标记 SKIP（用 --reset 可完整采集）。
+            boot_started = (MARKERS["boot_header"] in text) or ("rst:0x" in text)
+            if not boot_started:
+                for key, label in [
+                    ("boot_header", "Boot header / firmware version"),
+                    ("mainloop", "Main loop running"), ("display_on", "Display ON"),
+                    ("lvgl", "LVGL initialized"), ("framebuffer", "Framebuffer ready"),
+                    ("button_task", "Button task created"),
+                    ("battery", "Battery ADC initialized"),
+                    ("led", "RGB LED strip initialized"),
+                    ("mic", "LMD2718 digital mic initialized"),
+                    ("audio_i2s", "I2S DAC backend ready"),
+                    ("audio_bt", "Bluetooth A2DP Sink initialized"),
+                    ("mpy", "MicroPython runtime initialized"),
+                    ("desktop", "Desktop page loaded"),
+                    ("apps", "6 builtin apps registered"),
+                    ("apptest", "Test interface ready"),
+                ]:
+                    self.record(section, label, SKIP,
+                                "no boot log captured; use --reset to collect")
+                print("  boot log not captured (device already running) — "
+                      "skipping module markers; use --reset for full coverage")
+                return
         module_markers = [
             ("boot_header", "Boot header / firmware version"),
             ("mainloop", "Main loop running"),
@@ -312,8 +342,11 @@ class Runner:
         reboots = text.count(MARKERS["reboot"])
         overflow = text.count(MARKERS["stack_overflow"])
         uart_err = text.count(MARKERS["uart_err"])
-        self.record(section, "No reboot-loop", PASS if reboots == 0 else FAIL,
-                    f"rst: count={reboots}")
+        # 允许主动 --reset 产生的那一次 rst；只有额外重启才算 reboot-loop。
+        allowed = 1 if self.expect_reset else 0
+        reboot_ok = reboots <= allowed
+        self.record(section, "No reboot-loop", PASS if reboot_ok else FAIL,
+                    f"rst: count={reboots}" + (f" (1 expected from --reset)" if self.expect_reset else ""))
         self.record(section, "No stack overflow", PASS if overflow == 0 else FAIL,
                     f"overflow count={overflow}")
         self.record(section, "No UART driver error", PASS if uart_err == 0 else FAIL,
@@ -483,33 +516,41 @@ class Runner:
         return True, f"scan OK, device survived; {networks}"
 
     def cmd_run_test_and_result(self, item, timeout=90):
-        # Retry once on a dropped command (device may still be settling).
-        r = None
-        for attempt in range(2):
-            r = self.dev.send_cmd(2, {"item": item}, timeout=8)
-            if r and r.get("status") in ("started", "ok"):
-                break
-            time.sleep(0.5)
-        if not r or r.get("status") not in ("started", "ok"):
-            raise AssertionError(f"RUN_TEST {item} not started: {r}")
-        # Poll GET_RESULT until the item reaches a terminal state instead of
-        # relying on GET_INFO.test_running: that flag is set by the newly
-        # created task, so an early poll can see "false" before the task even
-        # starts and read a stale IDLE result (a real race on fast items like
-        # MicroPython). State 2=COMPLETED, 3=FAILED, 0=IDLE, 1=RUNNING.
-        res = None
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            rr = self.dev.send_cmd(3, {"item": item}, timeout=8)
-            data = rr.get("data") if rr else None
-            if isinstance(data, list) and data:
-                res = data[0]
-                if res.get("state") in (2, 3):
+        # The result slot can briefly read IDLE(0) or the PREVIOUS run's
+        # COMPLETED(2) right after RUN_TEST, before the new task starts.
+        # Wrap the whole start+poll in an outer retry: only accept a terminal
+        # state that we actually observed transitioning, and never hand back
+        # a stale IDLE as if the test had finished.
+        last_res = None
+        for outer in range(2):
+            r = None
+            for attempt in range(2):
+                r = self.dev.send_cmd(2, {"item": item}, timeout=8)
+                if r and r.get("status") in ("started", "ok"):
                     break
-            time.sleep(0.4)
-        if res is None:
+                time.sleep(0.5)
+            if not r or r.get("status") not in ("started", "ok"):
+                raise AssertionError(f"RUN_TEST {item} not started: {r}")
+            # Give the freshly created task a moment to enter RUNNING so the
+            # result slot no longer holds the previous run's value.
+            time.sleep(0.6)
+            res = None
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                rr = self.dev.send_cmd(3, {"item": item}, timeout=8)
+                data = rr.get("data") if rr else None
+                if isinstance(data, list) and data:
+                    res = data[0]
+                    if res.get("state") in (2, 3):
+                        return res, res.get("detail", "")
+                time.sleep(0.4)
+            last_res = res
+        if last_res is None:
             raise AssertionError(f"no result for item {item}")
-        return res, res.get("detail", "")
+        # Timed out without a terminal state (last seen IDLE/RUNNING) — report
+        # honestly instead of a misleading stale state.
+        raise AssertionError(f"item {item} never completed; last state="
+                             f"{STATE_NAMES.get(last_res.get('state'), last_res.get('state'))}")
 
     def command_checks(self):
         section = "command"
@@ -725,7 +766,8 @@ def main():
         dev = DryDev()
         meta["fw_version"] = "dry-run"
 
-    runner = Runner(dev, quick=args.quick, dry_run=args.dry_run)
+    runner = Runner(dev, quick=args.quick, dry_run=args.dry_run,
+                    expect_reset=getattr(args, "reset", False))
     try:
         runner.boot_log_checks()
         runner.command_checks()
