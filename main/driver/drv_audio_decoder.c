@@ -214,13 +214,12 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
         ESP_LOGE(TAG, "MP3 first frame invalid (hz=%d ch=%d samples=%d)", info.hz, info.channels, samples);
         return ESP_FAIL;
     }
-    /* 复位解码器状态，从头正式播放 */
-    mp3dec_init(dec);
-    d->mp3_offset = info.frame_bytes > 0 ? info.frame_bytes : 0;
-    /* 首帧已解码结果缓存，避免丢失 */
-    d->mp3_pcm_valid = (size_t)samples * info.channels;
-    d->mp3_pcm_pos = 0;
-
+    /* 【关键修复】首帧仅用于探测 format，不能把解码器复位后跳过它。
+     * MP3 Layer3 使用 bit reservoir，后续帧解码依赖前帧的 reservoir 状态；
+     * 原实现首次 decode 后 mp3dec_init() 复位并把 offset 设为 frame_bytes，
+     * 导致第二帧起 reservoir 丢失，PCM 逐帧错误 → 播放电流声/噪声。
+     * 正确做法：保存首帧解析出的 format，然后重新 init，从 offset=0
+     * 开始标准流式解码，每帧的 reservoir 都由解码器连续维护。 */
     d->format.format_tag = 0;
     d->format.channels = (uint16_t)info.channels;
     d->format.sample_rate = (uint32_t)info.hz;
@@ -233,6 +232,14 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
         d->format.duration_ms = (uint32_t)((uint64_t)d->mp3_file_size * 8 / info.bitrate_kbps);
     else
         d->format.duration_ms = 0;
+
+    /* 复位解码器，从文件头第 0 帧开始正式流式解码（丢弃用于探测的那一帧）。
+     * 首帧多为 Xing/静音帧，丢弃不影响听感；关键是让 reservoir 从第一帧
+     * 连续累积，后续每帧才能正确还原。 */
+    mp3dec_init(dec);
+    d->mp3_offset = 0;
+    d->mp3_pcm_valid = 0;
+    d->mp3_pcm_pos = 0;
 
     ESP_LOGI(TAG, "MP3 opened: %lu Hz, %d ch, %d kbps, %u bytes, ~%lu ms",
              (unsigned long)info.hz, info.channels, info.bitrate_kbps,
@@ -365,13 +372,21 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
     else
         return ESP_ERR_INVALID_STATE;
 
-    /* 诊断探针：仅记录首次成功读取的前 16 个样本，避免后续帧覆盖。
+    /* 诊断探针：记录首个"非静音"样本块的前 16 个样本。
+     * MP3 开头常有 Xing/encoder delay 静音帧（全 0），需跳过才能取到真实音频，
      * 用于通过 UART 对比实机解码 PCM 与离线 ffmpeg 结果是否一致。 */
-    if (decoder->probe_count == 0 && *bytes_read >= 2) {
-        size_t n = *bytes_read / 2;
-        if (n > 16) n = 16;
-        memcpy(decoder->probe, buffer, n * sizeof(int16_t));
-        decoder->probe_count = n;
+    if (decoder->probe_count == 0 && *bytes_read >= 32) {
+        const int16_t *src = (const int16_t *)buffer;
+        bool has_signal = false;
+        size_t avail = *bytes_read / 2;
+        for (size_t i = 0; i < avail; i++) {
+            if (src[i] != 0 && src[i] != -32768) { has_signal = true; break; }
+        }
+        if (has_signal) {
+            size_t n = avail < 16 ? avail : 16;
+            memcpy(decoder->probe, src, n * sizeof(int16_t));
+            decoder->probe_count = n;
+        }
     }
     return ret;
 }
