@@ -27,6 +27,11 @@ typedef struct
 } mp3dec_t;
 
 void mp3dec_init(mp3dec_t *dec);
+/* ESP32 诊断：返回解码常量表的运行时实际读数。
+ * out[0]=g_pow43[17]*1000 (期望 1000)，out[1]=g_win[0] (期望 -1)，
+ * out[2]=g_mdct_window[0][0]*1e6 (期望 999048)，out[3]=tabs[32] (期望 785)。
+ * 全部为 0/异常值说明常量表所在 PSRAM rodata 未被正确读取。 */
+void mp3dec_table_probe(int out[4]);
 #ifndef MINIMP3_FLOAT_OUTPUT
 typedef int16_t mp3d_sample_t;
 #else /* MINIMP3_FLOAT_OUTPUT */
@@ -54,6 +59,16 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
 #define MAX_L3_FRAME_PAYLOAD_BYTES  MAX_FREE_FORMAT_FRAME_SIZE /* MUST be >= 320000/8/32000*1152 = 1440 */
 
 #define MAX_BITRESERVOIR_BYTES      511
+
+/* ---- ESP32 诊断：解码常量表运行时读数探针 ----
+ * CONFIG_SPIRAM_RODATA=y 会把 static const 大表放进 PSRAM。若表未被正确映射，
+ * Huffman/反量化/合成会解出全 0（表现为 MP3 电流声/静音）。下面三个指针在
+ * 对应函数首次执行时指向真实表，mp3dec_table_probe() 用 volatile 读取，
+ * 避免编译器把常量折叠掉，从而能验证“运行时实际读到的值”。 */
+static const int16_t *s_probe_tabs = NULL;       /* L3_huffman 码本 */
+static const float (*s_probe_mdct)[18] = NULL;   /* L3_imdct_gr 窗 */
+static const float *s_probe_win = NULL;          /* mp3d_synth 合成窗 */
+
 #define SHORT_BLOCK_TYPE            2
 #define STOP_BLOCK_TYPE             3
 #define MODE_MONO                   3
@@ -785,6 +800,7 @@ static void L3_huffman(float *dst, bs_t *bs, const L3_gr_info_t *gr_info, const 
     static const uint8_t tab33[] = { 252,236,220,204,188,172,156,140,124,108,92,76,60,44,28,12 };
     static const int16_t tabindex[2*16] = { 0,32,64,98,0,132,180,218,292,364,426,538,648,746,0,1126,1460,1460,1460,1460,1460,1460,1460,1460,1842,1842,1842,1842,1842,1842,1842,1842 };
     static const uint8_t g_linbits[] =  { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,2,3,4,6,8,10,13,4,5,6,7,8,9,11,13 };
+    s_probe_tabs = tabs;   /* ESP32 诊断：运行时实测码本是否可读 */
 
 #define PEEK_BITS(n)  (bs_cache >> (32 - n))
 #define FLUSH_BITS(n) { bs_cache <<= (n); bs_sh += (n); }
@@ -1222,6 +1238,7 @@ static void L3_imdct_gr(float *grbuf, float *overlap, unsigned block_type, unsig
         { 0.99904822f,0.99144486f,0.97629601f,0.95371695f,0.92387953f,0.88701083f,0.84339145f,0.79335334f,0.73727734f,0.04361938f,0.13052619f,0.21643961f,0.30070580f,0.38268343f,0.46174861f,0.53729961f,0.60876143f,0.67559021f },
         { 1,1,1,1,1,1,0.99144486f,0.92387953f,0.79335334f,0,0,0,0,0,0,0.13052619f,0.38268343f,0.60876143f }
     };
+    s_probe_mdct = g_mdct_window;   /* ESP32 诊断 */
     if (n_long_bands)
     {
         L3_imdct36(grbuf, overlap, g_mdct_window[0], n_long_bands);
@@ -1524,6 +1541,7 @@ static void mp3d_synth(float *xl, mp3d_sample_t *dstl, int nch, float *lins)
     };
     float *zlin = lins + 15*64;
     const float *w = g_win;
+    s_probe_win = g_win;            /* ESP32 诊断 */
 
     zlin[4*15]     = xl[18*16];
     zlin[4*15 + 1] = xr[18*16];
@@ -1786,6 +1804,16 @@ static int mp3d_find_frame(const uint8_t *mp3, int mp3_bytes, int *free_format_b
 void mp3dec_init(mp3dec_t *dec)
 {
     dec->header[0] = 0;
+}
+
+void mp3dec_table_probe(int out[4])
+{
+    volatile const float *p43 = g_pow43;
+    volatile const float *pmd = s_probe_mdct ? (const float *)s_probe_mdct : NULL;
+    out[0] = (int)(p43[17] * 1000.0f);                       /* 期望 1000 */
+    out[1] = s_probe_win ? (int)s_probe_win[0] : -999;       /* 期望 -1 */
+    out[2] = pmd ? (int)(pmd[0] * 1000000.0f) : -999;        /* 期望 999048 */
+    out[3] = s_probe_tabs ? (int)s_probe_tabs[32] : -999;    /* 期望 785 */
 }
 
 /**

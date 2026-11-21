@@ -528,6 +528,11 @@ bool wav_decoder_is_wav_file(const char *filepath)
     return ok;
 }
 
+void audio_decoder_get_mp3_table_probe(int out[4])
+{
+    if (out) mp3dec_table_probe(out);
+}
+
 bool audio_decoder_is_supported(const char *filepath)
 {
     if (!filepath) return false;

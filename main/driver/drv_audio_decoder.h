@@ -171,6 +171,12 @@ bool wav_decoder_is_wav_file(const char *filepath);
  */
 bool audio_decoder_is_supported(const char *filepath);
 
+/**
+ * @brief 诊断 minimp3 常量表运行时读数（ESP32 PSRAM rodata 排查）
+ * @param out 4 个整数：期望 [1000, -1, 999048, 785]
+ */
+void audio_decoder_get_mp3_table_probe(int out[4]);
+
 #ifdef __cplusplus
 }
 #endif

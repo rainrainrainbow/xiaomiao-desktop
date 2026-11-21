@@ -1104,6 +1104,9 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             for (int i = 0; i < st.probe_count; i++)
                 cJSON_AddItemToArray(probe, cJSON_CreateNumber(st.probe[i]));
             cJSON_AddItemToObject(data, "pcm_probe", probe);
+            cJSON *tp = cJSON_CreateArray();
+            for (int i = 0; i < 4; i++) cJSON_AddItemToArray(tp, cJSON_CreateNumber(st.table_probe[i]));
+            cJSON_AddItemToObject(data, "table_probe", tp);
             cJSON_AddItemToObject(response, "data", data);
             break;
         }
