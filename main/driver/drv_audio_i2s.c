@@ -148,7 +148,8 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         .auto_clear = true,
     };
 
-    esp_err_t ret = i2s_new_channel(&chan_cfg, NULL, &s_i2s_tx_handle);
+    /* IDF v5.3 参数顺序为 (tx_handle, rx_handle)，不是 (rx, tx) */
+    esp_err_t ret = i2s_new_channel(&chan_cfg, &s_i2s_tx_handle, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(ret));
         return ret;

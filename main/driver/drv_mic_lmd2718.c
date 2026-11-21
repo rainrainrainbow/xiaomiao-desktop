@@ -49,7 +49,8 @@ esp_err_t drv_mic_init(void)
         .auto_clear = true,
     };
 
-    esp_err_t ret = i2s_new_channel(&chan_cfg, &s_mic_rx_handle, NULL);
+    /* IDF v5.3 参数顺序为 (tx_handle, rx_handle)，RX 通道必须放第三个参数 */
+    esp_err_t ret = i2s_new_channel(&chan_cfg, NULL, &s_mic_rx_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(ret));
         return ret;
