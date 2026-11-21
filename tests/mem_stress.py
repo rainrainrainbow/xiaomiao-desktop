@@ -41,6 +41,7 @@ from test_full import Device  # noqa: E402
 HEAP_KEYS = (
     # 新版固件 (commit 8996dec1+) GET_INFO 真实字段名，优先采样内部 DRAM（最易耗尽）
     "heap_internal_free",
+    "heap_internal_min_free_bytes",
     "heap_free_bytes",
     "psram_free_bytes",
     "heap_min_free_bytes",

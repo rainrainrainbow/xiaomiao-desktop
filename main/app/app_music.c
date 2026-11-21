@@ -239,7 +239,13 @@ static void music_play_task(void *arg)
     }
 
     /* 解码缓冲区（16位PCM样本） */
-    int16_t *decode_buf = heap_caps_malloc(DECODE_BUF_SIZE * sizeof(int16_t), MALLOC_CAP_8BIT);
+    /* 解码 PCM 缓冲通过 audio_output_write 送入 I2S，源数据可驻留 PSRAM；
+       I2S DMA 描述符与硬件缓冲仍由驱动固定在内部 RAM。 */
+    int16_t *decode_buf = heap_caps_malloc(DECODE_BUF_SIZE * sizeof(int16_t),
+                                           MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!decode_buf) {
+        decode_buf = heap_caps_malloc(DECODE_BUF_SIZE * sizeof(int16_t), MALLOC_CAP_8BIT);
+    }
     if (!decode_buf) {
         ESP_LOGE(TAG, "Failed to allocate decode buffer");
         audio_output_stop();

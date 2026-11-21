@@ -646,7 +646,11 @@ static char* read_file_to_heap(const char *path)
         return NULL;
     }
     
-    char *buf = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
+    /* 文件源码缓存只在任务上下文读取，放 PSRAM，避免占用紧张的内部 DRAM */
+    char *buf = heap_caps_malloc(size + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) {
+        buf = heap_caps_malloc(size + 1, MALLOC_CAP_8BIT);
+    }
     if (!buf) {
         fclose(f);
         return NULL;
