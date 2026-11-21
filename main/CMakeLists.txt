@@ -6,6 +6,7 @@ idf_component_register(
         "ui/ui_keyboard.c"
         "ui/event_bus.c"
         "app/app_manager.c"
+        "app/app_sys_api.c"
         "app/app_builtin.c"
         "app/app_settings.c"
         "app/app_settings_wifi.c"
