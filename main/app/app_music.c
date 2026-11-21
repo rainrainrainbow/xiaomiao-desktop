@@ -414,12 +414,10 @@ static void music_start_playback(int idx)
         lrc_parser_load(&s_lrc, lrc_base);
     }
 
-    /* MP3 解码（minimp3）单次调用栈帧含 grbuf/syn/maindata 等大数组，
-     * 实测 mp3dec_scratch_t 约 16KB，加调用链需 ~18KB。
-     * 栈必须留在内部 RAM（flash cache disabled 时不能访问 PSRAM）。
-     * 这里用 20KB：既能容纳解码栈帧，又能在 PLAY_TONE/WiFi 之后
-     * 内部最大连续块降到 ~23KB 时仍成功分配（原 24KB 会 xTaskCreate 失败）。 */
-    #define MUSIC_PLAY_TASK_STACK 20480
+    /* MP3 解码 scratch（~16KB）已通过 MINIMP3_PSRAM_SCRATCH 移到 PSRAM，
+     * 不再占用任务栈。播放任务自身只需容纳普通调用链，8KB 足够。
+     * 栈仍在内部 RAM（flash cache disabled 时需可访问）。 */
+    #define MUSIC_PLAY_TASK_STACK 8192
     BaseType_t rt = xTaskCreate(music_play_task, "music_play", MUSIC_PLAY_TASK_STACK,
                                 (void*)(intptr_t)idx, 5, &s_play_task);
     if (rt != pdPASS) {

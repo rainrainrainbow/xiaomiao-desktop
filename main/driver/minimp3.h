@@ -1799,12 +1799,30 @@ void mp3dec_init(mp3dec_t *dec)
  *             number of consumed (or skippable) bytes, even when 0 is returned
  * @return number of PCM samples per channel, or 0 on error/EOF
  */
+/* ESP32 适配：mp3dec_scratch_t 约 16KB，作为函数局部栈变量会撑爆
+ * FreeRTOS 任务栈（尤其 L3_decode 深层调用链还需数 KB），栈溢出会静默踩坏
+ * 解码数据，表现为解码输出近零/电流声。改为从 PSRAM 懒分配一次并复用。
+ * 全工程只有单一解码器实例、播放任务串行解码，静态指针安全。 */
+#ifdef MINIMP3_PSRAM_SCRATCH
+#include "esp_heap_caps.h"
+static mp3dec_scratch_t *s_mp3_scratch = NULL;
+#endif
+
 int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_sample_t *pcm, mp3dec_frame_info_t *info)
 {
     int i = 0, igr, frame_size = 0, success = 1;
     const uint8_t *hdr;
     bs_t bs_frame[1];
+#ifdef MINIMP3_PSRAM_SCRATCH
+    if (!s_mp3_scratch) {
+        s_mp3_scratch = (mp3dec_scratch_t *)heap_caps_malloc(sizeof(mp3dec_scratch_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_mp3_scratch) { info->frame_bytes = 0; return 0; }
+    }
+    mp3dec_scratch_t *scratch_p = s_mp3_scratch;
+    #define scratch (*scratch_p)   /* 保留下方 scratch.xxx 语法不变 */
+#else
     mp3dec_scratch_t scratch;
+#endif
     memset(scratch.ist_pos, 0, sizeof(scratch.ist_pos)); /* avoid use-of-uninitialized-value (scfsi reuse) */
 
     if (mp3_bytes > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, mp3))
@@ -1893,6 +1911,9 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
 #endif /* MINIMP3_ONLY_MP3 */
     }
     return success*hdr_frame_samples(dec->header);
+#ifdef MINIMP3_PSRAM_SCRATCH
+    #undef scratch
+#endif
 }
 
 #ifdef MINIMP3_FLOAT_OUTPUT

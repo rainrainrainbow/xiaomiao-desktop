@@ -18,6 +18,9 @@
 /* minimp3 公共领域单头文件解码器；仅本翻译单元实例化实现 */
 #define MINIMP3_IMPLEMENTATION
 #define MINIMP3_ONLY_MP3
+/* ESP32: 把 ~16KB 解码 scratch 从任务栈移到 PSRAM，避免栈溢出静默踩坏 PCM
+ * （曾导致解码输出近零、播放电流声）。scratch 在 mp3dec_decode_frame 内懒分配一次复用。 */
+#define MINIMP3_PSRAM_SCRATCH
 #include "minimp3.h"
 
 static const char *TAG = "AUDIO_DEC";
