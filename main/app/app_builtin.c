@@ -127,14 +127,17 @@ const page_callbacks_t* app_builtin_get_callbacks(const char *app_name)
     return NULL;
 }
 
-/* 桌面"应用"图标点击时，直接进入设置中的应用管理二级页面 */
+/* 桌面"应用"图标点击时，进入应用管理页面 */
 void app_launch_app_manager(void)
 {
-    // 先推入设置页面，再推入应用管理页面
-    // 这样用户按 B 会先回到设置，再回到桌面
-    const page_callbacks_t *settings_cbs = app_builtin_get_callbacks("设置");
-    if (settings_cbs) {
-        ui_stack_push(PAGE_APP_PLACEHOLDER, settings_cbs, NULL);
-    }
+    /* 只推入应用管理页，不再前置推入设置页。
+     * 原先连续两次 ui_stack_push：第一次 settings_init() 对当前 screen 做
+     * lv_obj_clean 并创建 ~20 个 label，第二次 applist_init() 立刻再次
+     * lv_obj_clean 销毁这批刚创建的对象。LVGL 9.6 在删除对象时遍历全局事件栈
+     * （lv_event_mark_deleted），连续 clean 会命中 use-after-free，实机复现为
+     * LoadProhibited 硬重启（崩溃栈：lv_obj_clean→lv_obj_destruct→
+     * lv_event_mark_deleted）。
+     * applist_init 自带完整 UI（状态栏/列表/dock），按 B 由 ui_stack_pop 正常
+     * 返回桌面，无需借道设置页。 */
     ui_stack_push(PAGE_APP_PLACEHOLDER, &g_applist_callbacks, NULL);
 }
