@@ -27,7 +27,6 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
-#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -853,13 +852,9 @@ static bool recents_page_on_key(int key)
  * 因此采用手动分配方式，确保栈从 PSRAM 分配且检查分配成功。
  */
 #define UI_TASK_STACK_SIZE   (32 * 1024)
-/* UI 任务栈固定放 PSRAM。原先用 xTaskCreate，IDF v5.3 中动态任务栈仍固定
- * 从内部 DRAM 分配（相关 FreeRTOS_* PSRAM 配置在 v5.3 已不存在），
- * 32KB 内部 RAM 被长期占用，导致 PLAY_TONE 等后续任务创建偶发失败。
- * EXT_RAM_BSS_ATTR + xTaskCreateStatic 是 IDF 官方支持的 PSRAM 栈路径。 */
-EXT_RAM_BSS_ATTR static StackType_t s_ui_task_stack[UI_TASK_STACK_SIZE / sizeof(StackType_t)];
-/* TCB 必须留在内部 RAM：IDF v5.3 的 xPortCheckValidTCBMem 会拒绝 PSRAM 中的 TCB */
-static StaticTask_t s_ui_task_tcb;
+/* UI 任务内部会挂载 retro-core FAT 分区并执行 Flash 写操作；Flash 操作期间
+ * cache 被禁用，IDF 会断言 esp_task_stack_is_sane_cache_disabled()，
+ * 因此该任务栈必须留在内部 RAM，不能迁移到 PSRAM。 */
 
 static void ui_init_task(void *arg)
 {
@@ -1084,16 +1079,15 @@ void app_main(void)
     
     ESP_LOGI(TAG, "LVGL initialized, starting UI task...");
     
-    // 创建 UI 初始化任务：静态栈已由 EXT_RAM_BSS_ATTR 放入 PSRAM，
-    // 不再占用 32KB 内部 DRAM，也避免动态任务栈分配偶发失败。
-    TaskHandle_t ui_task_handle = xTaskCreateStatic(
+    // UI 任务涉及 Flash 挂载，栈必须在内部 RAM（见上方说明）。
+    TaskHandle_t ui_task_handle = NULL;
+    BaseType_t ret = xTaskCreate(
         ui_init_task, "ui_init", UI_TASK_STACK_SIZE / sizeof(StackType_t),
-        NULL, 5, s_ui_task_stack, &s_ui_task_tcb);
-    if (ui_task_handle) {
-        ESP_LOGI(TAG, "ui_init_task created with PSRAM static stack (size=%d, stack=%p)",
-                 UI_TASK_STACK_SIZE, (void *)s_ui_task_stack);
+        NULL, 5, &ui_task_handle);
+    if (ret == pdPASS) {
+        ESP_LOGI(TAG, "ui_init_task created with internal stack (size=%d)", UI_TASK_STACK_SIZE);
     } else {
-        ESP_LOGE(TAG, "xTaskCreateStatic failed for ui_init_task");
+        ESP_LOGE(TAG, "xTaskCreate failed for ui_init_task (ret=%d)", ret);
     }
     
     /* 等待 ui_init_task 完成全部 LVGL 对象构建后才进入主循环。
