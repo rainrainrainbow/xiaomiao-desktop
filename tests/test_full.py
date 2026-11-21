@@ -515,6 +515,68 @@ class Runner:
                 break
         return True, f"scan OK, device survived; {networks}"
 
+    def cmd_file_io_stat_music(self):
+        """cmd14: verify the test MP3 really landed in the internal 5MB FAT."""
+        if self.dry_run:
+            return True, "dry-run"
+        r = self.dev.send_cmd(14, {"op": "stat",
+                                   "path": "/flash/music/renshijian.mp3"}, timeout=10)
+        if not r or r.get("status") != "ok":
+            raise AssertionError(f"cmd14 stat failed: {r}")
+        size = int(r.get("size", 0))
+        if size != 480487:
+            raise AssertionError(f"unexpected mp3 size: {size} (expected 480487)")
+        return True, f"/flash/music/renshijian.mp3 size={size}"
+
+    def cmd_music_mp3_playback(self):
+        """cmd15/16: rescan /flash/music, decode MP3 via minimp3, then stop."""
+        if self.dry_run:
+            return True, "dry-run"
+        # op=1 rescan directory in the music app's internal-RAM control task
+        r = self.dev.send_cmd(16, {"op": 1, "index": 0}, timeout=10)
+        if not r or r.get("status") != "ok":
+            raise AssertionError(f"cmd16 rescan failed: {r}")
+        time.sleep(1.0)
+        st = self.dev.send_cmd(15, timeout=8)
+        if not st or st.get("status") != "ok":
+            raise AssertionError(f"cmd15 status failed: {st}")
+        data = st.get("data") or {}
+        if data.get("count", 0) < 1 or data.get("dir") != "/flash/music":
+            raise AssertionError(f"music app did not see /flash/music: {data}")
+
+        # op=2 play index 0 (renshijian.mp3)
+        r = self.dev.send_cmd(16, {"op": 2, "index": 0}, timeout=10)
+        if not r or r.get("status") != "ok":
+            raise AssertionError(f"cmd16 play failed: {r}")
+
+        deadline = time.monotonic() + 10.0
+        last = None
+        while time.monotonic() < deadline:
+            st = self.dev.send_cmd(15, timeout=5)
+            if st and st.get("status") == "ok":
+                last = st.get("data") or {}
+                if (last.get("is_playing") and int(last.get("bytes_read", 0)) > 0
+                        and int(last.get("src", 0)) == 2
+                        and int(last.get("sample_rate", 0)) > 0):
+                    break
+            time.sleep(0.5)
+        detail = json.dumps(last, ensure_ascii=False) if last else "no status"
+        if not last or not last.get("is_playing"):
+            raise AssertionError(f"MP3 playback never started: {detail}")
+        if int(last.get("src", 0)) != 2:
+            raise AssertionError(f"decoder source is not MP3: {detail}")
+        if int(last.get("bytes_read", 0)) <= 0:
+            raise AssertionError(f"decoder produced no PCM: {detail}")
+
+        # stop so the device is left in a clean state
+        self.dev.send_cmd(16, {"op": 3}, timeout=8)
+        pong = self.dev.send_cmd(0, timeout=5)
+        if not pong or pong.get("status") != "ok":
+            raise AssertionError("device unresponsive after MP3 playback")
+        return True, (f"MP3 decoded: src=2 {last.get('sample_rate')}Hz "
+                      f"{last.get('channels')}ch bytes={last.get('bytes_read')} "
+                      f"file={last.get('current_file')}")
+
     def cmd_run_test_and_result(self, item, timeout=90):
         # The result slot can briefly read IDLE(0) or the PREVIOUS run's
         # COMPLETED(2) right after RUN_TEST, before the new task starts.
@@ -554,7 +616,7 @@ class Runner:
 
     def command_checks(self):
         section = "command"
-        print("\n=== Command interface checks (14/14) ===")
+        print("\n=== Command interface checks (16/16) ===")
         self.check(section, "cmd0 PING", self.cmd_ping)
         self.check(section, "cmd1 GET_INFO", self.cmd_get_info)
         self.check(section, "cmd10 LIST_TESTS", self.cmd_list_tests)
@@ -565,6 +627,10 @@ class Runner:
         self.check(section, "cmd8 PLAY_TONE", self.cmd_play_tone)
         self.check(section, "cmd4 EXEC_PYTHON", self.cmd_exec_python)
         self.check(section, "cmd13 DIAG_WIFI_SCAN (crash guard)", self.cmd_wifi_scan)
+        self.check(section, "cmd14 FILE_IO stat (internal FAT music)",
+                   self.cmd_file_io_stat_music)
+        self.check(section, "cmd15/16 MP3 decode + playback",
+                   self.cmd_music_mp3_playback)
         self.check(section, "cmd2 RUN_TEST + cmd3 GET_TEST_RESULT",
                    lambda: (lambda res: (res[0].get("state") == 2,
                                          f"battery item state={res[0].get('state')} "

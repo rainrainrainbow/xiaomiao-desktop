@@ -14,6 +14,7 @@
  */
 
 #include "app_test.h"
+#include "app_builtin.h"
 #include "esp_log.h"
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
@@ -143,6 +144,8 @@ typedef enum {
     TEST_CMD_ENTER_BOOTLOADER,
     TEST_CMD_DIAG_WIFI_SCAN,   /* 诊断：直接触发 WiFi 扫描 */
     TEST_CMD_FILE_IO,          /* 文件写入：把测试资源放进内部 FAT(/flash) */
+    TEST_CMD_MUSIC_STATUS,     /* 只读诊断：查询音乐 app 扫描/解码/播放状态 */
+    TEST_CMD_MUSIC_CONTROL,    /* 诊断控制：重扫/播放/停止（内部 RAM 栈任务执行） */
 } test_cmd_type_t;
 
 /* ========== 文件写入通道（内部 RAM 栈写任务 + PSRAM 数据缓冲） ==========
@@ -1069,6 +1072,50 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 cJSON_AddStringToObject(response, "status", "error");
                 cJSON_AddStringToObject(response, "msg", "Unknown op");
             }
+            break;
+        }
+        case TEST_CMD_MUSIC_STATUS: {
+            /* 音乐 app 只读诊断：用于验证 /flash/music 扫描、MP3 解码与播放状态。
+             * 不触发 UI 操作，避免与 UI 任务并发操作 LVGL。 */
+            app_music_status_t st;
+            app_music_get_status(&st);
+            cJSON_AddStringToObject(response, "status", "ok");
+            cJSON *data = cJSON_CreateObject();
+            cJSON_AddStringToObject(data, "dir", st.dir);
+            cJSON_AddStringToObject(data, "current_file", st.current_file);
+            cJSON_AddNumberToObject(data, "count", st.count);
+            cJSON_AddNumberToObject(data, "selected", st.selected);
+            cJSON_AddNumberToObject(data, "playing_idx", st.playing_idx);
+            cJSON_AddBoolToObject(data, "is_playing", st.is_playing);
+            cJSON_AddBoolToObject(data, "is_paused", st.is_paused);
+            cJSON_AddNumberToObject(data, "src", st.src);
+            cJSON_AddNumberToObject(data, "sample_rate", st.sample_rate);
+            cJSON_AddNumberToObject(data, "channels", st.channels);
+            cJSON_AddNumberToObject(data, "bytes_read", (double)st.bytes_read);
+            cJSON_AddNumberToObject(data, "position_ms", (double)st.position_ms);
+            cJSON_AddItemToObject(response, "data", data);
+            break;
+        }
+        case TEST_CMD_MUSIC_CONTROL: {
+            /* op: 1=重扫目录, 2=播放指定 index, 3=停止 */
+            cJSON *op_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "op") : NULL;
+            cJSON *idx_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "index") : NULL;
+            if (!op_json || !cJSON_IsNumber(op_json)) {
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "msg", "Missing 'op'");
+                break;
+            }
+            int op = op_json->valueint;
+            int idx = (idx_json && cJSON_IsNumber(idx_json)) ? idx_json->valueint : 0;
+            if (op < 1 || op > 3) {
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "msg", "Invalid op");
+                break;
+            }
+            app_music_debug_control(op, idx);
+            cJSON_AddStringToObject(response, "status", "ok");
+            cJSON_AddNumberToObject(response, "op", op);
+            cJSON_AddNumberToObject(response, "index", idx);
             break;
         }
         case TEST_CMD_SET_LED: {

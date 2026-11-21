@@ -16,6 +16,8 @@
 #define APP_BUILTIN_H
 
 #include "ui_framework.h"
+#include <stdint.h>
+#include <stdbool.h>
 
 /* ========== 各应用页面回调声明 ========== */
 
@@ -135,5 +137,35 @@ extern const page_callbacks_t g_shell_callbacks;
  * @return 本地化后的显示名
  */
 const char* app_builtin_get_display_name(const char *internal_name);
+
+/**
+ * 音乐应用只读诊断状态（供自动化测试通过 XTC cmd=15 查询）
+ *
+ * 注意：这是诊断接口，不替代 UI 操作；字段直接来自 music app 的运行时状态。
+ */
+typedef struct {
+    char dir[128];          /* 当前扫描目录（/flash/music 或 /sdcard/music） */
+    char current_file[128]; /* 当前选中/播放的文件名 */
+    int count;              /* 扫描到的音频文件数 */
+    int selected;           /* 列表选中索引 */
+    int playing_idx;        /* 正在播放的索引，-1=未播放 */
+    bool is_playing;
+    bool is_paused;
+    int src;                /* 0=unknown, 1=WAV, 2=MP3 */
+    int sample_rate;
+    int channels;
+    uint32_t bytes_read;    /* 解码器已输出 PCM 字节数 */
+    uint32_t position_ms;   /* 解码器报告的播放位置 */
+} app_music_status_t;
+
+/** 读取音乐应用当前状态；未启动时 count=0、is_playing=false */
+void app_music_get_status(app_music_status_t *out);
+
+/**
+ * 音乐应用诊断控制（仅供 XTC cmd=16 使用）：
+ *   op=1 重新扫描音乐目录；op=2 播放指定索引；op=3 停止播放
+ * 请求在内部 RAM 栈的独立任务中执行，避免从 UART 任务直接操作解码器/UI。
+ */
+void app_music_debug_control(int op, int idx);
 
 #endif /* APP_BUILTIN_H */

@@ -1339,6 +1339,73 @@ static bool music_on_key(int key)
     }
 }
 
+/* ========== 诊断控制接口（XTC cmd=15/16 使用） ==========
+ * UART 命令运行在 PSRAM 栈，不能直接做 FAT 读/LRC 加载；
+ * 这里用一个内部 RAM 栈的轻量任务异步执行扫描/播放控制，且与 UI 解耦。 */
+#define MUSIC_CTRL_TASK_STACK 8192
+static StackType_t s_music_ctrl_stack[MUSIC_CTRL_TASK_STACK / sizeof(StackType_t)];
+static StaticTask_t s_music_ctrl_tcb;
+static TaskHandle_t s_music_ctrl_task = NULL;
+static volatile int s_music_ctrl_op = 0;
+static volatile int s_music_ctrl_idx = 0;
+
+static void music_ctrl_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        int op = s_music_ctrl_op;
+        int idx = s_music_ctrl_idx;
+        s_music_ctrl_op = 0;
+
+        if (op == 1) {
+            music_scan_auto();
+        } else if (op == 2) {
+            if (s_music_count == 0) music_scan_auto();
+            music_start_playback(idx);
+        } else if (op == 3) {
+            music_stop_playback();
+        }
+    }
+}
+
+void app_music_debug_control(int op, int idx)
+{
+    if (!s_music_ctrl_task) {
+        s_music_ctrl_task = xTaskCreateStatic(
+            music_ctrl_task, "music_ctrl",
+            MUSIC_CTRL_TASK_STACK / sizeof(StackType_t),
+            NULL, 10, s_music_ctrl_stack, &s_music_ctrl_tcb);
+        if (!s_music_ctrl_task) return;
+    }
+    s_music_ctrl_idx = idx;
+    s_music_ctrl_op = op;       /* volatile 最后写入，作为提交标志 */
+    xTaskNotifyGive(s_music_ctrl_task);
+}
+
+void app_music_get_status(app_music_status_t *out)
+{
+    if (!out) return;
+    memset(out, 0, sizeof(*out));
+
+    strncpy(out->dir, s_music_current_path, sizeof(out->dir) - 1);
+    out->count = s_music_count;
+    out->selected = s_music_sel;
+    out->playing_idx = (int)s_playing_idx;
+    out->is_playing = s_is_playing;
+    out->is_paused = s_is_paused;
+    out->src = (int)s_wav_decoder.src;
+    out->sample_rate = (int)s_wav_decoder.format.sample_rate;
+    out->channels = (int)s_wav_decoder.format.channels;
+    out->bytes_read = s_wav_decoder.bytes_read;
+    out->position_ms = wav_decoder_get_position_ms(&s_wav_decoder);
+
+    int idx = s_playing_idx >= 0 ? (int)s_playing_idx : s_music_sel;
+    if (idx >= 0 && idx < s_music_count) {
+        strncpy(out->current_file, s_music_entries[idx], sizeof(out->current_file) - 1);
+    }
+}
+
 /* ========== 页面回调定义 ========== */
 const page_callbacks_t g_music_callbacks = {
     .init = music_init,
