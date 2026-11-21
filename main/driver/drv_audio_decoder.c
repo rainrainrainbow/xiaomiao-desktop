@@ -176,18 +176,35 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
     long size = ftell(f);
     rewind(f);
     if (size <= 0) return ESP_FAIL;
-    d->mp3_file_size = (size_t)size;
-
     /* 整个文件载入 PSRAM */
-    uint8_t *buf = (uint8_t *)heap_caps_malloc(d->mp3_file_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!buf) { ESP_LOGE(TAG, "MP3 buffer alloc failed (%u)", (unsigned)d->mp3_file_size); return ESP_ERR_NO_MEM; }
+    uint8_t *raw = (uint8_t *)heap_caps_malloc((size_t)size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!raw) { ESP_LOGE(TAG, "MP3 buffer alloc failed (%u)", (unsigned)size); return ESP_ERR_NO_MEM; }
     rewind(f);
-    size_t got = fread(buf, 1, d->mp3_file_size, f);
-    if (got != d->mp3_file_size) {
-        ESP_LOGE(TAG, "MP3 read short: %u/%u", (unsigned)got, (unsigned)d->mp3_file_size);
-        heap_caps_free(buf);
+    size_t got = fread(raw, 1, (size_t)size, f);
+    if (got != (size_t)size) {
+        ESP_LOGE(TAG, "MP3 read short: %u/%u", (unsigned)got, (unsigned)size);
+        heap_caps_free(raw);
         return ESP_FAIL;
     }
+
+    /* 【关键修复】剥离 ID3v2 标签。minimp3 底层 API 不会跳过 ID3v2，
+     * 从 'ID3' 字节开始解会把标签当帧同步，输出全零样本（表现为播放电流声/静音）。
+     * ID3v2 头 10 字节，size 用 syncsafe 编码（每字节 7 位）。 */
+    size_t skip = 0;
+    if (size >= 10 && raw[0] == 'I' && raw[1] == 'D' && raw[2] == '3') {
+        size_t tag_size = ((size_t)(raw[6] & 0x7f) << 21) |
+                          ((size_t)(raw[7] & 0x7f) << 14) |
+                          ((size_t)(raw[8] & 0x7f) << 7) |
+                          ((size_t)(raw[9] & 0x7f));
+        skip = 10 + tag_size;
+        if (raw[5] & 0x10) skip += 10;              /* footer 标志 */
+        if (skip >= (size_t)size) skip = 0;          /* 异常则不过滤 */
+        ESP_LOGI(TAG, "MP3 ID3v2 tag skipped: %u bytes", (unsigned)skip);
+    }
+    uint8_t *buf = raw + skip;
+    d->mp3_file_size = (size_t)size - skip;
+    /* 保留 raw 基址用于释放；mp3_file_buf 指向去标签后的音频流起点 */
+    d->mp3_raw_buf = raw;
     d->mp3_file_buf = buf;
     fclose(f);            /* 已全量载入，文件句柄不再需要 */
     d->file = NULL;
@@ -199,7 +216,8 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
     if (!dec || !pcm) {
         if (dec) heap_caps_free(dec);
         if (pcm) heap_caps_free(pcm);
-        heap_caps_free(buf);
+        heap_caps_free(raw);   /* raw 是分配基址；buf=raw+skip 不能直接 free */
+        d->mp3_raw_buf = NULL;
         d->mp3_file_buf = NULL;
         return ESP_ERR_NO_MEM;
     }
@@ -458,7 +476,8 @@ esp_err_t wav_decoder_close(wav_decoder_t *decoder)
 
     if (decoder->mp3_dec) { heap_caps_free(decoder->mp3_dec); decoder->mp3_dec = NULL; }
     if (decoder->mp3_pcm_buf) { heap_caps_free(decoder->mp3_pcm_buf); decoder->mp3_pcm_buf = NULL; }
-    if (decoder->mp3_file_buf) { heap_caps_free(decoder->mp3_file_buf); decoder->mp3_file_buf = NULL; }
+    if (decoder->mp3_raw_buf) { heap_caps_free(decoder->mp3_raw_buf); decoder->mp3_raw_buf = NULL; }
+    decoder->mp3_file_buf = NULL;
 
     decoder->state = WAV_DECODER_IDLE;
     decoder->src = AUDIO_SRC_UNKNOWN;

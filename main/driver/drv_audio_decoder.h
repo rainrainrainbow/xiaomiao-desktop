@@ -73,8 +73,9 @@ typedef struct {
 
     /* ---- MP3 专用状态（WAV 时全部不占用） ---- */
     void *mp3_dec;              /* mp3dec_t*，从 PSRAM 分配 */
-    void *mp3_file_buf;         /* 整个 mp3 文件的原始字节缓冲（PSRAM） */
-    size_t mp3_file_size;       /* mp3 文件大小 */
+    void *mp3_file_buf;         /* 去 ID3 标签后的音频流起点（PSRAM，= raw+id3_skip） */
+    void *mp3_raw_buf;          /* 原始分配基址（PSRAM，free 用；= raw） */
+    size_t mp3_file_size;       /* 去标签后音频流大小 */
     size_t mp3_offset;          /* 当前读取位置（字节，指向 mp3_file_buf） */
     int16_t *mp3_pcm_buf;       /* 一帧解码 PCM 暂存（PSRAM） */
     size_t mp3_pcm_valid;       /* mp3_pcm_buf 中有效样本数 */
