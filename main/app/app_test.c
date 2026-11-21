@@ -871,25 +871,34 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 uint32_t dur = dur_json && cJSON_IsNumber(dur_json) ? (uint32_t)dur_json->valueint : 500;
 
                 /* 异步播放：audio_output_tone 内含 I2S 写入 + 浮点 sinf 合成，
-                 * 在命令任务里同步执行会栈溢出。放到独立任务，先回 accepted。 */
-                tone_ctx_t *tctx = calloc(1, sizeof(tone_ctx_t));
-                if (tctx) {
+                 * 在命令任务里同步执行会栈溢出。放到独立任务，先回 accepted。
+                 * 连续快速下发时，上一条 tone_task 可能尚未自删释放 task 槽 /
+                 * 堆块，导致首次 xTaskCreate 偶发失败；短暂延迟后重试几次。 */
+                bool tone_started = false;
+                for (int attempt = 0; attempt < 4 && !tone_started; attempt++) {
+                    tone_ctx_t *tctx = calloc(1, sizeof(tone_ctx_t));
+                    if (!tctx) {
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                        continue;
+                    }
                     tctx->freq = freq;
                     tctx->duration = dur;
                     tctx->req_id = cmd->id;
                     if (xTaskCreate(test_play_tone_task, "tone_task",
                                     TEST_TASK_STACK_SIZE, tctx,
-                                    TEST_TASK_PRIORITY, NULL) != pdPASS) {
+                                    TEST_TASK_PRIORITY, NULL) == pdPASS) {
+                        tone_started = true;
+                    } else {
                         free(tctx);
-                        cJSON_AddStringToObject(response, "status", "error");
-                        cJSON_AddStringToObject(response, "msg", "Failed to start tone task");
-                        break;
+                        vTaskDelay(pdMS_TO_TICKS(50));
                     }
+                }
+                if (tone_started) {
                     cJSON_AddStringToObject(response, "status", "ok");
                     cJSON_AddStringToObject(response, "msg", "Tone playback started");
                 } else {
                     cJSON_AddStringToObject(response, "status", "error");
-                    cJSON_AddStringToObject(response, "msg", "Out of memory");
+                    cJSON_AddStringToObject(response, "msg", "Failed to start tone task");
                 }
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
