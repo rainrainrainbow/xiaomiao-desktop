@@ -357,11 +357,23 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
     if (decoder->state == WAV_DECODER_EOF || decoder->state != WAV_DECODER_READY)
         return ESP_ERR_INVALID_STATE;
 
+    esp_err_t ret;
     if (decoder->src == AUDIO_SRC_MP3)
-        return mp3_read_internal(decoder, buffer, buffer_size, bytes_read);
-    if (decoder->src == AUDIO_SRC_WAV && decoder->file)
-        return wav_read_internal(decoder, buffer, buffer_size, bytes_read);
-    return ESP_ERR_INVALID_STATE;
+        ret = mp3_read_internal(decoder, buffer, buffer_size, bytes_read);
+    else if (decoder->src == AUDIO_SRC_WAV && decoder->file)
+        ret = wav_read_internal(decoder, buffer, buffer_size, bytes_read);
+    else
+        return ESP_ERR_INVALID_STATE;
+
+    /* 诊断探针：仅记录首次成功读取的前 16 个样本，避免后续帧覆盖。
+     * 用于通过 UART 对比实机解码 PCM 与离线 ffmpeg 结果是否一致。 */
+    if (decoder->probe_count == 0 && *bytes_read >= 2) {
+        size_t n = *bytes_read / 2;
+        if (n > 16) n = 16;
+        memcpy(decoder->probe, buffer, n * sizeof(int16_t));
+        decoder->probe_count = n;
+    }
+    return ret;
 }
 
 esp_err_t wav_decoder_seek(wav_decoder_t *decoder, uint32_t position_ms)

@@ -80,6 +80,10 @@ typedef struct {
     size_t mp3_pcm_valid;       /* mp3_pcm_buf 中有效样本数 */
     size_t mp3_pcm_pos;         /* mp3_pcm_buf 已消费样本数 */
     bool mp3_byte_rate_est;     /* byte_rate 是否已估算 */
+
+    /* ---- 只读诊断探针：记录最近一次 read 输出的前 16 个样本 ---- */
+    int16_t probe[16];
+    size_t probe_count;
 } wav_decoder_t;
 
 /* ========== API函数 ========== */

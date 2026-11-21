@@ -1093,6 +1093,11 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             cJSON_AddNumberToObject(data, "channels", st.channels);
             cJSON_AddNumberToObject(data, "bytes_read", (double)st.bytes_read);
             cJSON_AddNumberToObject(data, "position_ms", (double)st.position_ms);
+            cJSON_AddNumberToObject(data, "probe_count", st.probe_count);
+            cJSON *probe = cJSON_CreateArray();
+            for (int i = 0; i < st.probe_count; i++)
+                cJSON_AddItemToArray(probe, cJSON_CreateNumber(st.probe[i]));
+            cJSON_AddItemToObject(data, "pcm_probe", probe);
             cJSON_AddItemToObject(response, "data", data);
             break;
         }

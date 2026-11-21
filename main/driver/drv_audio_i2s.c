@@ -167,9 +167,13 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
 
     i2s_slot_mode_t slot_mode = (channels == 1) ? I2S_SLOT_MODE_MONO : I2S_SLOT_MODE_STEREO;
 
+    /* NS4168 数字功放要求标准 Philips I2S：数据在 LRCLK 变化后延迟 1 个 BCLK
+     * 才输出 MSB（datasheet: "支持 I2S 格式(BCLK 延迟一个时钟)"）。
+     * 之前误用 MSB 对齐（无延迟、WS 极性相反），导致每个采样位错位 1 bit：
+     * 低频正弦 tone 仍能听出音调，但 MP3 复杂波形错位后退化为电流声/噪声。 */
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bit_width, slot_mode),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bit_width, slot_mode),
         .gpio_cfg = {
             .bclk = I2S_BCK_PIN,
             .ws = I2S_WS_PIN,
