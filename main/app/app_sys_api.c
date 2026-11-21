@@ -3,11 +3,12 @@
  * @brief 应用系统 API 门面层实现
  *
  * 本层只做"转发 + 统一"，不含业务逻辑。所有底层调用集中在此，
- * 新增 App 时无需再逐个 include sys_nvs.h / drv_*.h / ion/*.h。
+ * 新增 App 时无需再逐个 include 各底层驱动头文件。
  */
 
 #include "app_sys_api.h"
 #include "app_manager.h"
+#include "esp_log.h"
 #include "system/sys_nvs.h"
 #include "driver/drv_battery.h"
 #include "driver/drv_backlight.h"

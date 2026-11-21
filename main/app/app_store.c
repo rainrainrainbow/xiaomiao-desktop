@@ -7,6 +7,7 @@
  */
 #include "app_builtin.h"
 #include "app_manager.h"
+#include "app_sys_api.h"
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -16,6 +17,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 static const char *TAG = "APP_STORE";
 
@@ -23,6 +25,8 @@ static const char *TAG = "APP_STORE";
 #define STORE_MAX_APPS      20   // 最大显示应用数
 #define STORE_PATH_LEN      256  // 路径缓冲区大小（d_name 最大 255 字节 + 前缀）
 #define STORE_SCAN_DIR      "/sdcard"  // 扫描目录（可修改为特定目录）
+#define STORE_APPS_DIR      "/sdcard/apps"  // 已安装应用目录（与 app_manager 一致）
+#define STORE_COPY_BUF      512  // 文件复制缓冲（栈上，<1KB，不占静态内部 RAM）
 
 /* ========== 应用条目 ========== */
 typedef struct {
@@ -43,34 +47,28 @@ static int s_scroll = 0;                   // 滚动偏移
 static int s_row_h = 16;                   // 行高（根据字体自适应）
 
 /* ========== 扫描SD卡中的应用 ========== */
-
-/** 检查路径是否为目录 */
-static bool is_dir(const char *path)
-{
-    struct stat st;
-    return (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
-}
-
-/** 检查文件是否存在 */
-static bool file_exists(const char *path)
-{
-    struct stat st;
-    return (stat(path, &st) == 0 && S_ISREG(st.st_mode));
-}
+/* 目录/文件判断统一走 app_sys_api 门面（app_sys_fs_is_dir/is_file），
+ * 避免各 app 重复 stat 实现、降低耦合。 */
 
 /** 检查应用是否已安装（在 /sdcard/apps/ 下） */
 static bool is_app_installed(const char *app_name)
 {
     char path[STORE_PATH_LEN];
-    snprintf(path, sizeof(path), "/sdcard/apps/%s", app_name);
-    return is_dir(path);
+    snprintf(path, sizeof(path), "%s/%s", STORE_APPS_DIR, app_name);
+    return app_sys_fs_is_dir(path);
 }
 
 /** 扫描SD卡目录，查找可能的MicroPython应用 */
 static void scan_sdcard_apps(void)
 {
     s_app_count = 0;
-    
+
+    // SD 卡未挂载时直接返回：opendir 必然失败，避免无谓错误日志
+    if (!app_sys_sdcard_ready()) {
+        ESP_LOGW(TAG, "SD card not ready, skip scan");
+        return;
+    }
+
     DIR *dir = opendir(STORE_SCAN_DIR);
     if (!dir) {
         ESP_LOGE(TAG, "Failed to open %s", STORE_SCAN_DIR);
@@ -83,17 +81,23 @@ static void scan_sdcard_apps(void)
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
         
-        // 只检查目录
+        // 只检查目录。d_name 最长 255 字节，STORE_PATH_LEN=256 不足以容纳
+        // 前缀+完整文件名，snprintf 会截断；此处显式检测截断并跳过该条目，
+        // 避免用被截断的路径做 dir/json/py 判断（可能误判成别的目录）。
         char full_path[STORE_PATH_LEN];
         #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
 #endif
-        snprintf(full_path, sizeof(full_path), "%s/%s", STORE_SCAN_DIR, entry->d_name);
+        int n = snprintf(full_path, sizeof(full_path), "%s/%s", STORE_SCAN_DIR, entry->d_name);
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-        if (!is_dir(full_path))
+        if (n < 0 || (size_t)n >= sizeof(full_path)) {
+            ESP_LOGW(TAG, "Skip overlong entry name (path truncated): %.20s...", entry->d_name);
+            continue;
+        }
+        if (!app_sys_fs_is_dir(full_path))
             continue;
         
         // 检查是否有 .app 后缀的目录
@@ -110,14 +114,15 @@ static void scan_sdcard_apps(void)
         strncpy(app->path, full_path, sizeof(app->path) - 1);
         app->path[sizeof(app->path) - 1] = '\0';
         
-        // 检查 app.json 和 main.py
+        // 检查 app.json 和 main.py。full_path 已确认未截断（≤255），
+        // 追加 "/app.json"/"/main.py"（≤9）后仍在 [STORE_PATH_LEN+16] 内。
         char json_path[STORE_PATH_LEN + 16];
         snprintf(json_path, sizeof(json_path), "%s/app.json", full_path);
-        app->has_app_json = file_exists(json_path);
+        app->has_app_json = app_sys_fs_is_file(json_path);
         
         char py_path[STORE_PATH_LEN + 16];
         snprintf(py_path, sizeof(py_path), "%s/main.py", full_path);
-        app->has_main_py = file_exists(py_path);
+        app->has_main_py = app_sys_fs_is_file(py_path);
         
         app->installed = is_app_installed(app->name);
         
@@ -130,50 +135,139 @@ static void scan_sdcard_apps(void)
     ESP_LOGI(TAG, "Scanned %d apps from SD card", s_app_count);
 }
 
-/* ========== 安装应用 ========== */
+/* ========== 安装 / 卸载应用 ========== */
+
+/**
+ * 复制单个文件（POSIX stdio）。
+ * ESP32(FreeRTOS/newlib) 没有 shell，system("cp ...") 实际不会执行，
+ * 导致"只标记 installed、文件未落地"。改用 fopen/fread/fwrite 确保真正复制，
+ * 同时消除拼接 shell 命令的注入风险。缓冲区 512B 在栈上，不占静态内部 RAM。
+ */
+static bool store_copy_file(const char *src, const char *dst)
+{
+    FILE *fin = fopen(src, "rb");
+    if (!fin) {
+        ESP_LOGE(TAG, "open src failed: %s", src);
+        return false;
+    }
+    FILE *fout = fopen(dst, "wb");
+    if (!fout) {
+        ESP_LOGE(TAG, "open dst failed: %s", dst);
+        fclose(fin);
+        return false;
+    }
+
+    char buf[STORE_COPY_BUF];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), fin)) > 0) {
+        if (fwrite(buf, 1, n, fout) != n) {
+            ok = false;
+            break;
+        }
+    }
+    if (ferror(fin)) ok = false;
+    if (fclose(fin) != 0) ok = false;
+    if (fclose(fout) != 0) ok = false;
+
+    if (!ok) ESP_LOGE(TAG, "copy failed: %s -> %s", src, dst);
+    return ok;
+}
+
+/**
+ * 删除已安装应用目录。本 app 安装的目录只有平铺文件(app.json/main.py)，
+ * 逐个 unlink 后 rmdir 即可，不使用 system("rm -rf")。
+ */
+static bool store_remove_installed(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d) {
+        ESP_LOGW(TAG, "opendir failed on uninstall: %s", dir);
+        return false;
+    }
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0)
+            continue;
+        char p[STORE_PATH_LEN];
+        #ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+        int n = snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+        if (n < 0 || (size_t)n >= sizeof(p)) {
+            ESP_LOGW(TAG, "Skip overlong entry during uninstall: %.20s...", e->d_name);
+            continue;
+        }
+        if (app_sys_fs_is_file(p) && unlink(p) != 0) {
+            ESP_LOGW(TAG, "unlink failed: %s", p);
+        }
+    }
+    closedir(d);
+    if (rmdir(dir) != 0) {
+        ESP_LOGE(TAG, "rmdir failed: %s (possibly non-empty)", dir);
+        return false;
+    }
+    return true;
+}
 
 /** 安装选中的应用 */
 static void install_selected_app(void)
 {
     if (s_sel < 0 || s_sel >= s_app_count) return;
-    
+
     store_app_t *app = &s_apps[s_sel];
     if (app->installed) {
         ESP_LOGI(TAG, "App %s already installed", app->name);
         return;
     }
-    
+    if (!app_sys_sdcard_ready()) {
+        ESP_LOGW(TAG, "SD card not ready, cannot install %s", app->name);
+        return;
+    }
+    // app_micropython_scan 只认含 main.py 的目录；缺 main.py 安装后也不会出现在桌面
+    if (!app->has_main_py) {
+        ESP_LOGW(TAG, "App %s has no main.py, cannot install", app->name);
+        return;
+    }
+
     ESP_LOGI(TAG, "Installing app: %s from %s", app->name, app->path);
-    
-    // 创建目标目录
+
+    // 创建目标目录（与 app_manager 扫描路径一致）
     char dest_dir[STORE_PATH_LEN];
-    snprintf(dest_dir, sizeof(dest_dir), "/sdcard/apps/%s", app->name);
-    mkdir(dest_dir, 0755);
-    
-    // 复制 app.json
+    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", STORE_APPS_DIR, app->name);
+    if (!app_sys_fs_is_dir(dest_dir) && mkdir(dest_dir, 0755) != 0) {
+        // 容错：若刚被并发创建，再确认目录存在即可继续
+        if (!app_sys_fs_is_dir(dest_dir)) {
+            ESP_LOGE(TAG, "mkdir failed: %s", dest_dir);
+            return;
+        }
+    }
+
+    bool ok = true;
     char src[STORE_PATH_LEN + 16], dst[STORE_PATH_LEN + 16];
     if (app->has_app_json) {
         snprintf(src, sizeof(src), "%s/app.json", app->path);
         snprintf(dst, sizeof(dst), "%s/app.json", dest_dir);
-        // 使用文件复制（简化版：通过系统命令）
-        char cmd[STORE_PATH_LEN * 2 + 64];
-        snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
-        system(cmd);
+        if (!store_copy_file(src, dst)) ok = false;
     }
-    
-    // 复制 main.py
-    if (app->has_main_py) {
-        snprintf(src, sizeof(src), "%s/main.py", app->path);
-        snprintf(dst, sizeof(dst), "%s/main.py", dest_dir);
-        char cmd[STORE_PATH_LEN * 2 + 64];
-        snprintf(cmd, sizeof(cmd), "cp %s %s", src, dst);
-        system(cmd);
+    snprintf(src, sizeof(src), "%s/main.py", app->path);
+    snprintf(dst, sizeof(dst), "%s/main.py", dest_dir);
+    if (!store_copy_file(src, dst)) ok = false;
+
+    if (!ok) {
+        ESP_LOGE(TAG, "Install failed for %s", app->name);
+        // 清理半成品，避免留下不可用目录影响下次安装
+        store_remove_installed(dest_dir);
+        return;
     }
-    
-    // 重新扫描应用管理器
+
+    // 重新扫描应用管理器（新应用才会出现在桌面）
     app_manager_scan_sdcard();
-    
-    // 更新状态
+
     app->installed = true;
     ESP_LOGI(TAG, "App %s installed successfully", app->name);
 }
@@ -183,27 +277,26 @@ static void install_selected_app(void)
 static void uninstall_selected_app(void)
 {
     if (s_sel < 0 || s_sel >= s_app_count) return;
-    
+
     store_app_t *app = &s_apps[s_sel];
     if (!app->installed) {
         ESP_LOGI(TAG, "App %s is not installed", app->name);
         return;
     }
-    
+
     ESP_LOGI(TAG, "Uninstalling app: %s", app->name);
-    
+
     char dest_dir[STORE_PATH_LEN];
-    snprintf(dest_dir, sizeof(dest_dir), "/sdcard/apps/%s", app->name);
-    
-    // 删除目录
-    char cmd[STORE_PATH_LEN * 2];
-    snprintf(cmd, sizeof(cmd), "rm -rf %s", dest_dir);
-    system(cmd);
-    
+    snprintf(dest_dir, sizeof(dest_dir), "%s/%s", STORE_APPS_DIR, app->name);
+
+    if (!store_remove_installed(dest_dir)) {
+        ESP_LOGE(TAG, "Uninstall failed for %s", app->name);
+        return;
+    }
+
     // 重新扫描应用管理器
     app_manager_scan_sdcard();
-    
-    // 更新状态
+
     app->installed = false;
     ESP_LOGI(TAG, "App %s uninstalled successfully", app->name);
 }
@@ -280,14 +373,19 @@ static void store_rebuild_visible(void)
         }
     }
     
-    // 如果没有应用，显示提示
+    // 如果没有应用，显示提示：区分"未插卡"与"卡内无应用"
     if (s_app_count == 0) {
         lv_obj_t *empty_lbl = lv_label_create(s_store_obj);
         if (empty_lbl) {
             lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
             lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
             lv_obj_align(empty_lbl, LV_ALIGN_CENTER, 0, 0);
-            lv_label_set_text(empty_lbl, lang_get(STR_STORE_EMPTY));
+            // 语言包未含"未插卡"词条且不可修改 lang/*，此处用字面量；
+            // 字体是 lv_font_cn_get，可正常显示中文。
+            const char *msg = app_sys_sdcard_ready()
+                                ? lang_get(STR_STORE_EMPTY)
+                                : "未检测到SD卡\n请插入SD卡后重试";
+            lv_label_set_text(empty_lbl, msg);
         }
     }
 }

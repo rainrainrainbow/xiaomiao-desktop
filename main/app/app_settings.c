@@ -7,12 +7,12 @@
  */
 #include "app_builtin.h"
 #include "app_manager.h"
+#include "app_sys_api.h"      /* 系统状态/配置/导航门面层（版本、电池、内存等） */
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "system/sys_nvs.h"
 #include "driver/drv_backlight.h"
-#include "driver/drv_battery.h"
 #include "poincare/runtime.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -62,6 +62,18 @@ static lv_obj_t *s_settings_labels[20] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
+/* 破坏性操作（恢复默认/返回Loader）的二次确认态：-1=无，>=0 为待确认菜单项索引。
+ * 参考 app_recovery.c 的同类交互，避免误触清空设置或重启。 */
+static int s_settings_confirm = -1;
+
+/* 清除二次确认态并恢复设置页标题（移动光标/取消/退出确认时调用） */
+static void settings_clear_confirm(void)
+{
+    if (s_settings_confirm >= 0) {
+        s_settings_confirm = -1;
+        ui_statusbar_set_title(lang_get(STR_SETTINGS));
+    }
+}
 
 static void settings_refresh_label(int idx)
 {
@@ -258,6 +270,7 @@ static void settings_init(void *data)
     lv_obj_clear_flag(s_settings_list, LV_OBJ_FLAG_SCROLLABLE);
     s_settings_sel = 0;
     s_settings_scroll = 0;
+    s_settings_confirm = -1;
     settings_rebuild_visible();
     ui_dock_create(scr, 1, 0);
 }
@@ -282,12 +295,18 @@ static void settings_destroy(void)
     for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) s_settings_labels[i] = NULL;
     s_settings_list = NULL;
     s_settings_switch = NULL;
+    s_settings_confirm = -1;
 }
 
 static bool settings_on_key(int key)
 {
     ui_state_t *st = ui_state_get();
     if (key == KEY_B) {
+        /* 二次确认态下：B 仅取消本次确认，不退出设置页 */
+        if (s_settings_confirm >= 0) {
+            settings_clear_confirm();
+            return true;
+        }
         if (ui_stack_depth() > 1) {
             sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
                                   (int)st->theme, st->wifi_on, st->layout, st->font_size);
@@ -297,12 +316,14 @@ static bool settings_on_key(int key)
         return true;
     }
     if (key == KEY_UP) {
+        settings_clear_confirm();  /* 移动光标即取消待确认操作 */
         s_settings_sel = (s_settings_sel - 1 + SETTINGS_ITEM_COUNT) % SETTINGS_ITEM_COUNT;
         settings_scroll_to_sel();
         settings_rebuild_visible();
         return true;
     }
     if (key == KEY_DOWN) {
+        settings_clear_confirm();  /* 移动光标即取消待确认操作 */
         s_settings_sel = (s_settings_sel + 1) % SETTINGS_ITEM_COUNT;
         settings_scroll_to_sel();
         settings_rebuild_visible();
@@ -416,17 +437,28 @@ static bool settings_on_key(int key)
             ui_stack_push(PAGE_APP_PLACEHOLDER, &g_about_callbacks, NULL);
             return true;
         case 15:
-            /* 恢复默认 */
-            st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
-            st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
-            st->sleep_timeout = 60; st->font_source = 0;
-            /* 清空用户选择的字体路径并立即持久化，确保重启后恢复默认字体 */
-            sys_nvs_save_font_path(0);
-            sys_nvs_save_font_source(0);
-            drv_backlight_set_brightness(st->brightness);
-            ui_theme_set(st->theme);
-            ESP_LOGI(TAG, "Settings reset to defaults");
-            settings_rebuild_visible();
+            /* 恢复默认（破坏性）：二次确认；LEFT/RIGHT 不触发，仅 A 键生效 */
+            if (key == KEY_A) {
+                if (s_settings_confirm == 15) {
+                    /* 第二次 A：执行恢复默认 */
+                    s_settings_confirm = -1;
+                    ui_statusbar_set_title(lang_get(STR_SETTINGS));
+                    st->brightness = 50; st->volume = 50; st->theme = THEME_DARK;
+                    st->sound_on = true; st->wifi_on = false; st->layout = 0; st->font_size = 14;
+                    st->sleep_timeout = 60; st->font_source = 0;
+                    /* 清空用户选择的字体路径并立即持久化，确保重启后恢复默认字体 */
+                    sys_nvs_save_font_path(0);
+                    sys_nvs_save_font_source(0);
+                    drv_backlight_set_brightness(st->brightness);
+                    ui_theme_set(st->theme);
+                    ESP_LOGI(TAG, "Settings reset to defaults");
+                    settings_rebuild_visible();
+                } else {
+                    /* 第一次 A：进入确认态，状态栏提示再按一次 */
+                    s_settings_confirm = 15;
+                    ui_statusbar_set_title(lang_get(STR_REC_CONFIRM));
+                }
+            }
             return true;
         case 16:
             /* 保存并退出 */
@@ -436,14 +468,24 @@ static bool settings_on_key(int key)
             ui_stack_pop();
             return true;
         case 17:
-            /* 返回Loader（重启进入下载模式） */
-            ESP_LOGI(TAG, "Returning to loader (download mode)...");
-            sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
-                                  (int)st->theme, st->wifi_on, st->layout, st->font_size);
-            sys_nvs_save_font_source(st->font_source);
-            /* 显式设置下次启动到 factory（Loader）分区，然后重启 */
-            return_to_loader_setup();
-            esp_restart();
+            /* 返回Loader（会重启，破坏性）：二次确认；LEFT/RIGHT 不触发，仅 A 键生效 */
+            if (key == KEY_A) {
+                if (s_settings_confirm == 17) {
+                    /* 第二次 A：执行返回 Loader */
+                    s_settings_confirm = -1;
+                    ESP_LOGI(TAG, "Returning to loader (download mode)...");
+                    sys_nvs_save_settings(st->brightness, st->volume, st->sound_on,
+                                          (int)st->theme, st->wifi_on, st->layout, st->font_size);
+                    sys_nvs_save_font_source(st->font_source);
+                    /* 显式设置下次启动到 factory（Loader）分区，然后重启 */
+                    return_to_loader_setup();
+                    esp_restart();
+                } else {
+                    /* 第一次 A：进入确认态，状态栏提示再按一次 */
+                    s_settings_confirm = 17;
+                    ui_statusbar_set_title(lang_get(STR_REC_CONFIRM));
+                }
+            }
             return true;
         case 18:
             /* 蓝牙 → 二级页面 */
@@ -551,7 +593,7 @@ static void about_rebuild_visible(void)
             /* 固定信息项 */
             switch (idx) {
             case 0: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SYSTEM), "XiaoMiaoOS"); break;
-            case 1: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_VERSION), XIAOMIAO_VERSION); break;
+            case 1: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_VERSION), app_sys_version()); break;
             case 2: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_BUILD), XIAOMIAO_BUILD); break;
             case 3: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_CHIP), "ESP32-WROVER-B"); break;
             case 4: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_SCREEN), "ST7735 160x128"); break;
@@ -560,10 +602,14 @@ static void about_rebuild_visible(void)
             case 6: snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_FONT_ENGINE),
                              lv_freetype_font_is_ready() ? lang_get(STR_FONT_ENGINE_FREETYPE) : lang_get(STR_FONT_ENGINE_BUILTIN)); break;
             case 7: {
-                float vbat = drv_battery_get_voltage();
-                if (vbat >= BAT_MIN_VALID_V) {
-                    int pct = drv_battery_get_percent(vbat);
-                    snprintf(buf, sizeof(buf), "%s: %d%% (%.2fV)", lang_get(STR_BATTERY), pct, vbat);
+                /* 统一走系统门面层，避免各页各自 include drv_battery.h。
+                 * 门面层基于 ion_battery（不含 0.30V 防反接二极管压降），
+                 * 故有效性阈值取 2200mV，等价于原 drv 版 2.5V(BAT_MIN_VALID_V) 的判断。 */
+                uint16_t vbat_mv = app_sys_battery_mv();
+                if (vbat_mv >= 2200u) {
+                    int pct = app_sys_battery_percent();
+                    snprintf(buf, sizeof(buf), "%s: %d%% (%.2fV)", lang_get(STR_BATTERY), pct,
+                             vbat_mv / 1000.0f);
                 } else {
                     snprintf(buf, sizeof(buf), "%s: N/A", lang_get(STR_BATTERY));
                 }
@@ -572,7 +618,7 @@ static void about_rebuild_visible(void)
             case 8: {
                 /* DRAM: 已用/总容量 + 最低空闲 + 最大连续块 */
                 size_t total_dram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
-                size_t free_dram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+                size_t free_dram = app_sys_heap_internal_free();  /* 经门面层统一读取 */
                 size_t used_dram = total_dram - free_dram;
                 size_t minfree_dram = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
                 size_t lrg_dram = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
@@ -589,7 +635,7 @@ static void about_rebuild_visible(void)
                 /* PSRAM: 已用/总容量 + 最低空闲 + 最大连续块 */
                 size_t total_psram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
                 if (total_psram > 0) {
-                    size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+                    size_t free_psram = app_sys_psram_free();  /* 经门面层统一读取 */
                     size_t used_psram = total_psram - free_psram;
                     size_t minfree_psram = heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM);
                     size_t lrg_psram = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);

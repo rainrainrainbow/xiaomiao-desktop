@@ -127,8 +127,9 @@ static led_rgb_t hsv_to_rgb(uint16_t h, uint8_t s, uint8_t v)
 static void led_effect_task(void *arg)
 {
     (void)arg;
-    s_effect_running = true;
-    s_effect_stop = false;
+    /* 运行/停止标志统一由 start_effect() 在创建任务前设置。任务本身绝不清除
+       s_effect_stop，否则会覆盖 destroy()/start_effect() 发出的停止请求，
+       导致任务无法退出、deinit 时仍在操作 RMT。 */
     /* 边界检查：确保颜色索引有效 */
     if (s_current_color < 0 || s_current_color >= (int)COLOR_PRESET_COUNT) {
         s_current_color = 0;
@@ -226,15 +227,19 @@ static void led_effect_task(void *arg)
 /** 启动当前效果 */
 static void start_effect(void)
 {
-    /* 停止当前效果 */
+    /* 已有任务在运行：先请求停止并等待其真正退出，避免新旧任务并发操作 RMT。
+       各效果的内层循环都检查 s_effect_stop 且延时被拆成 <=50ms 的小段，
+       因此 200ms 足以让旧任务退出。 */
     if (s_effect_running) {
         s_effect_stop = true;
-        /* 等待旧任务真正退出（最多 200ms，避免新旧任务并发操作 RMT） */
         for (int i = 0; i < 20 && s_effect_running; i++) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
         if (s_effect_running) {
-            ESP_LOGW(TAG, "old effect task did not exit in time");
+            /* 旧任务仍未退出：放弃本次重启，绝不带病创建新任务，
+               否则会出现两个任务同时写 LED/RMT 的严重并发问题。 */
+            ESP_LOGW(TAG, "old effect task still running, skip restart");
+            return;
         }
     }
 
@@ -242,9 +247,16 @@ static void start_effect(void)
     drv_led_strip_init();
     drv_led_strip_set_brightness(s_current_brightness);
 
+    /* 先置位运行标志再创建任务，封堵"任务已创建但尚未真正运行"的竞态窗口：
+       否则用户快速连续切换时，新任务还没开始跑、s_effect_running 仍为 false，
+       下一次 start_effect() 不会等待，从而创建出多个并发任务。 */
+    s_effect_stop = false;
+    s_effect_running = true;
+
     /* 启动新效果任务；创建失败时一次性设置当前颜色（安全兜底） */
     BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 3072, NULL, 5, NULL);
     if (rt != pdPASS) {
+        s_effect_running = false;
         ESP_LOGE(TAG, "xTaskCreate(led_effect) failed! setting color once");
         /* 边界检查：确保颜色索引有效 */
         if (s_current_color < 0 || s_current_color >= (int)COLOR_PRESET_COUNT) {
@@ -495,19 +507,26 @@ static void led_init(void *data)
 static void led_destroy(void)
 {
     ESP_LOGI(TAG, "LED app destroy");
-    
-    /* 停止当前效果任务 */
+
+    /* 停止效果任务并等待其真正退出，避免 deinit 释放 RMT 后仍有任务在刷新。
+       各效果内层循环均检查停止标志且延时被拆成 <=50ms 小段，200ms 足够。 */
     s_effect_stop = true;
     if (s_effect_running) {
-        /* 等待任务退出（最多100ms） */
-        for (int i = 0; i < 10 && s_effect_running; i++) {
+        for (int i = 0; i < 20 && s_effect_running; i++) {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
+        if (s_effect_running) {
+            ESP_LOGW(TAG, "effect task did not exit before deinit");
+        }
     }
-    
+
     /* 彻底熄灭并释放 LED（RMT 通道） */
     drv_led_strip_deinit();
-    
+
+    /* 复位标志，为下次进入 app 做准备 */
+    s_effect_running = false;
+    s_effect_stop = false;
+
     s_led_obj = NULL;
     s_info_label = NULL;
 }

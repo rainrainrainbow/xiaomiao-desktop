@@ -20,6 +20,7 @@
  */
 #include "app_builtin.h"
 #include "app_manager.h"
+#include "app_sys_api.h"
 #include "ui_framework.h"
 #include "driver/drv_audio_output.h"
 #include "driver/drv_audio_decoder.h"
@@ -174,30 +175,30 @@ static int music_prev_index(int current)
     return (current - 1 + s_music_count) % s_music_count;
 }
 
-/* 拼接完整路径（手动拼接避免 -Wformat-truncation：128+1+128=257 > 256） */
+/* 拼接完整路径：path + '/' + name，始终保证结果以 NUL 结尾且不越界。
+ * 手动拼接而非 snprintf，避免 -Wformat-truncation（128+1+128=257 > 256）告警。 */
 static void music_build_path(const char *path, const char *name, char *out, size_t out_size)
 {
-    size_t plen = strlen(path);
-    size_t nlen = strlen(name);
-    size_t total = plen + 1 + nlen;
-    size_t copy = total;
-    if (copy >= out_size) copy = out_size - 1;
-    /* 复制路径部分 */
-    size_t p_copy = plen;
-    if (p_copy > copy) p_copy = copy;
-    memcpy(out, path, p_copy);
-    size_t pos = p_copy;
-    /* 分隔符 */
-    if (pos < copy) {
-        out[pos] = '/';
-        pos++;
+    if (out_size == 0) return;
+
+    size_t pos = 0;
+    size_t cap = out_size - 1;  /* 预留结尾 NUL */
+
+    if (path) {
+        size_t plen = strlen(path);
+        if (plen > cap) plen = cap;
+        memcpy(out, path, plen);
+        pos = plen;
     }
-    /* 复制文件名 */
-    size_t n_copy = nlen;
-    if (n_copy > copy - (pos > copy ? copy : pos)) n_copy = copy - pos;
-    if (n_copy > 0) {
-        memcpy(out + pos, name, n_copy);
-        pos += n_copy;
+    if (pos < cap) {
+        out[pos++] = '/';
+    }
+    if (name && pos < cap) {
+        size_t nlen = strlen(name);
+        size_t remain = cap - pos;
+        if (nlen > remain) nlen = remain;
+        memcpy(out + pos, name, nlen);
+        pos += nlen;
     }
     out[pos] = '\0';
 }
@@ -329,20 +330,37 @@ static void music_play_task(void *arg)
 
     s_is_playing = false;
     s_playing_idx = -1;
-    s_play_task = NULL;
+    /* 仅在句柄仍指向本任务时清除，避免异常超时下误清新任务句柄导致任务泄漏 */
+    if (s_play_task == xTaskGetCurrentTaskHandle()) s_play_task = NULL;
     vTaskDelete(NULL);
+}
+
+/* 请求停止播放任务并等待其退出：
+ * 播放任务在退出前会释放解码缓冲、停止音频输出、关闭解码器，最后把 s_play_task 置空。
+ * 轮询等待句柄真正置空，比原来的固定 100ms 延时可靠，避免切歌/退出时新旧任务
+ * 并发访问全局 s_wav_decoder 与 I2S。 */
+static void music_stop_task_and_wait(void)
+{
+    s_is_playing = false;
+    s_playing_idx = -1;
+    s_is_paused = false;
+
+    for (int i = 0; i < 50 && s_play_task != NULL; i++) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (s_play_task != NULL) {
+        /* 极少见：任务未及时退出。不强制 vTaskDelete（可能遗留 I2S 互斥锁导致死锁），
+         * 仅告警；任务在下一次循环检测到停止标志后会自行清理并退出。 */
+        ESP_LOGW(TAG, "music_play task exit is slow, will self-stop on next loop");
+    }
 }
 
 static void music_start_playback(int idx)
 {
     if (idx < 0 || idx >= s_music_count) return;
 
-    /* 停止当前播放 */
-    if (s_is_playing) {
-        s_is_playing = false;
-        s_playing_idx = -1;
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
+    /* 先停止并等待旧任务真正退出，避免并发操作 s_wav_decoder / I2S */
+    music_stop_task_and_wait();
 
     s_playing_idx = idx;
     s_is_paused = false;
@@ -370,14 +388,7 @@ static void music_start_playback(int idx)
 
 static void music_stop_playback(void)
 {
-    if (s_is_playing || s_play_task != NULL) {
-        s_is_playing = false;
-        s_playing_idx = -1;
-        s_is_paused = false;
-        audio_output_stop();
-        vTaskDelay(pdMS_TO_TICKS(100));
-        s_play_task = NULL;
-    }
+    music_stop_task_and_wait();
 }
 
 /* 切换到指定曲目 */
@@ -689,7 +700,11 @@ static void music_refresh_list_page(void)
     if (s_music_count == 0) {
         lv_obj_t *empty_lbl = lv_label_create(s_music_obj);
         if (empty_lbl) {
-            lv_label_set_text(empty_lbl, lang_get(STR_MUSIC_NO_FILE));
+            /* 未插 SD 卡时给出明确提示，避免与“卡内无音乐”混淆 */
+            const char *empty_tip = app_sys_sdcard_ready()
+                                        ? lang_get(STR_MUSIC_NO_FILE)
+                                        : lang_get(STR_MP_NO_SD_CARD);
+            lv_label_set_text(empty_lbl, empty_tip);
             lv_obj_set_style_text_color(empty_lbl, lv_color_hex(colors->text_dim), 0);
             lv_obj_set_style_text_font(empty_lbl, lv_font_cn_get(font_px), 0);
             lv_obj_set_style_text_align(empty_lbl, LV_TEXT_ALIGN_CENTER, 0);
@@ -1019,11 +1034,11 @@ static void music_init(void *data)
     ui_statusbar_create(scr);
     ui_statusbar_set_title(lang_get(STR_APP_MUSIC));
 
-    /* 从NVS加载音乐设置 */
+    /* 从 NVS 加载音乐设置（统一走配置门面层，保持原有默认值语义） */
     s_volume = audio_output_get_volume();
-    s_eq_enabled = sys_nvs_load_music_eq() != 0;
-    s_lrc_enabled = sys_nvs_load_music_lrc() != 0;
-    int saved_mode = sys_nvs_load_music_mode();
+    s_eq_enabled = app_sys_cfg_get_int(APP_CFG_MUSIC_EQ, 1) != 0;
+    s_lrc_enabled = app_sys_cfg_get_int(APP_CFG_MUSIC_LRC, 1) != 0;
+    int saved_mode = app_sys_cfg_get_int(APP_CFG_MUSIC_MODE, PLAY_MODE_SINGLE);
     if (saved_mode >= 0 && saved_mode < PLAY_MODE_MAX) {
         s_play_mode = (play_mode_t)saved_mode;
     }
@@ -1156,7 +1171,7 @@ static bool music_on_key(int key)
         if (key == KEY_UP || key == KEY_DOWN) {
             /* 循环模式切换 */
             s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
-            sys_nvs_save_music_mode((int)s_play_mode);
+            app_sys_cfg_set_int(APP_CFG_MUSIC_MODE, (int)s_play_mode);
             music_refresh_page();
             return true;
         }
@@ -1191,12 +1206,12 @@ static bool music_on_key(int key)
                 break;
             case 1: /* 频谱开关 */
                 s_eq_enabled = !s_eq_enabled;
-                sys_nvs_save_music_eq(s_eq_enabled ? 1 : 0);
+                app_sys_cfg_set_int(APP_CFG_MUSIC_EQ, s_eq_enabled ? 1 : 0);
                 music_refresh_page();
                 break;
             case 2: /* 循环模式 */
                 s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
-                sys_nvs_save_music_mode((int)s_play_mode);
+                app_sys_cfg_set_int(APP_CFG_MUSIC_MODE, (int)s_play_mode);
                 music_refresh_page();
                 break;
             case 3: /* 播放输出 */
@@ -1242,12 +1257,12 @@ static bool music_on_key(int key)
                 break;
             case 1: /* 频谱开关 */
                 s_eq_enabled = !s_eq_enabled;
-                sys_nvs_save_music_eq(s_eq_enabled ? 1 : 0);
+                app_sys_cfg_set_int(APP_CFG_MUSIC_EQ, s_eq_enabled ? 1 : 0);
                 music_refresh_page();
                 break;
             case 2: /* 循环模式 */
                 s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
-                sys_nvs_save_music_mode((int)s_play_mode);
+                app_sys_cfg_set_int(APP_CFG_MUSIC_MODE, (int)s_play_mode);
                 music_refresh_page();
                 break;
             case 3: /* 播放输出 */

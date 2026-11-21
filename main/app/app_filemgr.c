@@ -7,6 +7,7 @@
  */
 #include "app_builtin.h"
 #include "app_manager.h"
+#include "app_sys_api.h"
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -44,6 +45,10 @@ EXT_RAM_BSS_ATTR static char s_txt_lines[TXT_MAX_LINES][TXT_LINE_LEN];
 static int s_txt_line_count = 0;
 static int s_txt_scroll = 0;
 static int s_txt_viewer_active = 0;
+/* 文本文件超过 TXT_MAX_LINES 时是否仍有后续内容（用于末尾提示） */
+static bool s_txt_has_more = false;
+/* 目录打开失败时，是否因 SD 卡未挂载（用于区分"空目录"与"未插卡"提示） */
+static bool s_filemgr_sd_missing = false;
 
 /* ========== 文本查看器 ========== */
 
@@ -68,6 +73,13 @@ static void txt_viewer_open(const char *path)
         s_txt_lines[s_txt_line_count][TXT_LINE_LEN - 1] = '\0';
         s_txt_line_count++;
     }
+    /* 行数达到上限时探测是否还有后续内容，用于末尾提示（不会写入 s_txt_lines，避免越界） */
+    if (s_txt_line_count >= TXT_MAX_LINES) {
+        char probe[16];
+        s_txt_has_more = (fgets(probe, sizeof(probe), fp) != NULL);
+    } else {
+        s_txt_has_more = false;
+    }
     fclose(fp);
     s_txt_viewer_active = 1;
     ESP_LOGI(TAG, "Text viewer: %d lines from %s", s_txt_line_count, path);
@@ -89,6 +101,9 @@ static void txt_viewer_refresh(void)
     int start = s_txt_scroll;
     int end = start + vis_rows;
     if (end > s_txt_line_count) end = s_txt_line_count;
+    /* 还有更多内容时，预留最后一行显示提示，保证不超出可视区 */
+    bool show_more = s_txt_has_more && (end >= s_txt_line_count);
+    if (show_more && end > start) end--;
     for (int i = start; i < end; i++) {
         int row_idx = i - start;
         lv_obj_t *row = lv_obj_create(s_txt_obj);
@@ -115,6 +130,25 @@ static void txt_viewer_refresh(void)
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
     }
+    if (show_more) {
+        int row_idx = end - start;
+        lv_obj_t *row = lv_obj_create(s_txt_obj);
+        if (row) {
+            lv_obj_remove_style_all(row);
+            lv_obj_set_pos(row, 0, row_h + 2 + row_idx * row_h);
+            lv_obj_set_size(row, LCD_H_RES, row_h);
+            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+            lv_obj_t *lbl = lv_label_create(row);
+            if (lbl) {
+                lv_label_set_text(lbl, "...(更多内容未显示)");
+                lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
+                lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
+                lv_obj_set_width(lbl, LCD_H_RES - 8);
+                lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 4, 0);
+            }
+        }
+    }
 }
 
 static void txt_viewer_close(void)
@@ -122,6 +156,7 @@ static void txt_viewer_close(void)
     s_txt_viewer_active = 0;
     s_txt_line_count = 0;
     s_txt_scroll = 0;
+    s_txt_has_more = false;
     s_txt_obj = NULL;
 }
 
@@ -175,13 +210,7 @@ static bool file_is_audio(const char *name)
 static void filemgr_open_file(const char *path, const char *name)
 {
     if (file_is_mid(name)) {
-        /* 通过 stash 传递文件路径到 MID 播放器 */
-        page_stash_t stash;
-        size_t path_len = strlen(path);
-        stash.valid = true;
-        stash.size = (path_len + 1 > PAGE_STASH_SIZE) ? PAGE_STASH_SIZE : path_len + 1;
-        memcpy(stash.data, path, stash.size - 1);
-        stash.data[stash.size - 1] = '\0';
+        /* MID 播放器已移除：原 stash 构造后从未使用，属无效代码，直接清理 */
         ESP_LOGI(TAG, "MID file support removed");
         ui_statusbar_set_title(lang_get(STR_FILE_MID_REMOVED));
     } else if (file_is_text(name)) {
@@ -235,17 +264,18 @@ static void filemgr_refresh_list(void)
         lv_obj_set_size(path_row, LCD_H_RES, s_filemgr_row_h);
         lv_obj_clear_flag(path_row, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_opa(path_row, LV_OPA_TRANSP, 0);
-    }
-    char header[FILEMGR_PATH_LEN + 8];
-    snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
-    lv_obj_t *path_lbl = lv_label_create(path_row);
-    if (path_lbl) {
-        lv_label_set_text(path_lbl, header);
-        lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
-        lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
-        lv_obj_set_width(path_lbl, LCD_H_RES - 8);
-        lv_label_set_long_mode(path_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
-        lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        char header[FILEMGR_PATH_LEN + 8];
+        snprintf(header, sizeof(header), "> %s", s_filemgr_current_path);
+        /* 仅在 path_row 创建成功时才挂 label，避免 NULL 父对象导致异常/悬空 */
+        lv_obj_t *path_lbl = lv_label_create(path_row);
+        if (path_lbl) {
+            lv_label_set_text(path_lbl, header);
+            lv_obj_set_style_text_color(path_lbl, lv_color_hex(colors->text_dim), 0);
+            lv_obj_set_style_text_font(path_lbl, lv_font_cn_get(font_px), 0);
+            lv_obj_set_width(path_lbl, LCD_H_RES - 8);
+            lv_label_set_long_mode(path_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+            lv_obj_align(path_lbl, LV_ALIGN_LEFT_MID, 4, 0);
+        }
     }
     /* 后面的文件列表行（在循环中，脚本已加保护） */
 
@@ -256,7 +286,9 @@ static void filemgr_refresh_list(void)
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
             return;
         }
-        lv_label_set_text(lbl, lang_get(STR_FILE_EMPTY_DIR));
+        lv_label_set_text(lbl, s_filemgr_sd_missing
+                               ? lang_get(STR_REC_SD_UNMOUNTED)
+                               : lang_get(STR_FILE_EMPTY_DIR));
         lv_obj_set_style_text_color(lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(lbl, lv_font_cn_get(font_px), 0);
         lv_obj_align(lbl, LV_ALIGN_CENTER, 0, 0);
@@ -311,9 +343,14 @@ static void filemgr_scan_dir(const char *path)
     s_filemgr_current_path[FILEMGR_PATH_LEN - 1] = '\0';
     DIR *dir = opendir(path);
     if (!dir) {
-        ESP_LOGW(TAG, "Cannot open directory: %s", path);
+        /* 目录打不开时区分"SD 卡未挂载"与"普通空/不可读目录"，给出明确提示 */
+        s_filemgr_sd_missing = (path[0] == '/' && strncmp(path, "/sdcard", 7) == 0)
+                                   ? !app_sys_sdcard_ready() : false;
+        ESP_LOGW(TAG, "Cannot open directory: %s (sd_missing=%d)",
+                 path, s_filemgr_sd_missing ? 1 : 0);
         return;
     }
+    s_filemgr_sd_missing = false;
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL && s_filemgr_count < FILEMGR_MAX_ENTRIES) {
         if (entry->d_name[0] == '.') continue;
@@ -445,9 +482,15 @@ static bool filemgr_on_key(int key)
             char new_path[FILEMGR_PATH_LEN];
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
-            snprintf(new_path, sizeof(new_path), "%s/%s",
-                     s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+            int n = snprintf(new_path, sizeof(new_path), "%s/%s",
+                             s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
 #pragma GCC diagnostic pop
+            /* 拼接被截断会产生非法路径：跳过该条目，不做跳转 */
+            if (n < 0 || n >= (int)sizeof(new_path)) {
+                ESP_LOGE(TAG, "Path too long, skip dir entry: %s",
+                         s_filemgr_entries[s_filemgr_sel]);
+                return true;
+            }
             filemgr_scan_dir(new_path);
             filemgr_refresh_list();
         } else {
@@ -455,9 +498,15 @@ static bool filemgr_on_key(int key)
             char file_path[FILEMGR_PATH_LEN];
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
-            snprintf(file_path, sizeof(file_path), "%s/%s",
-                     s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+            int n = snprintf(file_path, sizeof(file_path), "%s/%s",
+                             s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
 #pragma GCC diagnostic pop
+            /* 拼接被截断会产生非法路径：跳过该条目，不尝试打开 */
+            if (n < 0 || n >= (int)sizeof(file_path)) {
+                ESP_LOGE(TAG, "Path too long, skip file entry: %s",
+                         s_filemgr_entries[s_filemgr_sel]);
+                return true;
+            }
             filemgr_open_file(file_path, s_filemgr_entries[s_filemgr_sel]);
         }
         return true;

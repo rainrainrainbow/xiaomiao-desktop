@@ -5,7 +5,7 @@
  * 设计目标：
  *   让新增/维护一个内置 App 时，只需要 include 本头文件，即可获得所有
  *   常用系统能力（配置读写、系统状态、导航、通用 UI 组件、文件扫描），
- *   而不必逐个 include sys_nvs.h / drv_*.h / ion/*.h / ui_framework.h 等。
+ *   而不必逐个 include 各底层驱动与框架头文件。
  *
  * 分层位置：
  *   [App: setting/store/music/shell/files/led]

@@ -9,8 +9,9 @@
  *
  * 支持命令：
  *   help / ls / cat / echo / clear / sysinfo
- *   brightness / ver / py / reboot
+ *   mem / bat / sd / brightness / ver / py / reboot
  */
+#include "app_sys_api.h"   /* 系统状态 / 配置持久化门面层 */
 #include "app_builtin.h"
 #include "app_manager.h"
 #include "ui_framework.h"
@@ -127,8 +128,9 @@ static void cmd_help(void)
 {
     shell_append("%s", lang_get(STR_SHELL_AVAIL));
     shell_append(" help ls cat echo clear");
-    shell_append(" sysinfo brightness ver");
-    shell_append(" py <%s> reboot", lang_get(STR_SHELL_CODE));
+    shell_append(" sysinfo mem bat sd");
+    shell_append(" brightness ver reboot");
+    shell_append(" py <%s>", lang_get(STR_SHELL_CODE));
 }
 
 static void cmd_ls(const char *arg)
@@ -191,7 +193,27 @@ static void cmd_sysinfo(void)
     shell_append("ESP32-WROVER @240MHz");
     shell_append("DRAM: %lu/%luK", (unsigned long)(free8/1024), (unsigned long)(total8/1024));
     shell_append("PSRAM: %lu/%luK", (unsigned long)(free_ps/1024), (unsigned long)(total_ps/1024));
+    shell_append("BAT: %u%% %umV", (unsigned)app_sys_battery_percent(),
+                 (unsigned)app_sys_battery_mv());
+    shell_append("SD: %s", app_sys_sdcard_ready() ? "ready" : "not ready");
     shell_append("XiaoMiao %s", XIAOMIAO_VERSION);
+}
+
+static void cmd_mem(void)
+{
+    shell_append("DRAM free: %luK", (unsigned long)(app_sys_heap_internal_free() / 1024));
+    shell_append("PSRAM free: %luK", (unsigned long)(app_sys_psram_free() / 1024));
+}
+
+static void cmd_bat(void)
+{
+    shell_append("Battery: %u%% (%umV)", (unsigned)app_sys_battery_percent(),
+                 (unsigned)app_sys_battery_mv());
+}
+
+static void cmd_sd(void)
+{
+    shell_append("SD card: %s", app_sys_sdcard_ready() ? "mounted" : "not mounted");
 }
 
 static void cmd_brightness(const char *arg)
@@ -203,9 +225,9 @@ static void cmd_brightness(const char *arg)
     int val = atoi(arg);
     if (val < 0) val = 0;
     if (val > 100) val = 100;
-    drv_backlight_set_brightness(val);
-    ui_state_t *st = ui_state_get();
-    st->brightness = val;
+    /* 门面层统一更新 ui_state 并驱动背光；save_all 持久化到 NVS，避免重启丢失 */
+    app_sys_cfg_set_int(APP_CFG_BRIGHTNESS, val);
+    app_sys_cfg_save_all();
     shell_append("brightness set to %d%%", val);
 }
 
@@ -251,6 +273,9 @@ static void shell_execute(const char *cmdline)
     else if (strcmp(cmd, "echo") == 0) cmd_echo(arg);
     else if (strcmp(cmd, "clear") == 0) { shell_clear(); }
     else if (strcmp(cmd, "sysinfo") == 0) cmd_sysinfo();
+    else if (strcmp(cmd, "mem") == 0) cmd_mem();
+    else if (strcmp(cmd, "bat") == 0) cmd_bat();
+    else if (strcmp(cmd, "sd") == 0) cmd_sd();
     else if (strcmp(cmd, "brightness") == 0) cmd_brightness(arg);
     else if (strcmp(cmd, "ver") == 0) shell_append("XiaoMiao %s (%s)", XIAOMIAO_VERSION, XIAOMIAO_BUILD);
     else if (strcmp(cmd, "py") == 0) cmd_py(arg);
