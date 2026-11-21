@@ -81,9 +81,11 @@ typedef struct {
     size_t mp3_pcm_pos;         /* mp3_pcm_buf 已消费样本数 */
     bool mp3_byte_rate_est;     /* byte_rate 是否已估算 */
 
-    /* ---- 只读诊断探针：记录最近一次 read 输出的前 16 个样本 ---- */
+    /* ---- 只读诊断探针：记录最近一次 read 输出的首个非静音样本块 ---- */
     int16_t probe[16];
     size_t probe_count;
+    int16_t probe_peak;     /* 首块内样本绝对值峰值，0=全静音 */
+    size_t probe_offset;    /* 首个非静音样本在块内的下标 */
 } wav_decoder_t;
 
 /* ========== API函数 ========== */

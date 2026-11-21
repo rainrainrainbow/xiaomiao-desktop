@@ -1403,6 +1403,8 @@ void app_music_get_status(app_music_status_t *out)
     out->position_ms = wav_decoder_get_position_ms(&s_wav_decoder);
     out->probe_count = (int)s_wav_decoder.probe_count;
     for (int i = 0; i < 16; i++) out->probe[i] = s_wav_decoder.probe[i];
+    out->probe_peak = s_wav_decoder.probe_peak;
+    out->probe_offset = (int)s_wav_decoder.probe_offset;
 
     int idx = s_playing_idx >= 0 ? (int)s_playing_idx : s_music_sel;
     if (idx >= 0 && idx < s_music_count) {

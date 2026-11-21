@@ -157,7 +157,9 @@ typedef struct {
     uint32_t bytes_read;    /* 解码器已输出 PCM 字节数 */
     uint32_t position_ms;   /* 解码器报告的播放位置 */
     int probe_count;        /* 解码 PCM 探针样本数（0~16） */
-    int probe[16];          /* 最近一次解码输出的前 16 个 PCM 样本（诊断用） */
+    int probe[16];          /* 最近一次解码输出的首个非静音块 16 个样本（诊断用） */
+    int probe_peak;         /* 首块样本绝对值峰值，0=全静音 */
+    int probe_offset;       /* 首个非静音样本在块内下标 */
 } app_music_status_t;
 
 /** 读取音乐应用当前状态；未启动时 count=0、is_playing=false */

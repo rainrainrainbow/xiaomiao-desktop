@@ -377,16 +377,22 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
      * 用于通过 UART 对比实机解码 PCM 与离线 ffmpeg 结果是否一致。 */
     if (decoder->probe_count == 0 && *bytes_read >= 32) {
         const int16_t *src = (const int16_t *)buffer;
-        bool has_signal = false;
         size_t avail = *bytes_read / 2;
+        /* 从块内"第一个非 0 样本"开始取 16 个，跳过 encoder delay 静音，
+         * 这样能看到连续波形而非全 0 前缀。 */
+        int16_t peak = 0;
         for (size_t i = 0; i < avail; i++) {
-            if (src[i] != 0 && src[i] != -32768) { has_signal = true; break; }
+            int16_t a = src[i] < 0 ? (int16_t)(-src[i]) : src[i];
+            if (a > peak) peak = a;
+            if (src[i] != 0 && src[i] != -32768) {
+                size_t n = (avail - i) < 16 ? (avail - i) : 16;
+                memcpy(decoder->probe, src + i, n * sizeof(int16_t));
+                decoder->probe_count = n;
+                decoder->probe_offset = i;
+                break;
+            }
         }
-        if (has_signal) {
-            size_t n = avail < 16 ? avail : 16;
-            memcpy(decoder->probe, src, n * sizeof(int16_t));
-            decoder->probe_count = n;
-        }
+        decoder->probe_peak = peak;
     }
     return ret;
 }
