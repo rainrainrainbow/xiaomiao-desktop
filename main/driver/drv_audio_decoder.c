@@ -213,6 +213,20 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
     /* 解第一帧以获取采样率/声道/码率 */
     mp3dec_frame_info_t info;
     int samples = mp3dec_decode_frame(dec, buf, (int)d->mp3_file_size, pcm, &info);
+    /* 诊断：首帧探测解码后的 PCM 峰值。若此值正常(~20000)而播放静音，
+     * 说明解码器本身可用、问题在 read 循环的状态/offset；若此值也≈0，
+     * 说明 minimp3 在此平台/编译选项下解码失效。 */
+    {
+        int fp = 0;
+        int n = samples * (info.channels > 0 ? info.channels : 1);
+        if (n > (int)(MINIMP3_MAX_SAMPLES_PER_FRAME)) n = MINIMP3_MAX_SAMPLES_PER_FRAME;
+        for (int i = 0; i < n; i++) {
+            int a = pcm[i] < 0 ? -pcm[i] : pcm[i];
+            if (a > fp) fp = a;
+        }
+        d->probe_first_peak = fp;
+        ESP_LOGI(TAG, "MP3 probe first-frame: samples=%d ch=%d peak=%d", samples, info.channels, fp);
+    }
     if (info.hz == 0 || info.channels == 0 || samples <= 0) {
         ESP_LOGE(TAG, "MP3 first frame invalid (hz=%d ch=%d samples=%d)", info.hz, info.channels, samples);
         return ESP_FAIL;
