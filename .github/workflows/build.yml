@@ -325,8 +325,13 @@ jobs:
           #   0x120000 app → launcher(ota_0)，app_ota.c 的实际 OTA 槽
           # 注意：app 不再写入 0x10000（factory 仅 1MB），否则 2.4MB 镜像会
           # 跨越覆盖 0x110000(otadata)、0x120000(launcher) 造成启动混乱。
+          # 关键：镜像头 flash_mode 必须写 DIO，与 2nd stage bootloader 编译时
+          # 的 CONFIG_ESPTOOLPY_FLASHMODE_DIO 一致。若强制写 QIO，ROM 第一级
+          # 按 QIO 读会在加载 bootloader 第 1 段时失败（load:0xffffffff,len:-1）
+          # 导致无限 RTCWDT 重启。bootloader 启动后会自行调用 qio_mode 切到 QIO，
+          # 因此镜像头保持 DIO 即可，无需也不能在这里强制 QIO。
           python3 -m esptool --chip esp32 merge_bin \
-            --flash_mode qio \
+            --flash_mode dio \
             --flash_freq 80m \
             --flash_size 16MB \
             --output xiaomiao-desktop-merged.bin \
