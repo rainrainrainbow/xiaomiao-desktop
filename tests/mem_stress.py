@@ -39,6 +39,13 @@ from test_full import Device  # noqa: E402
 
 # GET_INFO 中可能承载堆数值的字段名（按优先级）。当前固件一个都不存在。
 HEAP_KEYS = (
+    # 新版固件 (commit 8996dec1+) GET_INFO 真实字段名，优先采样内部 DRAM（最易耗尽）
+    "heap_internal_free",
+    "heap_free_bytes",
+    "psram_free_bytes",
+    "heap_min_free_bytes",
+    "heap_largest_block",
+    # 兼容其它命名约定
     "heap", "heap_free", "free_heap", "free", "free_bytes",
     "internal", "heap_internal", "free_internal",
     "psram", "heap_psram", "free_psram",
@@ -99,9 +106,15 @@ class MemStress:
         # 记录 GET_INFO 原始结构（交付项 1）
         info = self.dev.send_cmd(1, timeout=5)
         self.emit("[GET_INFO 原始响应] " + json.dumps(info, ensure_ascii=False))
+        heap_found = []
         if info and isinstance(info.get("data"), dict):
-            self.emit("[GET_INFO data 字段] " + ",".join(info["data"].keys()))
-        self.emit("[GET_INFO 堆字段] 未发现（data 中无任何 heap/free/mem 字段）")
+            d = info["data"]
+            self.emit("[GET_INFO data 字段] " + ",".join(d.keys()))
+            heap_found = [("%s=%s" % (k, d[k])) for k in HEAP_KEYS if k in d]
+        if heap_found:
+            self.emit("[GET_INFO 堆字段] " + ", ".join(heap_found))
+        else:
+            self.emit("[GET_INFO 堆字段] 未发现（data 中无任何 heap/free/mem 字段）")
         return self
 
     def get_heap(self, log_from=0):
@@ -134,11 +147,29 @@ class MemStress:
                 pass
         return val, note
 
-    def recover(self, max_wait=30):
-        """设备重启后等待恢复：连续 2 次 PONG 且 GET_INFO 有效。"""
+    def recover(self, max_wait=35):
+        """设备重启后等待恢复。
+
+        崩溃会触发 USB CDC 重新枚举，Windows 下旧串口句柄随之失效
+        （WriteFile failed / PermissionError 13 '设备不识别此命令'）。
+        因此先 close+connect 重建串口，再等待连续 2 次 PONG 且 GET_INFO 有效。
+        """
         deadline = time.monotonic() + max_wait
         pongs = 0
+        try:
+            self.dev.close()
+        except Exception:
+            pass
+        reopened = False
         while time.monotonic() < deadline:
+            if not reopened:
+                try:
+                    self.dev.connect()
+                    reopened = True
+                    time.sleep(0.3)
+                except Exception:
+                    time.sleep(0.5)
+                    continue
             try:
                 r = self.dev.send_cmd(0, timeout=2)
             except Exception:

@@ -10,6 +10,8 @@
 #include "poincare/runtime.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -47,6 +49,27 @@ static const char *TAG = "POINCARE";
 static bool s_initialized = false;
 static void *s_heap = NULL;
 static size_t s_heap_size = 0;
+
+/* 初始化互斥锁：poincare_runtime_init() 可能在多个任务上下文中被并发调用
+ * （启动 ui_init_task 预初始化 + UART 命令任务 cmd4 首次 exec 时的懒初始化）。
+ * mp_thread_init/gc_init/mp_init 会改写 TLS 与全局解释器状态，绝不能并发执行。
+ * 历史上"刚连接首次 EXEC_PYTHON 必崩（LoadStoreError EXCCAUSE=0x3）"即因
+ * 启动初始化与命令 exec 竞态：s_initialized 尚未置位时两个任务同时进入 init。
+ * 用 mutex 串行化整个初始化临界区（懒创建，避免依赖调用方创建顺序）。 */
+static SemaphoreHandle_t s_init_mutex = NULL;
+static portMUX_TYPE s_init_mutex_guard = portMUX_INITIALIZER_UNLOCKED;  /* 保护 mutex 本身的懒创建 */
+
+/* 获取初始化互斥锁（懒创建，创建瞬间用自旋锁保护，避免两个任务同时创建）。
+ * 用动态 xSemaphoreCreateMutex —— 与项目其它模块一致，无需额外 Kconfig 配置。 */
+static SemaphoreHandle_t poincare_init_mutex_get(void)
+{
+    portENTER_CRITICAL(&s_init_mutex_guard);
+    if (s_init_mutex == NULL) {
+        s_init_mutex = xSemaphoreCreateMutex();
+    }
+    portEXIT_CRITICAL(&s_init_mutex_guard);
+    return s_init_mutex;
+}
 
 /* 默认 GC 堆大小（64KB PSRAM） */
 #define POINCARE_DEFAULT_HEAP_SIZE (64 * 1024)
@@ -110,8 +133,21 @@ __attribute__((weak)) void *esp_native_code_commit(void *buf, size_t len, void *
 
 bool poincare_runtime_init(size_t heap_size)
 {
+    /* 快速路径：已初始化直接返回（s_initialized 只置一次，读竞争无害） */
     if (s_initialized) {
-        ESP_LOGW(TAG, "Runtime already initialized");
+        return true;
+    }
+
+    /* 并发保护：启动任务预初始化与命令任务懒初始化可能同时进入。
+     * 整个 mp_thread_init/gc_init/mp_init 临界区必须串行，否则 TLS 被交叉改写
+     * 导致 LoadStoreError。取锁后再次检查（双检锁）。 */
+    SemaphoreHandle_t mux = poincare_init_mutex_get();
+    if (mux && xSemaphoreTake(mux, pdMS_TO_TICKS(30000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to take init mutex");
+        return false;
+    }
+    if (s_initialized) {
+        if (mux) xSemaphoreGive(mux);
         return true;
     }
 
@@ -130,6 +166,7 @@ bool poincare_runtime_init(size_t heap_size)
         s_heap = malloc(heap_size);
         if (s_heap == NULL) {
             ESP_LOGE(TAG, "Failed to allocate MicroPython heap from DRAM either");
+            if (mux) xSemaphoreGive(mux);
             return false;
         }
         ESP_LOGW(TAG, "MicroPython heap allocated from DRAM (not PSRAM)");
@@ -172,6 +209,7 @@ bool poincare_runtime_init(size_t heap_size)
 
     s_initialized = true;
     ESP_LOGI(TAG, "MicroPython runtime initialized successfully");
+    if (mux) xSemaphoreGive(mux);
     return true;
 }
 
