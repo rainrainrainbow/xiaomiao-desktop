@@ -990,10 +990,22 @@ static esp_err_t test_send_response(cJSON *response)
     char *json_str = cJSON_PrintUnformatted(response);
     if (json_str) {
         if (s_uart_tx_mutex && xSemaphoreTake(s_uart_tx_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-            /* XTR: 前缀，便于主机区分测试响应与普通日志 */
-            uart_write_bytes(TEST_UART_NUM, "XTR:", 4);
-            uart_write_bytes(TEST_UART_NUM, json_str, strlen(json_str));
-            uart_write_bytes(TEST_UART_NUM, "\n", 1);
+            /* 必须一次性写入完整行：原先分三次写，ESP_LOG 可能插在 XTR: 前缀
+             * 与 JSON 之间，主机解析到的响应行被拆成两段而丢失。 */
+            size_t json_len = strlen(json_str);
+            char *line = heap_caps_malloc(4 + json_len + 2, MALLOC_CAP_8BIT);
+            if (line) {
+                memcpy(line, "XTR:", 4);
+                memcpy(line + 4, json_str, json_len);
+                line[4 + json_len] = '\n';
+                line[5 + json_len] = '\0';
+                uart_write_bytes(TEST_UART_NUM, line, json_len + 5);
+                heap_caps_free(line);
+            } else {
+                uart_write_bytes(TEST_UART_NUM, "XTR:", 4);
+                uart_write_bytes(TEST_UART_NUM, json_str, json_len);
+                uart_write_bytes(TEST_UART_NUM, "\n", 1);
+            }
             xSemaphoreGive(s_uart_tx_mutex);
         }
         free(json_str);
