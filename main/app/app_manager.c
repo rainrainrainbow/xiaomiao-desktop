@@ -10,6 +10,7 @@
 #include "ui_framework.h"
 #include "lang/lang.h"
 #include "esp_log.h"
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "APP_MGR";
@@ -70,6 +71,21 @@ const app_def_t* app_manager_get_micropython(int *count)
 /* ========== 扫描SD卡应用 ========== */
 int app_manager_scan_sdcard(void)
 {
+    /* 重新扫描前释放上次扫描为 s_python_apps 分配的堆字段。
+     * app_micropython_scan 内部用 strdup 覆盖 name/app_id/py_entry，
+     * 若不先释放，反复安装/卸载应用会持续泄漏（静态数组被重新赋值）。 */
+    for (int i = 0; i < MAX_PYTHON_APPS; i++) {
+        /* s_current_app_name 可能指向某个 py app 的 name，避免置悬空 */
+        if (s_python_apps[i].name && s_python_apps[i].name == s_current_app_name) {
+            s_current_app_name = NULL;
+        }
+        free((void *)s_python_apps[i].name);
+        free((void *)s_python_apps[i].app_id);
+        free((void *)s_python_apps[i].py_entry);
+    }
+    memset(s_python_apps, 0, sizeof(s_python_apps));
+    s_python_count = 0;
+
     // 扫描 /sdcard/apps/ 目录下的 MicroPython 应用
     ESP_LOGI(TAG, "Scanning SD card for MicroPython apps...");
     

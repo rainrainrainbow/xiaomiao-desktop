@@ -669,6 +669,17 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             cJSON_AddStringToObject(info, "hw_version", "ESP32-WROVER");
             cJSON_AddNumberToObject(info, "flash_mb", 16);
             cJSON_AddNumberToObject(info, "psram_mb", 8);
+            /* 实时堆内存：用于内存泄漏诊断（GET_INFO 可被周期性采样对比） */
+            cJSON_AddNumberToObject(info, "heap_free_bytes",
+                                    (double)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            cJSON_AddNumberToObject(info, "heap_min_free_bytes",
+                                    (double)heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+            cJSON_AddNumberToObject(info, "heap_largest_block",
+                                    (double)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+            cJSON_AddNumberToObject(info, "psram_free_bytes",
+                                    (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+            cJSON_AddNumberToObject(info, "heap_internal_free",
+                                    (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
             cJSON_AddNumberToObject(info, "screen_w", XIAOMIAO_SCREEN_WIDTH);
             cJSON_AddNumberToObject(info, "screen_h", XIAOMIAO_SCREEN_HEIGHT);
             cJSON_AddNumberToObject(info, "buttons", 6);

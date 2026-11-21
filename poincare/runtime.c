@@ -251,11 +251,12 @@ int poincare_runtime_exec(const char *source, const char *source_name)
 
     /* 异常捕获 */
     nlr_buf_t nlr;
+    int ret;
     if (nlr_push(&nlr) == 0) {
         /* 编译并执行 */
         mp_parse_compile_execute(lex, MP_PARSE_FILE_INPUT, NULL, NULL);
         nlr_pop();
-        return 0;
+        ret = 0;
     } else {
         /* 捕获到异常 */
         mp_obj_t exc = (mp_obj_t)nlr.ret_val;
@@ -266,8 +267,15 @@ int poincare_runtime_exec(const char *source, const char *source_name)
             mp_obj_print_exception(&mp_plat_print, exc);
         }
         ESP_LOGW(TAG, "Python exception in %s: %s", source_name ? source_name : "<string>", s_last_error);
-        return -1;
+        ret = -1;
     }
+    /* lex 由 mp_parse_compile_execute 内部释放，置空避免 gc_collect 将其当作根 */
+    lex = NULL;
+    /* 每次执行后强制回收：GC 堆仅 64KB，解析树/编译对象在脚本退出后已无引用。
+     * 仅依赖分配失败时的自动回收会在多次执行之间残留对象，反复执行脚本最终
+     * 触发 MemoryError（用户报告的"内存溢出"）。 */
+    gc_collect();
+    return ret;
 }
 
 int poincare_runtime_exec_file(const char *filename)
@@ -302,11 +310,12 @@ int poincare_runtime_exec_file(const char *filename)
     /* 异常捕获（与 poincare_runtime_exec 相同的模式） */
     nlr_buf_t nlr;
     nlr.ret_val = NULL;
+    int ret;
     if (nlr_push(&nlr) == 0) {
         /* 编译并执行 */
         mp_parse_compile_execute(lex, MP_PARSE_FILE_INPUT, NULL, NULL);
         nlr_pop();
-        return 0;
+        ret = 0;
     } else {
         /* 捕获到异常 */
         mp_obj_t exc = (mp_obj_t)nlr.ret_val;
@@ -317,8 +326,13 @@ int poincare_runtime_exec_file(const char *filename)
             mp_obj_print_exception(&mp_plat_print, exc);
         }
         ESP_LOGW(TAG, "Python exception in %s: %s", filename, s_last_error);
-        return -1;
+        ret = -1;
     }
+    /* lex 由 mp_parse_compile_execute 内部释放，置空避免 gc_collect 将其当作根 */
+    lex = NULL;
+    /* 每次执行后强制回收（见 poincare_runtime_exec 的说明） */
+    gc_collect();
+    return ret;
 }
 
 /* ========== 模块注册 ========== */

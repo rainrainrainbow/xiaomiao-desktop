@@ -32,6 +32,11 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 
 static int s_retry_num = 0;
 static bool s_wifi_connected = false;
+/* wifi_auto_connect 只能成功执行一次：它创建事件组、注册两个事件 handler 并创建
+ * 默认 STA netif，这些资源均无常驻句柄可回收。重复调用会泄漏事件组、重复注册
+ * handler（每个事件被处理两次，DISCONNECTED 时 esp_wifi_connect() 被调用两次，
+ * 引发重连风暴和多打日志），并可能创建第二个 STA netif。此处加幂等保护。 */
+static bool s_wifi_auto_started = false;
 /* 用户在设置页主动连接期间暂停自动重连，避免旧凭据覆盖用户的新连接 */
 static volatile bool s_autoreconnect_paused = false;
 
@@ -103,6 +108,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 void wifi_auto_connect(void)
 {
+    /* 幂等保护：事件组/handler/netif 均为一次性资源，重复调用会泄漏并导致重连风暴 */
+    if (s_wifi_auto_started) {
+        ESP_LOGW(TAG, "WiFi auto-connect already started, skipping duplicate init");
+        return;
+    }
+    s_wifi_auto_started = true;
+
     char ssid[33] = {0};
     char password[65] = {0};
 

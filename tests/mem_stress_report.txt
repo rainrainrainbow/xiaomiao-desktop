@@ -1,0 +1,74 @@
+XiaoMiao Desktop OS — 实机内存压测报告
+生成时间: 2026-11-21 11:50:49
+====================================================================
+
+[连接] COM6 @ 115200，PING 就绪
+[GET_INFO 原始响应] {"id": 1003, "cmd": 1, "status": "ok", "data": {"device": "Xiaomiao Desktop", "fw_version": "v71.1", "hw_version": "ESP32-WROVER", "flash_mb": 16, "psram_mb": 8, "screen_w": 160, "screen_h": 128, "buttons": 6, "leds": 3, "micropython_ready": true, "test_running": false}}
+[GET_INFO data 字段] device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running
+[GET_INFO 堆字段] 未发现（data 中无任何 heap/free/mem 字段）
+
+====================================================================
+路径 a: SIMULATE_KEY 进出app
+====================================================================
+轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 6 keys
+轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 6 keys
+小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+
+====================================================================
+路径 b: PLAY_TONE 多频率
+====================================================================
+轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 330Hz
+轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 440Hz
+小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+
+====================================================================
+路径 c: SET_LED/BACKLIGHT
+====================================================================
+轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) rgb(1,37,91)
+轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) rgb(2,74,182)
+小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+
+====================================================================
+路径 d: EXEC_PYTHON
+====================================================================
+轮次 1: heap=None (GET_INFO 无有效响应) script#1 | 事件:REBOOT/CRASH,PING-FAIL
+小结: 完成 1/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:设备重启/失联
+
+====================================================================
+路径 e: RUN_TEST 三项
+====================================================================
+轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) display:2 audio:2 mpy:2
+轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) display:2 audio:2 mpy:2
+小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+
+====================================================================
+路径 f: DIAG_WIFI_SCAN x3
+====================================================================
+轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
+轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
+轮次 3: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
+小结: 完成 3/3 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 3 轮
+
+####################################################################
+# 汇总表
+####################################################################
+路径   描述                             轮次      起始堆      结束堆      最小堆      净下降 可疑         终止原因
+a    SIMULATE_KEY 进出app            2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
+b    PLAY_TONE 多频率                 2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
+c    SET_LED/BACKLIGHT             2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
+d    EXEC_PYTHON                   1/2      N/A      N/A      N/A      N/A 否          设备重启/失联
+e    RUN_TEST 三项                   2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
+f    DIAG_WIFI_SCAN x3             3/3      N/A      N/A      N/A      N/A 否          完成全部 3 轮
+
+[堆可读性] GET_INFO 无堆字段 / EXEC_PYTHON 为 no-op -> 所有路径 heap=None；
+           净下降无法直接测量，改以重启次数、mem free 告警、存活轮数作为泄漏代理证据。
+[重启/崩溃总次数] 1
+[内存告警总次数] 0
+[mem free 快照] 无（未触发任何分配失败日志）
+
+[重点观察]
+  - d EXEC_PYTHON: 完成 1/2, 原因=设备重启/失联
+  - f DIAG_WIFI_SCAN x3: 完成 3/3, 原因=完成全部 3 轮
+  - a SIMULATE_KEY 进出app: 完成 2/2, 原因=完成全部 2 轮
+
+[压测期间设备状态] 发生 1 次重启/崩溃

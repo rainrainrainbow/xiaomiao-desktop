@@ -66,6 +66,52 @@ static lv_font_t *s_font_20 = NULL;
 static lv_font_t *s_font_24 = NULL;
 static bool s_initialized = false;
 
+/* ========== 字体代际回收（防止反复切换字体泄漏） ==========
+ * load_path 每次成功都会新建 4 个尺寸的 lv_font_t 对象。旧对象不能直接释放：
+ * 屏幕上已创建的 label 仍持有旧字体指针，调用方在 load_path 返回后才会
+ * ui_stack_back_home() 重建 UI（重建后旧指针才失去引用）。但若始终不释放，
+ * 反复切换字体就会无限累积对象 + FT_Face，造成内存溢出。
+ *
+ * 采用"保留当前代 + 上一代"的有界回收策略：
+ *   - s_font_*  ：当前代，正在被屏幕引用，绝不释放；
+ *   - s_prev_*  ：上一次切换时被替换下来的字体。最近一次切换已触发 UI 重建，
+ *                 故它已无引用；在下一次成功切换时释放（此时为两代以前）。
+ * 这样堆上最多同时存在 2 套字体，且不会 use-after-free。
+ *
+ * 配合 s_current_font_path 去重：回滚到同一路径变成 no-op，避免回滚路径
+ * 误把仍被屏幕引用的字体替换进待回收队列（app 回滚后不重建 UI）。 */
+static char s_current_font_path[128] = {0};
+static lv_font_t *s_prev_14 = NULL;
+static lv_font_t *s_prev_16 = NULL;
+static lv_font_t *s_prev_20 = NULL;
+static lv_font_t *s_prev_24 = NULL;
+
+/* 记录当前生效的字体路径（供去重使用） */
+static void font_set_current_path(const char *path)
+{
+    if (!path) {
+        s_current_font_path[0] = '\0';
+        return;
+    }
+    strncpy(s_current_font_path, path, sizeof(s_current_font_path) - 1);
+    s_current_font_path[sizeof(s_current_font_path) - 1] = '\0';
+}
+
+/* 释放一套字体对象；自动跳过 NULL 与别名指针（create 失败回退会让多个尺寸
+ * 指向同一对象），避免重复 lv_freetype_font_delete 造成 double-free。 */
+static void free_font_set(lv_font_t *f14, lv_font_t *f16, lv_font_t *f20, lv_font_t *f24)
+{
+    lv_font_t *arr[4] = {f14, f16, f20, f24};
+    for (int i = 0; i < 4; i++) {
+        if (!arr[i]) continue;
+        bool duplicate = false;
+        for (int j = 0; j < i; j++) {
+            if (arr[i] == arr[j]) { duplicate = true; break; }
+        }
+        if (!duplicate) lv_freetype_font_delete(arr[i]);
+    }
+}
+
 /* 尝试打开文件，返回路径或NULL */
 static const char* try_open_font(const char *path)
 {
@@ -293,12 +339,18 @@ lv_result_t lv_freetype_font_init(void)
 
     /* 至少 14px 字体必须成功 */
     if (!s_font_14) {
+        /* 真泄漏修复：14px 失败时 16/20/24px 可能已创建成功，
+         * 它们尚未被任何 UI label 引用（此时处于字体引擎初始化阶段），
+         * 可在 uninit 前安全释放，避免残留字体对象 + FT_Face 泄漏。 */
+        free_font_set(NULL, s_font_16, s_font_20, s_font_24);
+        s_font_16 = s_font_20 = s_font_24 = NULL;
         ESP_LOGE(TAG, "Failed to create 14px FreeType font - fallback will use built-in Chinese font");
         lv_freetype_uninit();
         return LV_RESULT_INVALID;
     }
 
     s_initialized = true;
+    font_set_current_path(font_path);
     ESP_LOGI(TAG, "FreeType font engine initialized: %s (%dpx/%dpx/%dpx/%dpx)",
              font_path, 14, 16, 20, 24);
     return LV_RESULT_OK;
@@ -410,12 +462,19 @@ void lv_freetype_font_deinit(void)
 {
     if (!s_initialized) return;
 
+    /* 释放上一代字体：它在最近一次成功切换后已随 UI 重建失去引用。
+     * 必须在 lv_freetype_uninit() 之前释放（delete 依赖引擎仍存活）。
+     * 当前代 s_font_* 仍被屏幕 label 引用，不在此释放，交由调用方重建 UI。 */
+    free_font_set(s_prev_14, s_prev_16, s_prev_20, s_prev_24);
+    s_prev_14 = s_prev_16 = s_prev_20 = s_prev_24 = NULL;
+
     /* 清空所有字体句柄，后续 lv_font_cn_*() 将回退到内置精简中文字库 */
     s_font_14 = NULL;
     s_font_16 = NULL;
     s_font_20 = NULL;
     s_font_24 = NULL;
     s_initialized = false;
+    font_set_current_path(NULL);
 
     /* 关闭 FreeType 引擎（释放所有缓存字形） */
     lv_freetype_uninit();
@@ -428,6 +487,16 @@ void lv_freetype_font_deinit(void)
 lv_result_t lv_freetype_font_load_path(const char *path)
 {
     if (!path) return LV_RESULT_INVALID;
+
+    /* 去重：已是当前生效字体则直接返回，避免重复创建字体对象造成泄漏。
+     * 对"再次确认当前项"和"加载失败回滚到原路径"尤其重要：回滚路径不重建 UI，
+     * 若重复 new 一套字体会把仍被 label 引用的旧字体推入回收队列，
+     * 造成 use-after-free。 */
+    if (s_initialized && s_font_14 && s_current_font_path[0] != '\0' &&
+        strcmp(s_current_font_path, path) == 0) {
+        ESP_LOGI(TAG, "Font already loaded: %s (skip)", path);
+        return LV_RESULT_OK;
+    }
 
     /* 验证文件存在 */
     FILE *f = fopen(path, "rb");
@@ -487,19 +556,23 @@ lv_result_t lv_freetype_font_load_path(const char *path)
     if (!new_20) new_20 = new_16;
     if (!new_24) new_24 = new_20;
 
-    /*
-     * 原子替换全局字体指针。
-     *
-     * 注意：不立即 lv_freetype_font_delete 旧字体对象！
-     * 因为已创建的界面（桌面、设置页等）的 label 仍引用旧字体指针，
-     * 删除会导致悬空指针/崩溃。旧字体对象保留（少量内存泄漏可接受，
-     * 本设备有 8MB PSRAM；用户切换字体频率低），由调用方随后触发
-     * 全 UI 重建（ui_stack_back_home），新页面将使用新字体。
-     */
+    /* 有界代际回收（真泄漏修复）：
+     * 刚被替换下来的 s_font_* 不能直接释放——屏幕 label 仍引用它们，调用方
+     * 随后会 ui_stack_back_home() 重建 UI。但 s_prev_*（上一代）在最近一次
+     * 切换时已经历 UI 重建、不再被引用，此处可安全释放。由此把堆占用限制在
+     * 当前 + 上一代 2 套字体，避免反复切换字体时无界累积。 */
+    free_font_set(s_prev_14, s_prev_16, s_prev_20, s_prev_24);
+    s_prev_14 = s_font_14;
+    s_prev_16 = s_font_16;
+    s_prev_20 = s_font_20;
+    s_prev_24 = s_font_24;
+
+    /* 原子替换全局字体指针（新字体全部创建成功后才切换） */
     s_font_14 = new_14;
     s_font_16 = new_16;
     s_font_20 = new_20;
     s_font_24 = new_24;
+    font_set_current_path(path);
 
     ESP_LOGI(TAG, "Font reloaded from: %s (%dpx/%dpx/%dpx/%dpx)", path, 14, 16, 20, 24);
     return LV_RESULT_OK;

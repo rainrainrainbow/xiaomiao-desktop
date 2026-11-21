@@ -11,10 +11,18 @@
 
 static const char *TAG = "SYS_NVS";
 static nvs_handle_t s_nvs_handle;
+/* 全局句柄在应用生命周期内常驻，nvs_close 不应在设置读写过程中调用。
+ * 但 sys_nvs_init 若被重复调用，会在旧的 s_nvs_handle 上再 nvs_open 一次，
+ * 导致旧句柄泄漏。加幂等保护，重复调用直接复用已打开的句柄。 */
+static bool s_nvs_opened = false;
 
 /* ========== 初始化NVS存储 ========== */
 int sys_nvs_init(void)
 {
+    if (s_nvs_opened) {
+        return 0;
+    }
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS init error, erasing: %s", esp_err_to_name(ret));
@@ -31,7 +39,8 @@ int sys_nvs_init(void)
         ESP_LOGE(TAG, "NVS open failed: %s", esp_err_to_name(ret));
         return ret;
     }
-    
+    s_nvs_opened = true;
+
     ESP_LOGI(TAG, "NVS initialized (namespace=%s)", NVS_NAMESPACE);
     return 0;
 }

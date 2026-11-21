@@ -34,7 +34,20 @@ bool event_subscribe(event_type_t event_type, event_callback_t callback, void *u
     }
     
     if (s_bus_mutex) xSemaphoreTake(s_bus_mutex, portMAX_DELAY);
-    
+
+    /* 防御性加固：同一 (callback, user_data) 重复订阅时幂等处理，不占用新槽位。
+     * 订阅表是静态数组，重复注册虽不会堆泄漏，但会耗尽每个事件仅 8 个槽位，
+     * 使真正的新订阅失败；且发布时同一回调被多次调用，可能重复创建对象。 */
+    for (int i = 0; i < MAX_SUBSCRIBERS_PER_EVENT; i++) {
+        if (s_subscribers[event_type][i].active &&
+            s_subscribers[event_type][i].callback == callback &&
+            s_subscribers[event_type][i].user_data == user_data) {
+            ESP_LOGD(TAG, "Duplicate subscribe for event %d (slot %d), ignored", event_type, i);
+            if (s_bus_mutex) xSemaphoreGive(s_bus_mutex);
+            return true;
+        }
+    }
+
     /* 查找空闲槽位 */
     for (int i = 0; i < MAX_SUBSCRIBERS_PER_EVENT; i++) {
         if (!s_subscribers[event_type][i].active) {
@@ -46,7 +59,7 @@ bool event_subscribe(event_type_t event_type, event_callback_t callback, void *u
             return true;
         }
     }
-    
+
     if (s_bus_mutex) xSemaphoreGive(s_bus_mutex);
     ESP_LOGW(TAG, "No free slot for event %d", event_type);
     return false;

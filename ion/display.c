@@ -70,6 +70,7 @@ static spi_device_handle_t s_spi_handle = NULL;
 
 /* ========== 帧缓冲区（PSRAM） ========== */
 static ion_color_t *s_framebuffer = NULL;
+static bool s_initialized = false;  /* 单次初始化保护：帧缓冲(40KB)与SPI设备均为常驻资源 */
 #define FB_SIZE (ION_DISPLAY_WIDTH * ION_DISPLAY_HEIGHT)  /* 160*128 = 20480 pixels */
 
 /* ========== 背光亮度 ========== */
@@ -276,6 +277,11 @@ static void backlight_pwm_init(void)
 
 bool ion_display_init(void)
 {
+    if (s_initialized) {
+        ESP_LOGW(TAG, "Display already initialized, skipping duplicate init");
+        return true;
+    }
+
     ESP_LOGI(TAG, "Initializing ST7735 display (%dx%d)", ION_DISPLAY_WIDTH, ION_DISPLAY_HEIGHT);
 
     /* 配置 SPI 引脚 */
@@ -365,6 +371,7 @@ bool ion_display_init(void)
     /* 设置背光 */
     ion_display_set_brightness(50);
 
+    s_initialized = true;
     ESP_LOGI(TAG, "Display initialized successfully");
     return true;
 }
