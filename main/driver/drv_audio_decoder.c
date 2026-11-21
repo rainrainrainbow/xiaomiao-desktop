@@ -247,9 +247,7 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
             if (a > fp) fp = a;
         }
         d->probe_first_peak = fp;
-        ESP_LOGI(TAG, "MP3 probe first-frame: samples=%d ch=%d peak=%d pcm=[%d,%d,%d,%d,%d,%d,%d,%d]",
-                 samples, info.channels, fp,
-                 pcm[0], pcm[1], pcm[2], pcm[3], pcm[4], pcm[5], pcm[6], pcm[7]);
+        for (int i = 0; i < 8; i++) d->first_samples[i] = pcm[i];
     }
     if (info.hz == 0 || info.channels == 0 || samples <= 0) {
         ESP_LOGE(TAG, "MP3 first frame invalid (hz=%d ch=%d samples=%d)", info.hz, info.channels, samples);

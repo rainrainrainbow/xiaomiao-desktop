@@ -161,6 +161,7 @@ typedef struct {
     int probe_peak;         /* 首块样本绝对值峰值，0=全静音 */
     int probe_offset;       /* 首个非静音样本在块内下标 */
     int probe_first_peak;   /* open 首帧解码峰值（诊断解码器本身是否工作） */
+    int first_samples[8];   /* open 首帧解码前 8 个样本原值 */
 } app_music_status_t;
 
 /** 读取音乐应用当前状态；未启动时 count=0、is_playing=false */
