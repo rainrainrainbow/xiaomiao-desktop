@@ -84,6 +84,14 @@
 
 static const char *TAG = "MAIN";
 
+/* UI 初始化完成标志：ui_init_task 在独立任务里构建桌面 UI（推页面栈、挂载分区、
+ * 初始化 SD/字体），main loop 必须等它完成才能处理按键。否则用户在桌面刚显示时
+ * 按键，main 任务会并发进入 ui_stack_push()->lv_obj_clean()，与 ui_init_task 同时
+ * 操作 LVGL 全局事件栈 event_head，导致 lv_event_mark_deleted 遍历到野指针而
+ * LoadProhibited 崩溃（实机复现：WiFi 后台连接时桌面瞬间按 A 进设置必崩）。
+ * volatile 保证跨任务可见；ui_init_task 完成时置 true。 */
+static volatile bool s_ui_init_done = false;
+
 /* ========== LCD驱动（保留在main.c，因为与LVGL紧密耦合） ========== */
 #define LCD_HOST            SPI2_HOST
 #define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
@@ -949,7 +957,11 @@ static void ui_init_task(void *arg)
     }
     
     ESP_LOGI(TAG, "Desktop page pushed successfully");
-    
+
+    /* 标记 UI 初始化全部完成，main loop 方可处理按键。
+     * 必须在所有 LVGL 对象操作（桌面页 push、字体设置）之后置位。 */
+    s_ui_init_done = true;
+
     // 任务完成后不删除，进入空闲循环（保持 LVGL 对象存活）
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1081,6 +1093,20 @@ void app_main(void)
         ESP_LOGE(TAG, "xTaskCreate failed for ui_init_task (ret=%d)", ret);
     }
     
+    /* 等待 ui_init_task 完成全部 LVGL 对象构建后才进入主循环。
+     * 否则 lv_timer_handler() 与 ui_init_task 的 ui_stack_push/lv_obj_clean
+     * 并发操作 LVGL 全局事件栈，桌面瞬间按键会触发 LoadProhibited 崩溃。
+     * 超时兜底 3 秒：即使初始化异常未完成也放行，避免系统假死。 */
+    {
+        int waited = 0;
+        while (!s_ui_init_done && waited < 3000) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            waited += 20;
+        }
+        if (!s_ui_init_done) {
+            ESP_LOGW(TAG, "UI init not done after 3s, entering main loop anyway");
+        }
+    }
     ESP_LOGI(TAG, "Main loop started - waiting for button events...");
     
     // 屏幕超时状态
@@ -1097,6 +1123,14 @@ void app_main(void)
         // Python 应用帧刷新（canvas 承接 framebuffer 的脏标志消费）
         app_micropython_on_tick();
         
+        // UI 初始化未完成时忽略按键：避免与 ui_init_task 并发操作 LVGL
+        // （桌面刚显示时按键会与启动任务的 lv_obj_clean/ui_stack_push 竞争，
+        //  破坏 LVGL 全局事件栈导致 LoadProhibited 崩溃）
+        if (!s_ui_init_done) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
         // 从队列获取按键事件（非阻塞）
         btn_event_t btn_evt;
         if (drv_button_get_event(&btn_evt)) {
