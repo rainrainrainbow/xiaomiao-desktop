@@ -33,6 +33,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #ifndef XIAOMIAO_SCREEN_WIDTH
 #define XIAOMIAO_SCREEN_WIDTH  (160U)
@@ -68,6 +69,46 @@ extern void wifi_diag_trigger_scan(void);
 
 static const char *TAG = "APP_TEST";
 
+/* ========== base64 解码（零依赖，供 FILE_IO 分块写入使用） ========== */
+static int b64_val(unsigned char c)
+{
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+/* 返回解码后的字节数，out 需足够大；输入以 '=' 结尾填充 */
+static size_t b64_decode(const char *in, unsigned char *out, size_t out_cap)
+{
+    size_t olen = 0;
+    int vals[4];
+    int vi = 0;
+    for (const char *p = in; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '=') break;
+        if (c == '\r' || c == '\n' || c == ' ' || c == '\t') continue;
+        int v = b64_val(c);
+        if (v < 0) continue;
+        vals[vi++] = v;
+        if (vi == 4) {
+            if (olen + 3 <= out_cap) {
+                out[olen++] = (unsigned char)((vals[0] << 2) | (vals[1] >> 4));
+                out[olen++] = (unsigned char)((vals[1] << 4) | (vals[2] >> 2));
+                out[olen++] = (unsigned char)((vals[2] << 6) | vals[3]);
+            }
+            vi = 0;
+        }
+    }
+    if (vi >= 2 && olen + 1 <= out_cap)
+        out[olen++] = (unsigned char)((vals[0] << 2) | (vals[1] >> 4));
+    if (vi >= 3 && olen + 1 <= out_cap)
+        out[olen++] = (unsigned char)((vals[1] << 4) | (vals[2] >> 2));
+    return olen;
+}
+
 /* ========== 配置常量 ========== */
 #define TEST_UART_NUM           UART_NUM_0    // USB CDC 使用 UART0
 #define TEST_UART_BAUD_RATE     115200
@@ -101,7 +142,29 @@ typedef enum {
     TEST_CMD_RESET_DEVICE,
     TEST_CMD_ENTER_BOOTLOADER,
     TEST_CMD_DIAG_WIFI_SCAN,   /* 诊断：直接触发 WiFi 扫描 */
+    TEST_CMD_FILE_IO,          /* 文件写入：把测试资源放进内部 FAT(/flash) */
 } test_cmd_type_t;
+
+/* ========== 文件写入通道（内部 RAM 栈写任务 + PSRAM 数据缓冲） ==========
+ * FAT/WL 写操作会禁用 flash cache，IDF 断言任务栈必须在内部 RAM。
+ * UART 命令任务栈在 PSRAM，故实际 I/O 由内部栈的 s_file_io_task 执行：
+ * UART 任务填充请求 → 通知 → 等待完成。FILE* 由写任务独占持有。 */
+#define FILE_IO_CHUNK_MAX  2400   /* 单次 write 解码后字节上限 */
+typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT } file_io_op_t;
+typedef struct {
+    file_io_op_t op;
+    char path[256];
+    char mode[8];
+    unsigned char data[FILE_IO_CHUNK_MAX];
+    size_t data_len;
+    int result;          /* 0=ok, <0=errno 负 */
+    int size_or_written; /* stat 大小 / write 写入字节数 */
+} file_io_req_t;
+
+static file_io_req_t *s_io_req = NULL;      /* PSRAM，惰性分配 */
+static FILE *s_file_io_fp = NULL;            /* 仅写任务访问 */
+static TaskHandle_t s_io_task_handle = NULL;
+static TaskHandle_t s_uart_task_handle = NULL;
 
 /* 测试项目、测试状态、测试结果类型定义见 app_test.h */
 
@@ -655,6 +718,81 @@ static void test_run_all(void)
     vTaskDelete(NULL);
 }
 
+/* ========== 文件写入工作任务（内部 RAM 栈） ========== */
+#define FILE_IO_TASK_STACK  8192
+static StackType_t s_file_io_stack[FILE_IO_TASK_STACK / sizeof(StackType_t)];
+static StaticTask_t s_file_io_tcb;
+
+static void file_io_task(void *arg)
+{
+    (void)arg;
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  /* 等请求 */
+        if (!s_io_req) continue;
+        file_io_req_t *r = s_io_req;
+        r->result = 0;
+        r->size_or_written = 0;
+
+        switch (r->op) {
+        case IO_OP_OPEN:
+            if (s_file_io_fp) { fclose(s_file_io_fp); s_file_io_fp = NULL; }
+            s_file_io_fp = fopen(r->path, r->mode[0] ? r->mode : "w");
+            if (!s_file_io_fp) r->result = errno > 0 ? -errno : -1;
+            break;
+        case IO_OP_WRITE:
+            if (!s_file_io_fp) { r->result = -100; break; }
+            {
+                size_t w = fwrite(r->data, 1, r->data_len, s_file_io_fp);
+                r->size_or_written = (int)w;
+                if (w != r->data_len) r->result = -101;
+            }
+            break;
+        case IO_OP_CLOSE:
+            if (s_file_io_fp) { fclose(s_file_io_fp); s_file_io_fp = NULL; }
+            break;
+        case IO_OP_MKDIR:
+            r->result = mkdir(r->path, 0777);  /* 0=ok, -1=exists/error */
+            if (r->result != 0) r->result = errno > 0 ? -errno : -1;
+            break;
+        case IO_OP_STAT:
+            {
+                struct stat st;
+                if (stat(r->path, &st) == 0) r->size_or_written = (int)st.st_size;
+                else r->result = errno > 0 ? -errno : -1;
+            }
+            break;
+        default:
+            r->result = -200;
+            break;
+        }
+
+        if (s_uart_task_handle) xTaskNotifyGive(s_uart_task_handle);  /* 完成 */
+    }
+}
+
+/* 在 UART 命令任务里同步执行一次 I/O 请求并等待结果 */
+static int file_io_dispatch(file_io_op_t op, const char *path, const char *mode,
+                            const unsigned char *data, size_t len,
+                            int *out_size)
+{
+    if (!s_io_req || !s_io_task_handle) return -1;
+    file_io_req_t *r = s_io_req;
+    r->op = op;
+    if (path) { strncpy(r->path, path, sizeof(r->path)-1); r->path[sizeof(r->path)-1]='\0'; }
+    if (mode) { strncpy(r->mode, mode, sizeof(r->mode)-1); r->mode[sizeof(r->mode)-1]='\0'; }
+    else r->mode[0] = '\0';
+    if (data && len) {
+        if (len > sizeof(r->data)) len = sizeof(r->data);
+        memcpy(r->data, data, len);
+    }
+    r->data_len = (data && len) ? len : 0;
+
+    xTaskNotifyGive(s_io_task_handle);
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(30000));  /* 等完成通知 */
+    if (out_size) *out_size = r->size_or_written;
+    return r->result;
+}
+
 /* ========== 命令处理 ========== */
 
 static void test_handle_cmd(const test_cmd_t *cmd)
@@ -838,6 +976,99 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             wifi_diag_trigger_scan();
             cJSON_AddStringToObject(response, "status", "ok");
             cJSON_AddStringToObject(response, "msg", "WiFi scan triggered");
+            break;
+        }
+        case TEST_CMD_FILE_IO: {
+            /* 把测试资源（如 mp3）分块写进内部 FAT /flash。
+             * 走 C 层标准 fopen/fwrite（ESP-IDF VFS + WL），不用 MicroPython。
+             * op: open(path,mode) / write(data_b64) / close / stat(path) / mkdir(path) */
+            cJSON *op_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "op") : NULL;
+            if (!op_json || !cJSON_IsString(op_json)) {
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "msg", "Missing 'op'");
+                break;
+            }
+            const char *op = op_json->valuestring;
+
+            if (strcmp(op, "open") == 0) {
+                cJSON *path_json = cJSON_GetObjectItem(cmd->params, "path");
+                cJSON *mode_json = cJSON_GetObjectItem(cmd->params, "mode");
+                const char *mode = (mode_json && cJSON_IsString(mode_json)) ? mode_json->valuestring : "w";
+                if (!path_json || !cJSON_IsString(path_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'path'");
+                    break;
+                }
+                int rc = file_io_dispatch(IO_OP_OPEN, path_json->valuestring, mode, NULL, 0, NULL);
+                if (rc != 0) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "fopen failed");
+                    cJSON_AddNumberToObject(response, "errno", -rc);
+                } else {
+                    cJSON_AddStringToObject(response, "status", "ok");
+                    cJSON_AddStringToObject(response, "msg", "file opened");
+                }
+            } else if (strcmp(op, "write") == 0) {
+                cJSON *data_json = cJSON_GetObjectItem(cmd->params, "data_b64");
+                if (!data_json || !cJSON_IsString(data_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'data_b64'");
+                } else {
+                    size_t dlen = strlen(data_json->valuestring);
+                    unsigned char *dec = (unsigned char *)malloc(dlen + 4);
+                    if (!dec) {
+                        cJSON_AddStringToObject(response, "status", "error");
+                        cJSON_AddStringToObject(response, "msg", "OOM");
+                    } else {
+                        size_t n = b64_decode(data_json->valuestring, dec, dlen + 4);
+                        int written = 0;
+                        int rc = file_io_dispatch(IO_OP_WRITE, NULL, NULL, dec, n, &written);
+                        free(dec);
+                        if (rc != 0) {
+                            cJSON_AddStringToObject(response, "status", "error");
+                            cJSON_AddStringToObject(response, "msg", "fwrite failed");
+                            cJSON_AddNumberToObject(response, "errno", -rc);
+                        } else {
+                            cJSON_AddStringToObject(response, "status", "ok");
+                            cJSON_AddNumberToObject(response, "written", written);
+                        }
+                    }
+                }
+            } else if (strcmp(op, "close") == 0) {
+                file_io_dispatch(IO_OP_CLOSE, NULL, NULL, NULL, 0, NULL);
+                cJSON_AddStringToObject(response, "status", "ok");
+                cJSON_AddStringToObject(response, "msg", "file closed");
+            } else if (strcmp(op, "mkdir") == 0) {
+                cJSON *path_json = cJSON_GetObjectItem(cmd->params, "path");
+                if (!path_json || !cJSON_IsString(path_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'path'");
+                } else {
+                    int rc = file_io_dispatch(IO_OP_MKDIR, path_json->valuestring, NULL, NULL, 0, NULL);
+                    cJSON_AddStringToObject(response, "status", "ok");
+                    cJSON_AddNumberToObject(response, "mkdir_ret", rc);
+                }
+            } else if (strcmp(op, "stat") == 0) {
+                cJSON *path_json = cJSON_GetObjectItem(cmd->params, "path");
+                if (!path_json || !cJSON_IsString(path_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'path'");
+                } else {
+                    int sz = 0;
+                    int rc = file_io_dispatch(IO_OP_STAT, path_json->valuestring, NULL, NULL, 0, &sz);
+                    if (rc != 0) {
+                        cJSON_AddStringToObject(response, "status", "error");
+                        cJSON_AddStringToObject(response, "msg", "stat failed");
+                        cJSON_AddNumberToObject(response, "errno", -rc);
+                    } else {
+                        cJSON_AddStringToObject(response, "status", "ok");
+                        cJSON_AddNumberToObject(response, "size", sz);
+                    }
+                }
+            } else {
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "msg", "Unknown op");
+            }
             break;
         }
         case TEST_CMD_SET_LED: {
@@ -1179,6 +1410,23 @@ void app_test_init(void)
     if (!uart_task_handle) {
         ESP_LOGE(TAG, "xTaskCreateStatic failed for test_uart");
         return;
+    }
+    s_uart_task_handle = uart_task_handle;
+
+    /* 文件写入通道：请求结构放 PSRAM，实际 I/O 在内部 RAM 栈任务执行，
+     * 满足 flash cache disabled 时的栈合法性断言。 */
+    s_io_req = (file_io_req_t *)heap_caps_malloc(sizeof(file_io_req_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_io_req) s_io_req = (file_io_req_t *)malloc(sizeof(file_io_req_t));
+    if (s_io_req) {
+        memset(s_io_req, 0, sizeof(file_io_req_t));
+        s_io_task_handle = xTaskCreateStatic(
+            file_io_task, "file_io", FILE_IO_TASK_STACK / sizeof(StackType_t),
+            NULL, 18, s_file_io_stack, &s_file_io_tcb);
+        if (!s_io_task_handle) {
+            ESP_LOGE(TAG, "xTaskCreateStatic failed for file_io");
+        }
+    } else {
+        ESP_LOGE(TAG, "file_io request alloc failed");
     }
 
     ESP_LOGI(TAG, "Test interface ready on USB CDC (UART0), stack in PSRAM");

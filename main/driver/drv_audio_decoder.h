@@ -1,12 +1,11 @@
 /**
  * @file drv_audio_decoder.h
- * @brief WAV音频解码器 - 解析RIFF WAVE文件并提取PCM数据
+ * @brief 音频解码器 - 支持 WAV(PCM) 与 MP3，统一输出 16-bit PCM
  *
  * 支持的格式：
- * - PCM编码（WAVE_FORMAT_PCM = 0x0001）
- * - 8位/16位采样
- * - 单声道/立体声
- * - 采样率：8kHz ~ 48kHz
+ * - WAV: PCM编码（WAVE_FORMAT_PCM = 0x0001），8/16位，单/立体声，8k~48kHz
+ * - MP3: MPEG Layer I/II/III（minimp3 解码），通过文件魔数自动识别
+ * - 所有格式统一输出 16-bit PCM，API 保持 wav_decoder_* 命名兼容既有调用
  *
  * 使用方式：
  * @code
@@ -56,13 +55,31 @@ typedef enum {
     WAV_DECODER_ERROR           /* 错误状态 */
 } wav_decoder_state_t;
 
+/* ========== 源类型 ========== */
+typedef enum {
+    AUDIO_SRC_UNKNOWN = 0,
+    AUDIO_SRC_WAV,
+    AUDIO_SRC_MP3
+} audio_source_t;
+
 /* ========== 解码器句柄 ========== */
 typedef struct {
     wav_decoder_state_t state;  /* 解码器状态 */
-    wav_format_t format;        /* WAV格式信息 */
+    wav_format_t format;        /* 解码后PCM格式信息 */
     FILE *file;                 /* 文件句柄 */
-    uint32_t bytes_read;        /* 已读取的PCM字节数 */
+    uint32_t bytes_read;        /* 已输出的PCM字节数 */
     bool is_8bit;               /* 是否8位PCM（需要转换为16位） */
+    audio_source_t src;         /* 源文件类型（WAV/MP3） */
+
+    /* ---- MP3 专用状态（WAV 时全部不占用） ---- */
+    void *mp3_dec;              /* mp3dec_t*，从 PSRAM 分配 */
+    void *mp3_file_buf;         /* 整个 mp3 文件的原始字节缓冲（PSRAM） */
+    size_t mp3_file_size;       /* mp3 文件大小 */
+    size_t mp3_offset;          /* 当前读取位置（字节，指向 mp3_file_buf） */
+    int16_t *mp3_pcm_buf;       /* 一帧解码 PCM 暂存（PSRAM） */
+    size_t mp3_pcm_valid;       /* mp3_pcm_buf 中有效样本数 */
+    size_t mp3_pcm_pos;         /* mp3_pcm_buf 已消费样本数 */
+    bool mp3_byte_rate_est;     /* byte_rate 是否已估算 */
 } wav_decoder_t;
 
 /* ========== API函数 ========== */
@@ -137,6 +154,13 @@ uint32_t wav_decoder_get_position_ms(wav_decoder_t *decoder);
  * @return true 是WAV格式
  */
 bool wav_decoder_is_wav_file(const char *filepath);
+
+/**
+ * @brief 检查文件是否为受支持的音频（WAV 或 MP3），按魔数识别
+ * @param filepath 文件路径
+ * @return true 是 WAV/MP3 且可解码
+ */
+bool audio_decoder_is_supported(const char *filepath);
 
 #ifdef __cplusplus
 }

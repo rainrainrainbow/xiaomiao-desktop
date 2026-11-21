@@ -3,7 +3,8 @@
  * @brief 音乐应用 - 三页面架构（列表/播放/设置）
  *
  * 功能：
- * - 列表页：自动扫描存储卡音频文件（/sdcard/music 目录，支持 .wav）
+ * - 列表页：优先扫描内置 FAT（/flash/music），回退存储卡（/sdcard/music）；
+ *           支持 .wav / .mp3（minimp3 解码）
  * - 播放页：歌词显示(LRC)、频谱可视化、播放进度、音量、循环模式、上下一首、暂停
  * - 设置页：音量、频谱开关、循环模式、播放输出设备
  *
@@ -101,7 +102,11 @@ static int s_settings_sel = 0;
 /* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放 */
 EXT_RAM_BSS_ATTR static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
 static int s_music_count = 0;
-static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
+/* 优先使用内部 5MB FAT 分区（retro-core 挂载点 /flash）中的音乐；
+ * 若该目录不存在或为空，回退到存储卡 /sdcard/music。 */
+#define MUSIC_DIR_FLASH  "/flash/music"
+#define MUSIC_DIR_SD     "/sdcard/music"
+static char s_music_current_path[MUSIC_PATH_LEN] = MUSIC_DIR_FLASH;
 
 /* 播放状态 */
 static volatile bool s_is_playing = false;
@@ -118,6 +123,26 @@ static lrc_parser_t s_lrc;
 static TaskHandle_t s_play_task = NULL;
 
 /* ========== 文件扫描 ========== */
+/* 统计指定目录中可解码音频文件数（不填充列表），用于目录自动选择 */
+static int music_count_audio(const char *path)
+{
+    int count = 0;
+    DIR *dir = opendir(path);
+    if (!dir) return 0;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        const char *ext = strrchr(entry->d_name, '.');
+        if (!ext) continue;
+        if (strcasecmp(ext, ".wav") == 0 || strcasecmp(ext, ".wave") == 0 ||
+            strcasecmp(ext, ".mp3") == 0) {
+            count++;
+        }
+    }
+    closedir(dir);
+    return count;
+}
+
 static void music_scan_dir(const char *path)
 {
     s_music_count = 0;
@@ -134,10 +159,11 @@ static void music_scan_dir(const char *path)
     while ((entry = readdir(dir)) != NULL && s_music_count < MUSIC_MAX_ENTRIES) {
         if (entry->d_name[0] == '.') continue;
 
-        /* 支持 .wav 音频文件（后续可扩展 .mp3/.flac） */
+        /* 支持 .wav / .mp3 / .wave */
         const char *ext = strrchr(entry->d_name, '.');
         if (!ext) continue;
-        if (strcasecmp(ext, ".wav") != 0) continue;
+        if (strcasecmp(ext, ".wav") != 0 && strcasecmp(ext, ".wave") != 0 &&
+            strcasecmp(ext, ".mp3") != 0) continue;
 
         strncpy(s_music_entries[s_music_count], entry->d_name, MUSIC_PATH_LEN - 1);
         s_music_entries[s_music_count][MUSIC_PATH_LEN - 1] = '\0';
@@ -145,7 +171,20 @@ static void music_scan_dir(const char *path)
     }
     closedir(dir);
 
-    ESP_LOGI(TAG, "Music scan: %d WAV files in %s", s_music_count, path);
+    ESP_LOGI(TAG, "Music scan: %d audio files in %s", s_music_count, path);
+}
+
+/* 自动选择音乐目录：内置 FAT 优先，空则回退 SD 卡 */
+static void music_scan_auto(void)
+{
+    const char *chosen = MUSIC_DIR_FLASH;
+    int n_flash = music_count_audio(MUSIC_DIR_FLASH);
+    if (n_flash <= 0) {
+        int n_sd = music_count_audio(MUSIC_DIR_SD);
+        if (n_sd > 0) chosen = MUSIC_DIR_SD;
+    }
+    ESP_LOGI(TAG, "Music dir select: %s (flash=%d)", chosen, n_flash);
+    music_scan_dir(chosen);
 }
 
 /* ========== 播放控制 ========== */
@@ -375,7 +414,11 @@ static void music_start_playback(int idx)
         lrc_parser_load(&s_lrc, lrc_base);
     }
 
-    BaseType_t rt = xTaskCreate(music_play_task, "music_play", 4096,
+    /* MP3 解码（minimp3）单次调用栈帧含 grbuf/syn 等大数组，需 ~14KB 栈；
+     * 且解码期间可能触发 flash cache disabled，栈必须留在内部 RAM。
+     * xTaskCreate 动态栈默认内部 RAM（PSRAM 栈分配选项未启用动态路径）。 */
+    #define MUSIC_PLAY_TASK_STACK 24576
+    BaseType_t rt = xTaskCreate(music_play_task, "music_play", MUSIC_PLAY_TASK_STACK,
                                 (void*)(intptr_t)idx, 5, &s_play_task);
     if (rt != pdPASS) {
         /* 任务创建失败（内存不足）：复位播放状态，避免 UI 误判为正在播放 */
@@ -1057,7 +1100,7 @@ static void music_init(void *data)
     s_music_sel = 0;
     s_music_scroll = 0;
     s_music_page = MUSIC_PAGE_LIST;
-    music_scan_dir(s_music_current_path);
+    music_scan_auto();
     music_refresh_page();
     if (s_ui_timer) lv_timer_del(s_ui_timer);
     s_ui_timer = lv_timer_create(music_ui_timer_cb, 200, NULL);
