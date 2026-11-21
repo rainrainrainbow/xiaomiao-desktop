@@ -15,6 +15,7 @@
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -64,7 +65,7 @@ static void apply_volume_24bit(void *data, size_t len, float gain)
 
 /* ========== 后端接口实现 ========== */
 
-static esp_err_t i2s_backend_init(void)
+static esp_err_t i2s_backend_init_locked(void)
 {
     if (s_i2s_initialized) {
         return ESP_OK;
@@ -78,7 +79,7 @@ static esp_err_t i2s_backend_init(void)
     return ESP_OK;
 }
 
-static void i2s_backend_deinit(void)
+static void i2s_backend_deinit_locked(void)
 {
     if (!s_i2s_initialized) return;
 
@@ -95,7 +96,7 @@ static void i2s_backend_deinit(void)
     ESP_LOGI(TAG, "I2S backend deinitialized");
 }
 
-static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t channels)
+static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uint8_t channels)
 {
     if (!s_i2s_initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -204,7 +205,7 @@ static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t ch
     return ESP_OK;
 }
 
-static esp_err_t i2s_backend_write(const void *data, size_t len)
+static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
 {
     if (!s_i2s_tx_handle || !s_i2s_opened) {
         return ESP_ERR_INVALID_STATE;
@@ -221,7 +222,7 @@ static esp_err_t i2s_backend_write(const void *data, size_t len)
         if (!vol_buf) {
             ESP_LOGW(TAG, "Volume buffer alloc failed (%zu bytes), writing raw", len);
             size_t bytes_written = 0;
-            return i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, portMAX_DELAY);
+            return i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, pdMS_TO_TICKS(2000));
         }
 
         memcpy(vol_buf, data, len);
@@ -233,7 +234,7 @@ static esp_err_t i2s_backend_write(const void *data, size_t len)
         /* 32位：直接乘法在i2s_channel_write中处理，暂不调整 */
 
         size_t bytes_written = 0;
-        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, vol_buf, len, &bytes_written, portMAX_DELAY);
+        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, vol_buf, len, &bytes_written, pdMS_TO_TICKS(2000));
         heap_caps_free(vol_buf);
 
         if (ret != ESP_OK) {
@@ -244,14 +245,14 @@ static esp_err_t i2s_backend_write(const void *data, size_t len)
 
     /* 满音量，直接写入 */
     size_t bytes_written = 0;
-    esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, portMAX_DELAY);
+    esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, pdMS_TO_TICKS(2000));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2S write failed: %s", esp_err_to_name(ret));
     }
     return ret;
 }
 
-static esp_err_t i2s_backend_stop(void)
+static esp_err_t i2s_backend_stop_locked(void)
 {
     if (!s_i2s_tx_handle || !s_i2s_opened) {
         return ESP_ERR_INVALID_STATE;
@@ -274,7 +275,7 @@ static esp_err_t i2s_backend_stop(void)
     return ESP_OK;
 }
 
-static void i2s_backend_flush(void)
+static void i2s_backend_flush_locked(void)
 {
     if (!s_i2s_tx_handle || !s_i2s_opened) return;
 
@@ -282,12 +283,97 @@ static void i2s_backend_flush(void)
     vTaskDelay(pdMS_TO_TICKS(10));
 }
 
-static esp_err_t i2s_backend_set_volume(uint8_t vol)
+static esp_err_t i2s_backend_set_volume_locked(uint8_t vol)
 {
     if (vol > 100) vol = 100;
     s_i2s_volume = vol;
     ESP_LOGD(TAG, "Volume set to %d (gain=%.3f)", vol, volume_to_gain(vol));
     return ESP_OK;
+}
+
+static uint8_t i2s_backend_get_volume_locked(void)
+{
+    return s_i2s_volume;
+}
+
+static bool i2s_backend_is_available_locked(void)
+{
+    /* I2S DAC始终可用（硬件直连，非热插拔） */
+    return true;
+}
+
+/* ========== I2S 后端操作串行化 ==========
+ * 快速连续播放 tone 时，open/write/stop/deinit 可能被不同任务并发调用。
+ * 若 write 期间通道被删除并重建，旧句柄可能指向 RX 通道，
+ * 触发 i2s_channel_write(): "this channel is not tx channel" 刷屏并淹没 UART 响应。
+ * 所有通道操作统一持锁，写超时改为 2s，避免长期占锁。 */
+static SemaphoreHandle_t s_i2s_lock = NULL;
+
+static esp_err_t i2s_backend_init(void)
+{
+    if (!s_i2s_lock) {
+        s_i2s_lock = xSemaphoreCreateMutex();
+        if (!s_i2s_lock) return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t ret = i2s_backend_init_locked();
+    xSemaphoreGive(s_i2s_lock);
+    return ret;
+}
+
+static void i2s_backend_deinit(void)
+{
+    if (!s_i2s_lock) return;
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return;
+    i2s_backend_deinit_locked();
+    xSemaphoreGive(s_i2s_lock);
+}
+
+static esp_err_t i2s_backend_open(uint32_t sample_rate, uint8_t bits, uint8_t channels)
+{
+    if (!s_i2s_lock) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t ret = i2s_backend_open_locked(sample_rate, bits, channels);
+    xSemaphoreGive(s_i2s_lock);
+    return ret;
+}
+
+static esp_err_t i2s_backend_write(const void *data, size_t len)
+{
+    if (!s_i2s_lock) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t ret = i2s_backend_write_locked(data, len);
+    xSemaphoreGive(s_i2s_lock);
+    return ret;
+}
+
+static esp_err_t i2s_backend_stop(void)
+{
+    if (!s_i2s_lock) return ESP_ERR_INVALID_STATE;
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t ret = i2s_backend_stop_locked();
+    xSemaphoreGive(s_i2s_lock);
+    return ret;
+}
+
+static void i2s_backend_flush(void)
+{
+    if (!s_i2s_lock) return;
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return;
+    i2s_backend_flush_locked();
+    xSemaphoreGive(s_i2s_lock);
+}
+
+static esp_err_t i2s_backend_set_volume(uint8_t vol)
+{
+    if (!s_i2s_lock) {
+        s_i2s_volume = vol > 100 ? 100 : vol;
+        return ESP_OK;
+    }
+    if (xSemaphoreTake(s_i2s_lock, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    esp_err_t ret = i2s_backend_set_volume_locked(vol);
+    xSemaphoreGive(s_i2s_lock);
+    return ret;
 }
 
 static uint8_t i2s_backend_get_volume(void)
@@ -297,7 +383,6 @@ static uint8_t i2s_backend_get_volume(void)
 
 static bool i2s_backend_is_available(void)
 {
-    /* I2S DAC始终可用（硬件直连，非热插拔） */
     return true;
 }
 
