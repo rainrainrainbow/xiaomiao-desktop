@@ -110,6 +110,23 @@ static size_t b64_decode(const char *in, unsigned char *out, size_t out_cap)
     return olen;
 }
 
+static const char *b64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+/* 返回写入 in 的字符数（不含结尾 NUL）。out_cap 至少 4*((len+2)/3)+1 */
+static size_t b64_encode(const unsigned char *in, size_t len, char *out, size_t out_cap)
+{
+    size_t o = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        unsigned a = in[i], b = (i + 1 < len) ? in[i + 1] : 0, c = (i + 2 < len) ? in[i + 2] : 0;
+        if (o + 4 >= out_cap) break;
+        out[o++] = b64_alphabet[a >> 2];
+        out[o++] = b64_alphabet[((a & 3) << 4) | (b >> 4)];
+        out[o++] = (i + 1 < len) ? b64_alphabet[((b & 15) << 2) | (c >> 6)] : '=';
+        out[o++] = (i + 2 < len) ? b64_alphabet[c & 63] : '=';
+    }
+    out[o] = '\0';
+    return o;
+}
+
 /* ========== 配置常量 ========== */
 #define TEST_UART_NUM           UART_NUM_0    // USB CDC 使用 UART0
 #define TEST_UART_BAUD_RATE     115200
@@ -153,13 +170,14 @@ typedef enum {
  * UART 命令任务栈在 PSRAM，故实际 I/O 由内部栈的 s_file_io_task 执行：
  * UART 任务填充请求 → 通知 → 等待完成。FILE* 由写任务独占持有。 */
 #define FILE_IO_CHUNK_MAX  2400   /* 单次 write 解码后字节上限 */
-typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT } file_io_op_t;
+typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT, IO_OP_READ } file_io_op_t;
 typedef struct {
     file_io_op_t op;
     char path[256];
     char mode[8];
     unsigned char data[FILE_IO_CHUNK_MAX];
     size_t data_len;
+    int offset;          /* read 起始偏移 */
     int result;          /* 0=ok, <0=errno 负 */
     int size_or_written; /* stat 大小 / write 写入字节数 */
 } file_io_req_t;
@@ -750,6 +768,23 @@ static void file_io_task(void *arg)
                 if (w != r->data_len) r->result = -101;
             }
             break;
+        case IO_OP_READ:
+            {
+                FILE *fp = fopen(r->path, "rb");
+                if (!fp) { r->result = errno > 0 ? -errno : -1; break; }
+                if (fseek(fp, r->offset, SEEK_SET) != 0) {
+                    r->result = -102;
+                } else {
+                    size_t want = r->data_len;
+                    if (want > sizeof(r->data)) want = sizeof(r->data);
+                    size_t got = fread(r->data, 1, want, fp);
+                    r->data_len = got;
+                    r->size_or_written = (int)got;
+                    if (got != want) r->result = -103;
+                }
+                fclose(fp);
+            }
+            break;
         case IO_OP_CLOSE:
             if (s_file_io_fp) { fclose(s_file_io_fp); s_file_io_fp = NULL; }
             break;
@@ -776,7 +811,7 @@ static void file_io_task(void *arg)
 /* 在 UART 命令任务里同步执行一次 I/O 请求并等待结果 */
 static int file_io_dispatch(file_io_op_t op, const char *path, const char *mode,
                             const unsigned char *data, size_t len,
-                            int *out_size)
+                            size_t read_len, int *out_size)
 {
     if (!s_io_req || !s_io_task_handle) return -1;
     file_io_req_t *r = s_io_req;
@@ -784,11 +819,14 @@ static int file_io_dispatch(file_io_op_t op, const char *path, const char *mode,
     if (path) { strncpy(r->path, path, sizeof(r->path)-1); r->path[sizeof(r->path)-1]='\0'; }
     if (mode) { strncpy(r->mode, mode, sizeof(r->mode)-1); r->mode[sizeof(r->mode)-1]='\0'; }
     else r->mode[0] = '\0';
-    if (data && len) {
+    if (op == IO_OP_READ) {
+        r->offset = (int)len;                 /* read 时 len 参数复用为偏移 */
+    }
+    if (data && op != IO_OP_READ && len) {
         if (len > sizeof(r->data)) len = sizeof(r->data);
         memcpy(r->data, data, len);
     }
-    r->data_len = (data && len) ? len : 0;
+    r->data_len = (op == IO_OP_READ) ? read_len : ((data && len) ? len : 0);
 
     xTaskNotifyGive(s_io_task_handle);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(30000));  /* 等完成通知 */
@@ -1002,7 +1040,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     cJSON_AddStringToObject(response, "msg", "Missing 'path'");
                     break;
                 }
-                int rc = file_io_dispatch(IO_OP_OPEN, path_json->valuestring, mode, NULL, 0, NULL);
+                int rc = file_io_dispatch(IO_OP_OPEN, path_json->valuestring, mode, NULL, 0, 0, NULL);
                 if (rc != 0) {
                     cJSON_AddStringToObject(response, "status", "error");
                     cJSON_AddStringToObject(response, "msg", "fopen failed");
@@ -1025,7 +1063,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     } else {
                         size_t n = b64_decode(data_json->valuestring, dec, dlen + 4);
                         int written = 0;
-                        int rc = file_io_dispatch(IO_OP_WRITE, NULL, NULL, dec, n, &written);
+                        int rc = file_io_dispatch(IO_OP_WRITE, NULL, NULL, dec, n, 0, &written);
                         free(dec);
                         if (rc != 0) {
                             cJSON_AddStringToObject(response, "status", "error");
@@ -1038,7 +1076,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     }
                 }
             } else if (strcmp(op, "close") == 0) {
-                file_io_dispatch(IO_OP_CLOSE, NULL, NULL, NULL, 0, NULL);
+                file_io_dispatch(IO_OP_CLOSE, NULL, NULL, NULL, 0, 0, NULL);
                 cJSON_AddStringToObject(response, "status", "ok");
                 cJSON_AddStringToObject(response, "msg", "file closed");
             } else if (strcmp(op, "mkdir") == 0) {
@@ -1047,7 +1085,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     cJSON_AddStringToObject(response, "status", "error");
                     cJSON_AddStringToObject(response, "msg", "Missing 'path'");
                 } else {
-                    int rc = file_io_dispatch(IO_OP_MKDIR, path_json->valuestring, NULL, NULL, 0, NULL);
+                    int rc = file_io_dispatch(IO_OP_MKDIR, path_json->valuestring, NULL, NULL, 0, 0, NULL);
                     cJSON_AddStringToObject(response, "status", "ok");
                     cJSON_AddNumberToObject(response, "mkdir_ret", rc);
                 }
@@ -1058,7 +1096,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     cJSON_AddStringToObject(response, "msg", "Missing 'path'");
                 } else {
                     int sz = 0;
-                    int rc = file_io_dispatch(IO_OP_STAT, path_json->valuestring, NULL, NULL, 0, &sz);
+                    int rc = file_io_dispatch(IO_OP_STAT, path_json->valuestring, NULL, NULL, 0, 0, &sz);
                     if (rc != 0) {
                         cJSON_AddStringToObject(response, "status", "error");
                         cJSON_AddStringToObject(response, "msg", "stat failed");
@@ -1066,6 +1104,40 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     } else {
                         cJSON_AddStringToObject(response, "status", "ok");
                         cJSON_AddNumberToObject(response, "size", sz);
+                    }
+                }
+            } else if (strcmp(op, "read") == 0) {
+                /* 只读诊断：从文件指定偏移读回字节（base64），用于校验写入内容是否完整 */
+                cJSON *path_json = cJSON_GetObjectItem(cmd->params, "path");
+                cJSON *off_json = cJSON_GetObjectItem(cmd->params, "offset");
+                cJSON *len_json = cJSON_GetObjectItem(cmd->params, "length");
+                if (!path_json || !cJSON_IsString(path_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'path'");
+                } else {
+                    int offset = (off_json && cJSON_IsNumber(off_json)) ? off_json->valueint : 0;
+                    int length = (len_json && cJSON_IsNumber(len_json)) ? len_json->valueint : 256;
+                    if (length <= 0 || length > FILE_IO_CHUNK_MAX) length = FILE_IO_CHUNK_MAX;
+                    int got = 0;
+                    int rc = file_io_dispatch(IO_OP_READ, path_json->valuestring, NULL,
+                                              NULL, (size_t)offset, (size_t)length, &got);
+                    if (rc != 0) {
+                        cJSON_AddStringToObject(response, "status", "error");
+                        cJSON_AddStringToObject(response, "msg", "read failed");
+                        cJSON_AddNumberToObject(response, "errno", -rc);
+                    } else {
+                        size_t cap = (size_t)((got + 2) / 3) * 4 + 8;
+                        char *b64 = (char *)malloc(cap);
+                        if (!b64) {
+                            cJSON_AddStringToObject(response, "status", "error");
+                            cJSON_AddStringToObject(response, "msg", "OOM");
+                        } else {
+                            b64_encode(s_io_req->data, (size_t)got, b64, cap);
+                            cJSON_AddStringToObject(response, "status", "ok");
+                            cJSON_AddNumberToObject(response, "length", got);
+                            cJSON_AddStringToObject(response, "data_b64", b64);
+                            free(b64);
+                        }
                     }
                 }
             } else {

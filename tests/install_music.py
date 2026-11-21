@@ -92,7 +92,8 @@ class Dev:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default="COM6")
-    ap.add_argument("--mp3", help="本地 mp3 源文件")
+    ap.add_argument("--mp3", help="本地 mp3/wav 源文件")
+    ap.add_argument("--name", default=REMOTE_NAME, help="设备上的目标文件名（默认 renshijian.mp3）")
     ap.add_argument("--verify-only", action="store_true")
     args = ap.parse_args()
 
@@ -103,7 +104,7 @@ def main():
         sys.exit(1)
     print("[OK] 设备在线")
 
-    remote = REMOTE_DIR + "/" + REMOTE_NAME
+    remote = REMOTE_DIR + "/" + args.name
 
     if args.verify_only:
         r = d.cmd({"op": "stat", "path": remote})
