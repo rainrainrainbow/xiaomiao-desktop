@@ -1,6 +1,10 @@
 name: Diagnose minimp3 on host
 
 on:
+  push:
+    paths:
+      - '.github/workflows/diag_mp3.yml'
+      - 'assets/renshijian.mp3'
   workflow_dispatch:
 
 jobs:
