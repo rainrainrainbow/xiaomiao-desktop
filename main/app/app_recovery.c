@@ -37,7 +37,7 @@
 #include "lang/lang.h"
 #include "fonts/lv_freetype_font.h"
 #include "system/sys_nvs.h"
-#include "system/sys_sdcard.h"
+#include "sdcard.h"   /* ion 层 SD 卡接口（main.c 用 ion_sdcard_init 挂载） */
 #include "return_to_loader.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -256,7 +256,7 @@ static void rec_execute(int idx)
         break;
     case REC_ITEM_SD_FLASH: {
         /* 仅检测并提示，不直接刷写分区，避免误操作导致系统不可用 */
-        if (!sys_sdcard_is_mounted()) {
+        if (!ion_sdcard_is_mounted()) {
             rec_set_status(lang_get(STR_REC_SD_UNMOUNTED));
             break;
         }
@@ -267,7 +267,7 @@ static void rec_execute(int idx)
         char found[32] = {0};
         bool found_any = false;
         for (int i = 0; i < (int)(sizeof(names) / sizeof(names[0])); i++) {
-            snprintf(path, sizeof(path), SDCARD_MOUNT_POINT "/%s", names[i]);
+            snprintf(path, sizeof(path), "/sdcard/%s", names[i]);
             struct stat st;
             if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
                 snprintf(found, sizeof(found), "%s", names[i]);
