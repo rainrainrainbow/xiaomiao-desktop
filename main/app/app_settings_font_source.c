@@ -7,6 +7,7 @@
  * 用户选择后保存字体路径索引到 NVS。
  */
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "app_builtin.h"
 #include "ui_framework.h"
 #include "lang/lang.h"
@@ -23,7 +24,8 @@ static const char *TAG = "APP_FONT_SRC";
 #define FONT_SCAN_MAX 16
 
 /* 字体路径缓冲区 */
-static char s_font_paths[FONT_SCAN_MAX][128];
+/* 纯 UI 字体路径缓存，放 PSRAM：2KB 内部 DRAM 释放 */
+EXT_RAM_BSS_ATTR static char s_font_paths[FONT_SCAN_MAX][128];
 static int s_font_count = 0;
 
 /* 选项总数（字体文件数 + 1个内置选项） */

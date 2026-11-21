@@ -10,6 +10,7 @@
 #include "ui_framework.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
 #include <stdio.h>
@@ -29,7 +30,8 @@ static int s_filemgr_row_h = 15;
 static lv_obj_t *s_filemgr_obj = NULL;
 static int s_filemgr_sel = 0;
 static int s_filemgr_count = 0;
-static char s_filemgr_entries[FILEMGR_MAX_ENTRIES][FILEMGR_PATH_LEN];
+/* 纯 UI 显示缓存，放 PSRAM：5KB+2.5KB 内部 DRAM 释放 */
+EXT_RAM_BSS_ATTR static char s_filemgr_entries[FILEMGR_MAX_ENTRIES][FILEMGR_PATH_LEN];
 static bool s_filemgr_is_dir[FILEMGR_MAX_ENTRIES];
 static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/sdcard";
 static int s_filemgr_scroll = 0;
@@ -38,7 +40,7 @@ static int s_filemgr_scroll = 0;
 #define TXT_MAX_LINES   32
 #define TXT_LINE_LEN    80
 static lv_obj_t *s_txt_obj = NULL;
-static char s_txt_lines[TXT_MAX_LINES][TXT_LINE_LEN];
+EXT_RAM_BSS_ATTR static char s_txt_lines[TXT_MAX_LINES][TXT_LINE_LEN];
 static int s_txt_line_count = 0;
 static int s_txt_scroll = 0;
 static int s_txt_viewer_active = 0;

@@ -19,6 +19,7 @@
 #include "lang/lang.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "esp_system.h"
 #include "driver/drv_backlight.h"
 #include "app_micropython.h"
@@ -38,7 +39,8 @@ static const char *TAG = "APP_SHELL";
 /* ========== 输出缓冲区（静态） ========== */
 #define SHELL_MAX_LINES 48
 #define SHELL_LINE_LEN  64
-static char s_lines[SHELL_MAX_LINES][SHELL_LINE_LEN];
+/* 纯 UI shell 文本缓存，放 PSRAM：3KB+3KB 内部 DRAM 释放 */
+EXT_RAM_BSS_ATTR static char s_lines[SHELL_MAX_LINES][SHELL_LINE_LEN];
 static int  s_count = 0;
 static int  s_scroll = 0;          /* 当前显示的第一行索引 */
 
@@ -100,7 +102,7 @@ static void shell_render(void)
     int end = start + vis;
     if (end > s_count) end = s_count;
 
-    static char buf[SHELL_MAX_LINES * (SHELL_LINE_LEN + 1)];
+    EXT_RAM_BSS_ATTR static char buf[SHELL_MAX_LINES * (SHELL_LINE_LEN + 1)];
     int pos = 0;
     for (int i = start; i < end && pos < (int)sizeof(buf) - 2; i++) {
         int l = (int)strlen(s_lines[i]);

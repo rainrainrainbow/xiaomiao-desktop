@@ -27,6 +27,7 @@
 #include "system/sys_nvs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
@@ -96,7 +97,8 @@ static int s_settings_sel = 0;
 #define SETTINGS_ITEM_COUNT 4  /* 音量/频谱/循环/输出 */
 
 /* 文件列表 */
-static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
+/* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放 */
+EXT_RAM_BSS_ATTR static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
 static int s_music_count = 0;
 static char s_music_current_path[MUSIC_PATH_LEN] = "/sdcard/music";
 

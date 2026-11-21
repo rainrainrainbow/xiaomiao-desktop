@@ -124,11 +124,12 @@ static SemaphoreHandle_t s_result_mutex = NULL;
 static SemaphoreHandle_t s_uart_tx_mutex = NULL;   // 保护 UART 响应写入
 static SemaphoreHandle_t s_python_mutex = NULL;    // 序列化 MicroPython 解释器访问（不可重入）
 static SemaphoreHandle_t s_audio_mutex = NULL;     // 序列化音频输出（避免并发 I2S 写入）
-static test_result_t s_test_results[TEST_ITEM_ALL + 1] = {0};
+/* 纯测试结果缓存，放 PSRAM：约 2.7KB 内部 DRAM 释放 */
+EXT_RAM_BSS_ATTR static test_result_t s_test_results[TEST_ITEM_ALL + 1] = {0};
 static test_state_t s_current_test_state = TEST_STATE_IDLE;
 static test_item_t s_current_test_item = TEST_ITEM_ALL;
 static bool s_test_running = false;
-static char s_test_output_buffer[2048];
+EXT_RAM_BSS_ATTR static char s_test_output_buffer[2048];
 static size_t s_test_output_len = 0;
 
 /* ========== 前向声明 ========== */
