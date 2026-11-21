@@ -533,6 +533,11 @@ void audio_decoder_get_mp3_table_probe(int out[4])
     if (out) mp3dec_table_probe(out);
 }
 
+void audio_decoder_get_mp3_deep_probe(int out[8])
+{
+    if (out) mp3dec_deep_probe(out);
+}
+
 bool audio_decoder_is_supported(const char *filepath)
 {
     if (!filepath) return false;

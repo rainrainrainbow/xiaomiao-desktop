@@ -32,6 +32,8 @@ void mp3dec_init(mp3dec_t *dec);
  * out[2]=g_mdct_window[0][0]*1e6 (期望 999048)，out[3]=tabs[32] (期望 785)。
  * 全部为 0/异常值说明常量表所在 PSRAM rodata 未被正确读取。 */
 void mp3dec_table_probe(int out[4]);
+/* 深层诊断：最近一帧内部状态，见实现处注释 */
+void mp3dec_deep_probe(int out[8]);
 #ifndef MINIMP3_FLOAT_OUTPUT
 typedef int16_t mp3d_sample_t;
 #else /* MINIMP3_FLOAT_OUTPUT */
@@ -68,6 +70,16 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
 static const int16_t *s_probe_tabs = NULL;       /* L3_huffman 码本 */
 static const float (*s_probe_mdct)[18] = NULL;   /* L3_imdct_gr 窗 */
 static const float *s_probe_win = NULL;          /* mp3d_synth 合成窗 */
+
+/* 深层诊断：记录最近一帧的 bitstream / 反量化 / 合成状态 */
+static int s_probe_mdb = -999;          /* main_data_begin */
+static int s_probe_reserv = -999;       /* 解码前 reservoir 字节数 */
+static int s_probe_frame_bytes = -999;  /* 侧信息后剩余字节 */
+static int s_probe_part23 = -999;       /* granule0 part_23_length */
+static int s_probe_big = -999;          /* granule0 big_values */
+static int s_probe_gain = -999;         /* granule0 global_gain */
+static float s_probe_gr_peak = 0.f;     /* Huffman 反量化后 grbuf 峰值 */
+static int s_probe_pcm_peak = -999;     /* 合成后整帧 PCM 峰值 */
 
 #define SHORT_BLOCK_TYPE            2
 #define STOP_BLOCK_TYPE             3
@@ -1270,6 +1282,9 @@ static void L3_save_reservoir(mp3dec_t *h, mp3dec_scratch_t *s)
 static int L3_restore_reservoir(mp3dec_t *h, bs_t *bs, mp3dec_scratch_t *s, int main_data_begin)
 {
     int frame_bytes = (bs->limit - bs->pos)/8;
+    s_probe_mdb = main_data_begin;
+    s_probe_reserv = h->reserv;
+    s_probe_frame_bytes = frame_bytes;
     int bytes_have = MINIMP3_MIN(h->reserv, main_data_begin);
     memcpy(s->maindata, h->reserv_buf + MINIMP3_MAX(0, h->reserv - main_data_begin), MINIMP3_MIN(h->reserv, main_data_begin));
     memcpy(s->maindata + bytes_have, bs->buf + bs->pos/8, frame_bytes);
@@ -1286,6 +1301,15 @@ static void L3_decode(mp3dec_t *h, mp3dec_scratch_t *s, L3_gr_info_t *gr_info, i
         int layer3gr_limit = s->bs.pos + gr_info[ch].part_23_length;
         L3_decode_scalefactors(h->header, s->ist_pos[ch], &s->bs, gr_info + ch, s->scf, ch);
         L3_huffman(s->grbuf[ch], &s->bs, gr_info + ch, s->scf, layer3gr_limit);
+        if (ch == 0) {
+            s_probe_part23 = gr_info[ch].part_23_length;
+            s_probe_big = gr_info[ch].big_values;
+            s_probe_gain = gr_info[ch].global_gain;
+            for (int k = 0; k < 576; k++) {
+                float a = s->grbuf[ch][k] < 0 ? -s->grbuf[ch][k] : s->grbuf[ch][k];
+                if (a > s_probe_gr_peak) s_probe_gr_peak = a;
+            }
+        }
     }
 
     if (HDR_TEST_I_STEREO(h->header))
@@ -1816,6 +1840,18 @@ void mp3dec_table_probe(int out[4])
     out[3] = s_probe_tabs ? (int)s_probe_tabs[32] : -999;    /* 期望 785 */
 }
 
+void mp3dec_deep_probe(int out[8])
+{
+    out[0] = s_probe_mdb;
+    out[1] = s_probe_reserv;
+    out[2] = s_probe_frame_bytes;
+    out[3] = s_probe_part23;
+    out[4] = s_probe_big;
+    out[5] = s_probe_gain;
+    out[6] = (int)(s_probe_gr_peak * 1000.0f);
+    out[7] = s_probe_pcm_peak;
+}
+
 /**
  * Decodes one MPEG frame, first locating the next frame and skipping any
  * leading garbage or ID3v2 tag.
@@ -1903,11 +1939,22 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
         success = L3_restore_reservoir(dec, bs_frame, &scratch, main_data_begin);
         if (success)
         {
+            mp3d_sample_t *pcm_out_start = pcm;
+            s_probe_gr_peak = 0.f;
             for (igr = 0; igr < (HDR_TEST_MPEG1(hdr) ? 2 : 1); igr++, pcm += 576*info->channels)
             {
                 memset(scratch.grbuf, 0, sizeof(scratch.grbuf));
                 L3_decode(dec, &scratch, scratch.gr_info + igr*info->channels, info->channels);
                 mp3d_synth_granule(dec->qmf_state, scratch.grbuf[0], 18, info->channels, pcm, scratch.syn[0]);
+            }
+            {
+                int pk = 0;
+                int n = (int)(pcm - pcm_out_start);
+                for (int k = 0; k < n; k++) {
+                    int a = pcm_out_start[k] < 0 ? -pcm_out_start[k] : pcm_out_start[k];
+                    if (a > pk) pk = a;
+                }
+                s_probe_pcm_peak = pk;
             }
         }
         L3_save_reservoir(dec, &scratch);

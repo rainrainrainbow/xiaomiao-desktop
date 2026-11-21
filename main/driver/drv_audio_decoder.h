@@ -176,6 +176,7 @@ bool audio_decoder_is_supported(const char *filepath);
  * @param out 4 个整数：期望 [1000, -1, 999048, 785]
  */
 void audio_decoder_get_mp3_table_probe(int out[4]);
+void audio_decoder_get_mp3_deep_probe(int out[8]);
 
 #ifdef __cplusplus
 }

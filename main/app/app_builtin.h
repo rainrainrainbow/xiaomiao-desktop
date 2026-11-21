@@ -163,6 +163,7 @@ typedef struct {
     int probe_first_peak;   /* open 首帧解码峰值（诊断解码器本身是否工作） */
     int first_samples[8];   /* open 首帧解码前 8 个样本原值 */
     int table_probe[4];     /* minimp3 常量表运行时读数，期望 [1000,-1,999048,785] */
+    int deep_probe[8];      /* minimp3 解码内部状态（bitstream/反量化/合成） */
 } app_music_status_t;
 
 /** 读取音乐应用当前状态；未启动时 count=0、is_playing=false */
