@@ -544,22 +544,32 @@ class Runner:
         if data.get("count", 0) < 1 or data.get("dir") != "/flash/music":
             raise AssertionError(f"music app did not see /flash/music: {data}")
 
-        # op=2 play index 0 (renshijian.mp3)
-        r = self.dev.send_cmd(16, {"op": 2, "index": 0}, timeout=10)
-        if not r or r.get("status") != "ok":
-            raise AssertionError(f"cmd16 play failed: {r}")
+        # Clear any stale playback left by earlier SIMULATE_KEY / PLAY_TONE checks.
+        self.dev.send_cmd(16, {"op": 3}, timeout=8)
+        time.sleep(0.5)
 
-        deadline = time.monotonic() + 10.0
+        # op=2 play index 0 (renshijian.mp3). Retry once: earlier commands
+        # (tones / WiFi scan) can transiently fragment internal DRAM.
         last = None
-        while time.monotonic() < deadline:
-            st = self.dev.send_cmd(15, timeout=5)
-            if st and st.get("status") == "ok":
-                last = st.get("data") or {}
-                if (last.get("is_playing") and int(last.get("bytes_read", 0)) > 0
-                        and int(last.get("src", 0)) == 2
-                        and int(last.get("sample_rate", 0)) > 0):
-                    break
-            time.sleep(0.5)
+        for attempt in range(2):
+            r = self.dev.send_cmd(16, {"op": 2, "index": 0}, timeout=10)
+            if not r or r.get("status") != "ok":
+                raise AssertionError(f"cmd16 play failed: {r}")
+            deadline = time.monotonic() + 6.0
+            while time.monotonic() < deadline:
+                st = self.dev.send_cmd(15, timeout=5)
+                if st and st.get("status") == "ok":
+                    last = st.get("data") or {}
+                    if (last.get("is_playing")
+                            and int(last.get("bytes_read", 0)) > 0
+                            and int(last.get("src", 0)) == 2
+                            and int(last.get("sample_rate", 0)) > 0):
+                        break
+                time.sleep(0.5)
+            if last and last.get("is_playing"):
+                break
+            time.sleep(1.0)
+
         detail = json.dumps(last, ensure_ascii=False) if last else "no status"
         if not last or not last.get("is_playing"):
             raise AssertionError(f"MP3 playback never started: {detail}")
