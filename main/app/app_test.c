@@ -82,7 +82,8 @@ static const char *TAG = "APP_TEST";
 /* UART 命令任务长期驻留，12KB 动态栈原本固定占内部 DRAM；
  * 改为 PSRAM 静态栈，给后续动态任务（tone/test）留出内部 RAM。 */
 EXT_RAM_BSS_ATTR static StackType_t s_test_uart_stack[TEST_UART_TASK_STACK / sizeof(StackType_t)];
-EXT_RAM_BSS_ATTR static StaticTask_t s_test_uart_tcb;
+/* TCB 必须留在内部 RAM：IDF v5.3 的 xPortCheckValidTCBMem 会拒绝 PSRAM 中的 TCB */
+static StaticTask_t s_test_uart_tcb;
 
 /* ========== 命令类型 ========== */
 typedef enum {

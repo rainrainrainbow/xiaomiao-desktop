@@ -858,7 +858,8 @@ static bool recents_page_on_key(int key)
  * 32KB 内部 RAM 被长期占用，导致 PLAY_TONE 等后续任务创建偶发失败。
  * EXT_RAM_BSS_ATTR + xTaskCreateStatic 是 IDF 官方支持的 PSRAM 栈路径。 */
 EXT_RAM_BSS_ATTR static StackType_t s_ui_task_stack[UI_TASK_STACK_SIZE / sizeof(StackType_t)];
-EXT_RAM_BSS_ATTR static StaticTask_t s_ui_task_tcb;
+/* TCB 必须留在内部 RAM：IDF v5.3 的 xPortCheckValidTCBMem 会拒绝 PSRAM 中的 TCB */
+static StaticTask_t s_ui_task_tcb;
 
 static void ui_init_task(void *arg)
 {
