@@ -157,6 +157,13 @@ CONFIG_WL_SECTOR_SIZE=4096
 CONFIG_FATFS_LFN_HEAP=y
 # CONFIG_FATFS_LFN_NONE is not set
 CONFIG_FATFS_MAX_LFN=128
+# 【关键】FATFS API 字符编码必须用 UTF-8。
+# 默认 ANSI/OEM + codepage 437（纯英文）会把 SD 卡上的中文长文件名
+# 破坏成 "AKI阿~1.MP3" 这类畸形短名，导致 fopen 找不到文件、中文歌无法播放。
+# UTF-8 编码让 readdir/fopen 直接使用 UTF-8 字符串（与 LVGL/日志/播放器一致），
+# 中文文件名可正确列出并打开。（依赖 LFN 已启用，上方已满足）
+CONFIG_FATFS_API_ENCODING_UTF_8=y
+# CONFIG_FATFS_API_ENCODING_ANSI_OEM is not set
 
 # newlib nano 格式（减少 newlib 代码体积）
 CONFIG_NEWLIB_NANO_FORMAT=y
