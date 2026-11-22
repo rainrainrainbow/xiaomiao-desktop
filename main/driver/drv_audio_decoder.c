@@ -29,6 +29,13 @@
 
 static const char *TAG = "AUDIO_DEC";
 
+/* ===== 流式 MP3 滑动窗口 =====
+ * minimp3 每次 mp3dec_decode_frame 最多消费一帧（MPEG1 Layer3 上限 1441 字节），
+ * 且需要若干字节前瞻。32KB 窗口足够容纳多帧，memmove 未消费尾部后续读即可。
+ * 固定 32KB PSRAM，避免为整首歌申请几 MB～十几 MB 连续内存。 */
+#define MP3_WIN_SIZE  (32 * 1024)
+#define MP3_WIN_REFILL_THRESHOLD (16 * 1024)  /* 低于此值就补充 */
+
 /* ========== RIFF/WAVE 常量 ========== */
 #define RIFF_ID       "RIFF"
 #define WAVE_ID       "WAVE"
@@ -171,7 +178,44 @@ static esp_err_t wav_read_internal(wav_decoder_t *d, void *buffer,
     return ESP_OK;
 }
 
-/* ========== MP3 内部实现 ========== */
+/* ========== MP3 内部实现（流式滑动窗口） ========== */
+
+/* 把文件窗口补充到 mp3_offset 处至少有可读数据。
+ * 保留未消费尾部 → memmove 到窗口头 → fseek 到音频流对应位置续读。
+ * 窗口固定 MP3_WIN_SIZE，文件大小不再受 PSRAM 连续块限制。 */
+static esp_err_t mp3_fill_window(wav_decoder_t *d)
+{
+    uint8_t *win = (uint8_t *)d->mp3_file_buf;
+    size_t consumed = d->mp3_offset - d->mp3_win_base;   /* 窗口内已消费字节 */
+    size_t remain = d->mp3_win_len > consumed ? d->mp3_win_len - consumed : 0;
+
+    /* 窗口尾还剩足够数据，无需读盘 */
+    if (remain >= MP3_WIN_REFILL_THRESHOLD) return ESP_OK;
+    /* 已到音频流末尾 */
+    if (d->mp3_offset >= d->mp3_file_size) {
+        d->mp3_win_len = remain;
+        return ESP_OK;
+    }
+
+    /* 未消费尾部搬到窗口头部 */
+    if (consumed > 0 && remain > 0)
+        memmove(win, win + consumed, remain);
+    d->mp3_win_base = d->mp3_offset;
+    d->mp3_win_len = remain;
+
+    /* 从文件续读：音频流偏移 = 文件起点 + 窗口基线 + 已有数据 */
+    long file_off = (long)(d->mp3_data_offset + d->mp3_win_base + d->mp3_win_len);
+    if (fseek(d->file, file_off, SEEK_SET) != 0) return ESP_FAIL;
+    size_t want = MP3_WIN_SIZE - d->mp3_win_len;
+    /* 不越过音频流尾部读取（避免把 ID3v1/尾部垃圾读进窗口） */
+    size_t stream_avail = d->mp3_file_size - d->mp3_offset - remain;
+    if (want > stream_avail) want = stream_avail;
+    if (want > 0) {
+        size_t got = fread(win + d->mp3_win_len, 1, want, d->file);
+        d->mp3_win_len += got;
+    }
+    return ESP_OK;
+}
 
 static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
 {
@@ -180,64 +224,56 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
     long size = ftell(f);
     rewind(f);
     if (size <= 0) return ESP_FAIL;
-    /* 整个文件载入 PSRAM */
-    uint8_t *raw = (uint8_t *)heap_caps_malloc((size_t)size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!raw) { ESP_LOGE(TAG, "MP3 buffer alloc failed (%u)", (unsigned)size); return ESP_ERR_NO_MEM; }
-    rewind(f);
-    size_t got = fread(raw, 1, (size_t)size, f);
-    if (got != (size_t)size) {
-        ESP_LOGE(TAG, "MP3 read short: %u/%u", (unsigned)got, (unsigned)size);
-        heap_caps_free(raw);
-        return ESP_FAIL;
-    }
 
-    /* 【关键修复】剥离 ID3v2 标签。minimp3 底层 API 不会跳过 ID3v2，
-     * 从 'ID3' 字节开始解会把标签当帧同步，输出全零样本（表现为播放电流声/静音）。
-     * ID3v2 头 10 字节，size 用 syncsafe 编码（每字节 7 位）。 */
+    /* 【关键修复】剥离 ID3v2 标签（syncsafe 编码，每字节 7 位）。 */
     size_t skip = 0;
-    if (size >= 10 && raw[0] == 'I' && raw[1] == 'D' && raw[2] == '3') {
-        size_t tag_size = ((size_t)(raw[6] & 0x7f) << 21) |
-                          ((size_t)(raw[7] & 0x7f) << 14) |
-                          ((size_t)(raw[8] & 0x7f) << 7) |
-                          ((size_t)(raw[9] & 0x7f));
+    uint8_t id3[10];
+    if (size >= 10 && fread(id3, 1, 10, f) == 10 &&
+        id3[0] == 'I' && id3[1] == 'D' && id3[2] == '3') {
+        size_t tag_size = ((size_t)(id3[6] & 0x7f) << 21) |
+                          ((size_t)(id3[7] & 0x7f) << 14) |
+                          ((size_t)(id3[8] & 0x7f) << 7) |
+                          ((size_t)(id3[9] & 0x7f));
         skip = 10 + tag_size;
-        if (raw[5] & 0x10) skip += 10;              /* footer 标志 */
+        if (id3[5] & 0x10) skip += 10;              /* footer 标志 */
         if (skip >= (size_t)size) skip = 0;          /* 异常则不过滤 */
         ESP_LOGI(TAG, "MP3 ID3v2 tag skipped: %u bytes", (unsigned)skip);
     }
-    uint8_t *buf = raw + skip;
+    d->mp3_data_offset = skip;
     d->mp3_file_size = (size_t)size - skip;
-    /* 保留 raw 基址用于释放；mp3_file_buf 指向去标签后的音频流起点 */
-    d->mp3_raw_buf = raw;
-    d->mp3_file_buf = buf;
-    fclose(f);            /* 已全量载入，文件句柄不再需要 */
-    d->file = NULL;
+    d->mp3_offset = 0;
+    d->mp3_win_base = 0;
+    d->mp3_win_len = 0;
 
-    /* 解码器与帧 PCM 缓冲放 PSRAM */
+    /* 固定 32KB 窗口 + 解码器 + PCM，全部 PSRAM，与文件大小无关 */
+    uint8_t *win = (uint8_t *)heap_caps_malloc(MP3_WIN_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     mp3dec_t *dec = (mp3dec_t *)heap_caps_malloc(sizeof(mp3dec_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     int16_t *pcm = (int16_t *)heap_caps_malloc(MINIMP3_MAX_SAMPLES_PER_FRAME * sizeof(int16_t),
                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!dec || !pcm) {
+    if (!win || !dec || !pcm) {
+        ESP_LOGE(TAG, "MP3 window/dec alloc failed (win=%d dec=%d pcm=%d)",
+                 win ? 1 : 0, dec ? 1 : 0, pcm ? 1 : 0);
+        if (win) heap_caps_free(win);
         if (dec) heap_caps_free(dec);
         if (pcm) heap_caps_free(pcm);
-        heap_caps_free(raw);   /* raw 是分配基址；buf=raw+skip 不能直接 free */
-        d->mp3_raw_buf = NULL;
-        d->mp3_file_buf = NULL;
         return ESP_ERR_NO_MEM;
     }
     memset(dec, 0, sizeof(mp3dec_t));
     mp3dec_init(dec);
+    d->mp3_file_buf = win;
     d->mp3_dec = dec;
     d->mp3_pcm_buf = pcm;
     d->mp3_pcm_valid = 0;
     d->mp3_pcm_pos = 0;
 
-    /* 解第一帧以获取采样率/声道/码率 */
+    /* 解第一帧以获取采样率/声道/码率（填充窗口后从窗口解） */
+    if (mp3_fill_window(d) != ESP_OK || d->mp3_win_len == 0) {
+        ESP_LOGE(TAG, "MP3 first window fill failed");
+        return ESP_FAIL;
+    }
     mp3dec_frame_info_t info;
-    int samples = mp3dec_decode_frame(dec, buf, (int)d->mp3_file_size, pcm, &info);
-    /* 诊断：首帧探测解码后的 PCM 峰值。若此值正常(~20000)而播放静音，
-     * 说明解码器本身可用、问题在 read 循环的状态/offset；若此值也≈0，
-     * 说明 minimp3 在此平台/编译选项下解码失效。 */
+    int samples = mp3dec_decode_frame(dec, win, (int)d->mp3_win_len, pcm, &info);
+    /* 诊断：首帧探测解码后的 PCM 峰值 */
     {
         int fp = 0;
         int n = samples * (info.channels > 0 ? info.channels : 1);
@@ -253,34 +289,28 @@ static esp_err_t mp3_open_internal(wav_decoder_t *d, const char *filepath)
         ESP_LOGE(TAG, "MP3 first frame invalid (hz=%d ch=%d samples=%d)", info.hz, info.channels, samples);
         return ESP_FAIL;
     }
-    /* 【关键修复】首帧仅用于探测 format，不能把解码器复位后跳过它。
-     * MP3 Layer3 使用 bit reservoir，后续帧解码依赖前帧的 reservoir 状态；
-     * 原实现首次 decode 后 mp3dec_init() 复位并把 offset 设为 frame_bytes，
-     * 导致第二帧起 reservoir 丢失，PCM 逐帧错误 → 播放电流声/噪声。
-     * 正确做法：保存首帧解析出的 format，然后重新 init，从 offset=0
-     * 开始标准流式解码，每帧的 reservoir 都由解码器连续维护。 */
     d->format.format_tag = 0;
     d->format.channels = (uint16_t)info.channels;
     d->format.sample_rate = (uint32_t)info.hz;
     d->format.bits_per_sample = 16;
     d->format.block_align = info.channels * 2;
-    /* PCM 字节率用于进度条（16-bit PCM） */
     d->format.byte_rate = info.hz * info.channels * 2;
-    /* 时长估算：CBR 用码率，VBR 用平均字节率回退 */
     if (info.bitrate_kbps > 0)
         d->format.duration_ms = (uint32_t)((uint64_t)d->mp3_file_size * 8 / info.bitrate_kbps);
     else
         d->format.duration_ms = 0;
 
-    /* 复位解码器，从文件头第 0 帧开始正式流式解码（丢弃用于探测的那一帧）。
-     * 首帧多为 Xing/静音帧，丢弃不影响听感；关键是让 reservoir 从第一帧
-     * 连续累积，后续每帧才能正确还原。 */
+    /* 复位解码器与窗口，从音频流第 0 帧开始正式流式解码。
+     * 首帧仅用于探测 format；丢弃它并让 reservoir 从第一帧连续累积。 */
     mp3dec_init(dec);
     d->mp3_offset = 0;
+    d->mp3_win_base = 0;
+    d->mp3_win_len = 0;
     d->mp3_pcm_valid = 0;
     d->mp3_pcm_pos = 0;
 
-    ESP_LOGI(TAG, "MP3 opened: %lu Hz, %d ch, %d kbps, %u bytes, ~%lu ms",
+    /* 文件句柄保留到 close（流式读取需要），不再提前 fclose */
+    ESP_LOGI(TAG, "MP3 opened (stream): %lu Hz, %d ch, %d kbps, %u bytes, ~%lu ms",
              (unsigned long)info.hz, info.channels, info.bitrate_kbps,
              (unsigned)d->mp3_file_size, (unsigned long)d->format.duration_ms);
     return ESP_OK;
@@ -300,15 +330,25 @@ static esp_err_t mp3_read_internal(wav_decoder_t *d, void *buffer,
         }
         if (produced >= max_samples) break;
 
-        /* 帧 PCM 耗尽，解下一帧 */
+        /* 帧 PCM 耗尽，先补窗口，再解下一帧 */
         if (d->mp3_offset >= d->mp3_file_size) {
+            d->state = WAV_DECODER_EOF;
+            break;
+        }
+        if (mp3_fill_window(d) != ESP_OK) {
+            d->state = WAV_DECODER_EOF;
+            break;
+        }
+        size_t in_win = d->mp3_offset - d->mp3_win_base;   /* 当前位置在窗口内的下标 */
+        size_t win_avail = d->mp3_win_len > in_win ? d->mp3_win_len - in_win : 0;
+        if (win_avail == 0) {
             d->state = WAV_DECODER_EOF;
             break;
         }
         mp3dec_frame_info_t info;
         int samples = mp3dec_decode_frame((mp3dec_t *)d->mp3_dec,
-                                          d->mp3_file_buf + d->mp3_offset,
-                                          (int)(d->mp3_file_size - d->mp3_offset),
+                                          (uint8_t *)d->mp3_file_buf + in_win,
+                                          (int)win_avail,
                                           d->mp3_pcm_buf, &info);
         if (info.frame_bytes > 0)
             d->mp3_offset += (size_t)info.frame_bytes;
@@ -344,6 +384,8 @@ static void mp3_reset_decode(wav_decoder_t *d)
 {
     mp3dec_init((mp3dec_t *)d->mp3_dec);
     d->mp3_offset = 0;
+    d->mp3_win_base = 0;   /* 窗口基线归零，避免 in_win 无符号下溢 */
+    d->mp3_win_len = 0;    /* 强制下次 read 从文件头重填窗口 */
     d->mp3_pcm_valid = 0;
     d->mp3_pcm_pos = 0;
     d->bytes_read = 0;
@@ -456,18 +498,20 @@ esp_err_t wav_decoder_seek(wav_decoder_t *decoder, uint32_t position_ms)
     if (!decoder || decoder->state == WAV_DECODER_IDLE) return ESP_ERR_INVALID_STATE;
 
     if (decoder->src == AUDIO_SRC_MP3) {
-        /* MP3 随机 seek 代价高：从头解码到目标附近。
-         * 估算每帧时长 = 1152/sample_rate，目标帧号 = position_ms/帧时长。 */
+        /* MP3 随机 seek（流式）：按字节比例粗定位后重置窗口，从文件对应偏移续读。
+         * 回退 4KB 给解码器做帧同步 / bit reservoir 重建。 */
         mp3_reset_decode(decoder);
-        if (position_ms > 0 && decoder->format.sample_rate > 0 && decoder->mp3_file_size > 0) {
-            /* 按字节比例粗定位（CBR 近似），并对齐到帧边界由解码器自行同步 */
+        if (position_ms > 0 && decoder->format.sample_rate > 0 && decoder->mp3_file_size > 0 &&
+            decoder->file) {
             uint64_t target = (uint64_t)position_ms * decoder->mp3_file_size /
                               (decoder->format.duration_ms ? decoder->format.duration_ms : 1);
             if (target >= decoder->mp3_file_size) target = decoder->mp3_file_size - 1;
-            decoder->mp3_offset = (size_t)target;
-            /* 从目标点解码可能需要参考前帧，简单回退 4KB 给解码器同步 */
-            if (decoder->mp3_offset > 4096) decoder->mp3_offset -= 4096;
-            else decoder->mp3_offset = 0;
+            size_t pos = (size_t)target;
+            if (pos > 4096) pos -= 4096;
+            else pos = 0;
+            decoder->mp3_offset = pos;
+            decoder->mp3_win_base = pos;
+            decoder->mp3_win_len = 0;   /* 强制下次 read 从文件 pos 处重填 */
             mp3dec_init((mp3dec_t *)decoder->mp3_dec);
         }
         decoder->state = WAV_DECODER_READY;
@@ -495,8 +539,7 @@ esp_err_t wav_decoder_close(wav_decoder_t *decoder)
 
     if (decoder->mp3_dec) { heap_caps_free(decoder->mp3_dec); decoder->mp3_dec = NULL; }
     if (decoder->mp3_pcm_buf) { heap_caps_free(decoder->mp3_pcm_buf); decoder->mp3_pcm_buf = NULL; }
-    if (decoder->mp3_raw_buf) { heap_caps_free(decoder->mp3_raw_buf); decoder->mp3_raw_buf = NULL; }
-    decoder->mp3_file_buf = NULL;
+    if (decoder->mp3_file_buf) { heap_caps_free(decoder->mp3_file_buf); decoder->mp3_file_buf = NULL; }
 
     decoder->state = WAV_DECODER_IDLE;
     decoder->src = AUDIO_SRC_UNKNOWN;

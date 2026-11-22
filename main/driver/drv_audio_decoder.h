@@ -73,10 +73,16 @@ typedef struct {
 
     /* ---- MP3 专用状态（WAV 时全部不占用） ---- */
     void *mp3_dec;              /* mp3dec_t*，从 PSRAM 分配 */
-    void *mp3_file_buf;         /* 去 ID3 标签后的音频流起点（PSRAM，= raw+id3_skip） */
-    void *mp3_raw_buf;          /* 原始分配基址（PSRAM，free 用；= raw） */
-    size_t mp3_file_size;       /* 去标签后音频流大小 */
-    size_t mp3_offset;          /* 当前读取位置（字节，指向 mp3_file_buf） */
+    /* 【流式解码】不再把整个 MP3 载入内存，改用固定大小滑动窗口：
+     * 8MB 连续 PSRAM 分配常失败（LVGL/字库/WiFi 已占大量 PSRAM），
+     * SD 卡里几 MB～十几 MB 的歌曲一律报 "MP3 buffer alloc failed"。
+     * 窗口只占 32KB，随解码推进从文件补充，文件大小不再受限。 */
+    void *mp3_file_buf;         /* 滑动窗口缓冲（PSRAM，固定 MP3_WIN_SIZE） */
+    size_t mp3_file_size;       /* 去标签后音频流总大小（用于 EOF/duration） */
+    size_t mp3_offset;          /* 当前解码位置（相对音频流起点的绝对字节偏移） */
+    size_t mp3_data_offset;     /* 音频流在文件中的起点（跳过 ID3v2 后的偏移） */
+    size_t mp3_win_len;         /* 滑动窗口内有效字节数 */
+    size_t mp3_win_base;        /* 窗口 buf[0] 对应的音频流绝对字节偏移 */
     int16_t *mp3_pcm_buf;       /* 一帧解码 PCM 暂存（PSRAM） */
     size_t mp3_pcm_valid;       /* mp3_pcm_buf 中有效样本数 */
     size_t mp3_pcm_pos;         /* mp3_pcm_buf 已消费样本数 */
