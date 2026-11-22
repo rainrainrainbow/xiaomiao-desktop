@@ -36,6 +36,7 @@ static uint8_t s_current_channels = 2;
  * 记录真正送入 i2s_channel_write() 的数据（mono->stereo 展开之后），
  * 独立于解码器内部 probe，用于区分"解码正确但写入/硬件破坏"与"解码源错"。 */
 static i2s_write_probe_t s_write_probe;
+static TickType_t s_last_write_tick = 0;
 void i2s_get_write_probe(i2s_write_probe_t *out)
 {
     if (out) *out = s_write_probe;
@@ -43,9 +44,20 @@ void i2s_get_write_probe(i2s_write_probe_t *out)
 void i2s_reset_write_probe(void)
 {
     memset(&s_write_probe, 0, sizeof(s_write_probe));
+    s_last_write_tick = xTaskGetTickCount();
 }
 static void i2s_probe_capture(const void *data, size_t len)
 {
+    /* 数据供给间隔统计：若音乐任务/解码被 UI、FAT 或日志长期抢占，
+     * 间隔超过 DMA 缓冲可覆盖的时长就会 underflow，表现为爆音/嘶声。 */
+    TickType_t now = xTaskGetTickCount();
+    if (s_last_write_tick != 0) {
+        uint32_t gap_ms = (uint32_t)((now - s_last_write_tick) * portTICK_PERIOD_MS);
+        if (gap_ms > s_write_probe.max_gap_ms) s_write_probe.max_gap_ms = gap_ms;
+        if (gap_ms > 25) s_write_probe.slow_writes++;
+    }
+    s_last_write_tick = now;
+
     s_write_probe.writes++;
     s_write_probe.last_len = (uint32_t)len;
     if (s_write_probe.count > 0) return;  /* 只采首个非静音块 */
@@ -212,7 +224,9 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
     i2s_chan_config_t chan_cfg = {
         .id = I2S_NUM_0,
         .role = I2S_ROLE_MASTER,
-        .dma_desc_num = 8,
+        /* 数据供给抖动余量：FAT/解码/UI 抢占时缓冲越大越不易 underflow。
+         * 16*256 立体声帧 = 16KB = 4096 帧 @44.1k ≈ 93ms 余量。 */
+        .dma_desc_num = 16,
         .dma_frame_num = 256,
         .auto_clear = true,
     };

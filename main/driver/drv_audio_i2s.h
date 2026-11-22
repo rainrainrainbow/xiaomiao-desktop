@@ -48,6 +48,9 @@ typedef struct {
     int16_t  samples[16];  /* 展开后送入 DMA 的前 16 个 int16 样本 */
     uint32_t writes;       /* 累计写入次数 */
     uint32_t last_len;     /* 最近一次写入字节数 */
+    /* 数据供给及时性诊断（DMA underrun 假设的关键证据） */
+    uint32_t max_gap_ms;   /* 两次 audio_output_write 之间的最大间隔(ms) */
+    uint32_t slow_writes;  /* 间隔 > 25ms 的次数（超过 DMA 缓冲时长即会欠载） */
 } i2s_write_probe_t;
 
 void i2s_get_write_probe(i2s_write_probe_t *out);
