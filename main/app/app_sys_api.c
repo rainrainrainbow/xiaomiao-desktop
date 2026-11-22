@@ -20,7 +20,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_system.h"
-#include "esp_efuse.h"
+#include "esp_mac.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -364,7 +364,7 @@ void app_sys_net_mac(char *buf, size_t buf_size)
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif) err = esp_netif_get_mac(netif, mac);
     /* 未创建 netif / WiFi 未初始化时回退到 efuse 出厂 MAC */
-    if (err != ESP_OK) err = esp_efuse_mac_get_default(mac);
+    if (err != ESP_OK) err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
 
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "get MAC failed: %s", esp_err_to_name(err));
@@ -593,10 +593,10 @@ void app_sys_chip_id(char *buf, size_t buf_size)
     if (!buf || buf_size < 17) return;
 
     /* ESP-IDF 未提供跨芯片统一的 8 字节唯一 ID 读取 API；
-     * 这里用出厂烧录的 6 字节 efuse MAC 作为唯一标识，高 2 字节补 0，
+     * 这里用出厂烧录的 6 字节 MAC 作为唯一标识，高 2 字节补 0，
      * 输出 16 个 hex 字符（+结尾 NUL 共 17 字节）。 */
     uint8_t id[8] = {0};
-    esp_err_t err = esp_efuse_mac_get_default(&id[2]);
+    esp_err_t err = esp_read_mac(&id[2], ESP_MAC_WIFI_STA);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "get chip id failed: %s", esp_err_to_name(err));
         strncpy(buf, "0000000000000000", buf_size - 1);
