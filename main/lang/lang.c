@@ -369,6 +369,7 @@ static const char *s_zh[STR_COUNT] = {
     [STR_COMMON_NOWIFI] = "无网络连接",
     [STR_COMMON_NOPERM] = "无权限",
     [STR_COMMON_OFFLINE] = "离线",
+    [STR_MUSIC_QUEUE_CLEAR] = "清空队列",
 };
 
 /* ========== 英文翻译表 ========== */
@@ -746,6 +747,7 @@ static const char *s_en[STR_COUNT] = {
     [STR_COMMON_NOWIFI] = "无网络连接",
     [STR_COMMON_NOPERM] = "无权限",
     [STR_COMMON_OFFLINE] = "离线",
+    [STR_MUSIC_QUEUE_CLEAR] = "Clear queue",
 };
 
 static lang_id_t s_current_lang = LANG_ZH;

@@ -120,7 +120,7 @@ static int s_music_row_h = 15;
 
 /* 设置页选中项 */
 static int s_settings_sel = 0;
-#define SETTINGS_ITEM_COUNT 5  /* 音量/频谱/循环/输出/音效 */
+#define SETTINGS_ITEM_COUNT 7  /* 音量/频谱/循环/输出/音效/当前曲/清空队列 */
 
 /* 文件列表 */
 /* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放。
@@ -1356,6 +1356,21 @@ static void music_refresh_settings_page(void)
     labels[4] = lang_get(STR_MUSIC_EQ);
     snprintf(values[4], sizeof(values[4]), "%s", music_eq_preset_name(s_eq_preset));
 
+    /* 5: 播放队列——显示当前正在播放的曲目名（无播放显示 -） */
+    labels[5] = lang_get(STR_MUSIC_QUEUE);
+    if (s_playing_idx >= 0 && s_playing_idx < s_music_count) {
+        const char *full = s_music_entries[s_playing_idx];
+        const char *base = strrchr(full, '/');
+        base = base ? base + 1 : full;
+        snprintf(values[5], sizeof(values[5]), "%s", base);
+    } else {
+        snprintf(values[5], sizeof(values[5]), "-");
+    }
+
+    /* 6: 清空队列（A 键执行） */
+    labels[6] = lang_get(STR_MUSIC_QUEUE_CLEAR);
+    values[6][0] = '\0';
+
     for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
         lv_obj_t *row = lv_obj_create(s_music_obj);
         if (!row) {
@@ -1683,6 +1698,20 @@ static bool music_on_key(int key)
                 break;
             case 4: /* 音效预设：OFF->POP->ROCK->CLASSICAL->BASS->OFF */
                 music_eq_set_preset((music_eq_preset_t)((s_eq_preset + 1) % MUSIC_EQ_MAX));
+                music_refresh_page();
+                break;
+            case 5: /* 播放队列：回到列表页并定位当前播放曲 */
+                if (s_playing_idx >= 0 && s_playing_idx < s_music_count) {
+                    s_music_sel = s_playing_idx;   /* 滚动由列表页渲染自动适配 */
+                    s_music_page = MUSIC_PAGE_LIST;
+                    music_refresh_page();
+                }
+                break;
+            case 6: /* 清空队列：停止播放并清空列表（不删文件，重新扫描可恢复） */
+                music_stop_playback();
+                s_music_count = 0;
+                s_music_sel = 0;
+                s_music_scroll = 0;
                 music_refresh_page();
                 break;
             }

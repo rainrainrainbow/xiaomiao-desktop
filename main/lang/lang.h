@@ -400,6 +400,7 @@ typedef enum {
     STR_COMMON_NOWIFI,  // 无网络连接
     STR_COMMON_NOPERM,  // 无权限
     STR_COMMON_OFFLINE,  // 离线
+    STR_MUSIC_QUEUE_CLEAR,  // 清空队列
     // 总数
     STR_COUNT
 } str_id_t;

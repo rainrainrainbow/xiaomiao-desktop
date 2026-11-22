@@ -25,6 +25,7 @@
 #include "driver/drv_led_strip.h"
 #include "driver/drv_led_visualizer.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
@@ -100,6 +101,11 @@ static int s_sensitivity = 5;    /* 音乐律动灵敏度 1-10（底层自动增
 static int s_loop_count = 0;     /* 效果任务运行时循环计数 */
 static volatile bool s_loop_finished = false; /* 本次效果是否因达到循环次数而结束 */
 
+/* 定时开关：到期自动熄灯并回到“关闭”效果 */
+static int s_timer_idx = 0;                   /* 定时档位索引 0..4，0=关闭 */
+static int64_t s_timer_deadline_us = 0;       /* 到期绝对时间（esp_timer 微秒），0=未计时 */
+static volatile bool s_timer_expired = false; /* 效果任务检测到定时到期 */
+
 /* 逐颗设色子模式 */
 static bool s_pixel_mode = false;
 static int s_pixel_index = 0;    /* 当前灯珠编号 0..LED_STRIP_COUNT-1 */
@@ -127,6 +133,7 @@ static volatile bool s_effect_stop = false;
 #define LED_NVS_KEY_LOOP      "led_loop"    /* 循环档位索引 0..4 */
 #define LED_NVS_KEY_SENS      "led_sens"    /* 灵敏度 1-10 */
 #define LED_NVS_KEY_PRESET    "led_preset"  /* 方案 blob */
+#define LED_NVS_KEY_TIMER     "led_timer"   /* 定时开关档位 0..4 */
 
 /* 底部提示区高度：信息栏 + 功耗提示两行 */
 #define LED_FOOTER_H          26
@@ -135,12 +142,17 @@ static volatile bool s_effect_stop = false;
 static const int s_loop_options[] = {0, 1, 3, 5, 10};
 #define LOOP_OPTION_COUNT (sizeof(s_loop_options) / sizeof(s_loop_options[0]))
 
+/* 定时开关档位（分钟），0=关闭 */
+static const int s_timer_options_min[] = {0, 1, 5, 15, 30};
+#define TIMER_OPTION_COUNT (sizeof(s_timer_options_min) / sizeof(s_timer_options_min[0]))
+
 /* 设置项名称（列表末尾，紧跟颜色列表之后） */
 static const str_id_t s_setting_name_ids[] = {
     STR_LED_SPEED,
     STR_LED_DIRECTION,
     STR_LED_LOOP,
     STR_LED_SENSITIVITY,
+    STR_LED_SCHEDULE,
     STR_LED_SAVE,
     STR_LED_LOAD,
     STR_LED_PIXEL,
@@ -158,9 +170,10 @@ static const str_id_t s_setting_name_ids[] = {
 #define ROW_DIRECTION       (ROW_SETTING_START + 1)
 #define ROW_LOOP            (ROW_SETTING_START + 2)
 #define ROW_SENSITIVITY     (ROW_SETTING_START + 3)
-#define ROW_SAVE            (ROW_SETTING_START + 4)
-#define ROW_LOAD            (ROW_SETTING_START + 5)
-#define ROW_PIXEL           (ROW_SETTING_START + 6)
+#define ROW_TIMER           (ROW_SETTING_START + 4)
+#define ROW_SAVE            (ROW_SETTING_START + 5)
+#define ROW_LOAD            (ROW_SETTING_START + 6)
+#define ROW_PIXEL           (ROW_SETTING_START + 7)
 #define TOTAL_ROWS          (ROW_SETTING_START + (int)SETTING_COUNT)
 
 /* 方案数据结构：8 字节整体作为单个 NVS blob 存储 */
@@ -253,10 +266,31 @@ static uint32_t led_scale_delay(uint32_t base_ms)
 static void led_delay_responsive(uint32_t ms)
 {
     while (ms > 0 && !s_effect_stop) {
+        if (led_timer_check_expired()) {
+            s_effect_stop = true;   /* 定时到期：请求效果任务立即收尾 */
+            break;
+        }
         uint32_t slice = (ms > 50) ? 50 : ms;
         vTaskDelay(pdMS_TO_TICKS(slice));
         ms -= slice;
     }
+}
+
+static bool led_timer_check_expired(void);
+
+/** 定时开关到期检查；到期置 s_timer_expired 并返回 true（档位保留供下次使用） */
+static bool led_timer_check_expired(void)
+{
+    if (s_timer_idx <= 0 || s_timer_deadline_us == 0 || s_timer_expired) {
+        return false;
+    }
+    if (esp_timer_get_time() >= s_timer_deadline_us) {
+        s_timer_expired = true;
+        s_timer_deadline_us = 0;   /* 下次 start_effect 重新计时 */
+        ESP_LOGI(TAG, "LED timer expired (%d min)", s_timer_options_min[s_timer_idx]);
+        return true;
+    }
+    return false;
 }
 
 /** 动态效果完成一个完整周期时调用；达到设定次数则请求停止 */
@@ -384,6 +418,8 @@ static void led_effect_task(void *arg)
     drv_led_strip_clear();
     /* 达到循环次数后回到“关闭”，使状态与已熄灭的实际灯效一致 */
     if (s_loop_finished) s_current_effect = LED_EFFECT_OFF;
+    /* 定时开关到期：强制回到“关闭”，与已熄灭的灯一致 */
+    if (s_timer_expired) s_current_effect = LED_EFFECT_OFF;
     s_effect_running = false;
     vTaskDelete(NULL);
 }
@@ -410,6 +446,16 @@ static void start_effect(void)
     /* 初始化 LED（如果未初始化） */
     drv_led_strip_init();
     drv_led_strip_set_brightness(s_current_brightness);
+
+    /* 定时开关：有档位时重新武装计时（到期后档位保留，下次启动重新计时） */
+    if (s_timer_idx > 0) {
+        s_timer_expired = false;
+        if (s_timer_deadline_us == 0) {
+            int tmin = s_timer_options_min[led_clamp_int(s_timer_idx, 1, (int)TIMER_OPTION_COUNT - 1)];
+            s_timer_deadline_us = esp_timer_get_time() + (int64_t)tmin * 60LL * 1000000LL;
+            ESP_LOGI(TAG, "LED timer armed: %d min", tmin);
+        }
+    }
 
     /* "音乐律动"效果：不启动本地效果任务，而是交给常驻后台律动服务接管。
      * 把当前选中颜色同步给服务，并设置 busy=false 让服务可以写灯。 */
@@ -748,6 +794,16 @@ static void led_rebuild_visible(void)
             snprintf(valbuf, sizeof(valbuf), "%d/10", s_sensitivity);
             val = valbuf;
             break;
+        case 4: {  /* 定时开关：0=关闭，其余显示分钟数 */
+            int tmin = s_timer_options_min[led_clamp_int(s_timer_idx, 0, (int)TIMER_OPTION_COUNT - 1)];
+            if (tmin == 0) {
+                val = lang_get(STR_LED_VIS_OFF);
+            } else {
+                snprintf(valbuf, sizeof(valbuf), "%dmin", tmin);
+                val = valbuf;
+            }
+            break;
+        }
         default:
             break;
         }
@@ -850,6 +906,7 @@ static void led_init(void *data)
     s_direction = led_clamp_int(led_nvs_load_int(LED_NVS_KEY_DIR, 0), 0, 1);
     s_loop_idx = led_clamp_int(led_nvs_load_int(LED_NVS_KEY_LOOP, 0), 0, (int)LOOP_OPTION_COUNT - 1);
     s_sensitivity = led_clamp_int(led_nvs_load_int(LED_NVS_KEY_SENS, 5), 1, 10);
+    s_timer_idx = led_clamp_int(led_nvs_load_int(LED_NVS_KEY_TIMER, 0), 0, (int)TIMER_OPTION_COUNT - 1);
     /* 启动时把灵敏度同步给底层律动服务（visualizer 独立 NVS 也存一份，
      * 二者同源值保持一致，避免律动幅度与用户设定偏离）。 */
     led_visualizer_set_sensitivity(s_sensitivity);
@@ -1067,6 +1124,11 @@ static bool led_on_key(int key)
                 s_sensitivity = led_clamp_int(s_sensitivity - 1, 1, 10);
                 led_nvs_save_int(LED_NVS_KEY_SENS, s_sensitivity);
                 led_visualizer_set_sensitivity(s_sensitivity);   /* 同步底层律动增益 */
+            } else if (s_sel == ROW_TIMER) {
+                s_timer_idx = (s_timer_idx - 1 + (int)TIMER_OPTION_COUNT) % (int)TIMER_OPTION_COUNT;
+                led_nvs_save_int(LED_NVS_KEY_TIMER, s_timer_idx);
+                s_timer_deadline_us = 0;   /* 档位变更后下次启动重新计时 */
+                s_timer_expired = false;
             } else if (s_current_brightness > 20) {
                 s_current_brightness -= 20;
                 drv_led_strip_set_brightness(s_current_brightness);
@@ -1089,6 +1151,11 @@ static bool led_on_key(int key)
                 s_sensitivity = led_clamp_int(s_sensitivity + 1, 1, 10);
                 led_nvs_save_int(LED_NVS_KEY_SENS, s_sensitivity);
                 led_visualizer_set_sensitivity(s_sensitivity);   /* 同步底层律动增益 */
+            } else if (s_sel == ROW_TIMER) {
+                s_timer_idx = (s_timer_idx + 1) % (int)TIMER_OPTION_COUNT;
+                led_nvs_save_int(LED_NVS_KEY_TIMER, s_timer_idx);
+                s_timer_deadline_us = 0;   /* 档位变更后下次启动重新计时 */
+                s_timer_expired = false;
             } else if (s_current_brightness < 240) {
                 s_current_brightness += 20;
                 drv_led_strip_set_brightness(s_current_brightness);

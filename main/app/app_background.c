@@ -24,6 +24,7 @@
 #include "fonts/lv_freetype_font.h"  /* lv_font_cn_get() 中文显示 */
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "nvs.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -94,7 +95,43 @@ static const bg_service_def_t s_services[] = {
 };
 #define BG_SERVICE_COUNT ((int)(sizeof(s_services) / sizeof(s_services[0])))
 
+/* ========== 自启动管理 ==========
+ * 每个服务一个开机自启动开关，NVS 持久化（namespace "app_bg"，key bg_auto<idx>）。
+ * 服务页 A 键切换；真正的开机拉起由 main 启动流程按 s_autostart 决定（P2 能力，
+ * 当前以开关状态持久化 + UI 管理为交付）。 */
+#define BG_NVS_NS        "app_bg"
+#define BG_NVS_KEY_AUTO  "bg_auto%d"
+static bool s_autostart[BG_SERVICE_COUNT] = {false};
+
 /* ========== 内部工具 ========== */
+
+/** 从 NVS 载入全部服务的自启动开关（缺省关闭） */
+static void bg_autostart_load_all(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(BG_NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    for (int i = 0; i < BG_SERVICE_COUNT; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), BG_NVS_KEY_AUTO, i);
+        int32_t v = 0;
+        nvs_get_i32(h, key, &v);
+        s_autostart[i] = (v != 0);
+    }
+    nvs_close(h);
+}
+
+/** 保存单个服务的自启动开关 */
+static void bg_autostart_save(int idx)
+{
+    if (idx < 0 || idx >= BG_SERVICE_COUNT) return;
+    nvs_handle_t h;
+    if (nvs_open(BG_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    char key[16];
+    snprintf(key, sizeof(key), BG_NVS_KEY_AUTO, idx);
+    nvs_set_i32(h, key, s_autostart[idx] ? 1 : 0);
+    nvs_commit(h);
+    nvs_close(h);
+}
 
 /** 刷新两份快照：任务页和服务页共用任务快照 */
 static void bg_refresh_snapshots(void)
@@ -337,7 +374,7 @@ static void bg_render_services(void)
             lv_obj_align(name, LV_ALIGN_LEFT_MID, 4, 0);
         }
 
-        char status[16];
+        char status[24];
         uint32_t status_color = colors->text_dim;
         int id = ((int)svc->type >= 0) ? bg_tasks_find(svc->type) : -1;
         if (id >= 0) {
@@ -347,6 +384,13 @@ static void bg_render_services(void)
         } else {
             /* 查不到状态的常驻服务 */
             snprintf(status, sizeof(status), "%s", "常驻");
+        }
+        /* 附加自启动标记（自启动管理：A 键切换，NVS 持久化） */
+        {
+            size_t len = strlen(status);
+            snprintf(status + len, sizeof(status) - len, " %s",
+                     s_autostart[i] ? "自启" : "-");
+            if (s_autostart[i]) status_color = colors->text;
         }
         lv_obj_t *state = lv_label_create(row);
         bg_set_label(state, status, status_color, true);
@@ -550,23 +594,15 @@ static void bg_exec_action(void)
 }
 
 /** 服务页 A 键：有 bg task 的项做暂停/继续切换 */
+/** 服务页 A 键：切换该服务的开机自启动开关（NVS 持久化，见 s_autostart） */
 static void bg_service_toggle(void)
 {
     if (s_sel[s_tab] < 0 || s_sel[s_tab] >= BG_SERVICE_COUNT) return;
-    const bg_service_def_t *svc = &s_services[s_sel[s_tab]];
-    if (!svc->toggleable || (int)svc->type < 0) return;   /* 常驻服务不可切 */
-
-    int id = bg_tasks_find(svc->type);
-    if (id < 0) return;
-    bg_task_state_t st = bg_task_state_of_type(svc->type);
-    if (st == BG_TASK_STATE_RUNNING) {
-        bg_tasks_pause(id);
-    } else if (st == BG_TASK_STATE_PAUSED) {
-        bg_tasks_resume(id);
-    } else {
-        return;   /* 其它状态不处理 */
-    }
-    bg_refresh_snapshots();
+    int idx = s_sel[s_tab];
+    s_autostart[idx] = !s_autostart[idx];
+    bg_autostart_save(idx);
+    ESP_LOGI(TAG, "service[%d] %s autostart=%d",
+             idx, s_services[idx].name, (int)s_autostart[idx]);
     bg_rebuild();
 }
 
@@ -607,6 +643,9 @@ static void background_init(void *data)
 {
     (void)data;
     ESP_LOGI(TAG, "Background page init");
+
+    /* 载入服务自启动开关（NVS，缺省关闭） */
+    bg_autostart_load_all();
 
     /* app_sys_page_create 内部已创建 statusbar；复用同一 screen，避免重复分配 */
     if (!s_root) {
@@ -780,5 +819,8 @@ const page_callbacks_t g_background_callbacks = {
  * 3. jump_target 为业务自定义整数，项目暂无统一约定；本文件暂用 0~4 映射到
  *    音乐/OTA/商店/文件/设置五个页面，其它值忽略。业务发布通知时需按此约定传值。
  * 4. 服务页状态来自 bg_tasks_find() 与任务快照；WebREPL/网络时间同步无对应
- *    bg task，显示"常驻"且不可切换。若需要真实开关，需要底座提供查询/设置接口。
+ *    bg task，显示"常驻"。服务页 A 键 = 切换该服务开机自启动（s_autostart，
+ *    NVS "app_bg"/bg_auto<i> 持久化）；服务的暂停/继续在任务页动作菜单完成。
+ * 5. 自启动管理（P2）：开关状态已持久化并可在服务页管理；开机按开关拉起
+ *    服务的接入点在 main 启动流程，当前以开关管理为交付。
  */
