@@ -171,7 +171,7 @@ void app_micropython_on_tick(void)
                     if (*p == '\n') *p = ' ';
                 }
                 lv_label_set_text(err_lbl, buf);
-                lv_obj_set_style_text_color(err_lbl, lv_color_hex(0xFF4444), 0);
+                lv_obj_set_style_text_color(err_lbl, lv_color_hex(0xC97B7B), 0);
                 lv_obj_set_style_text_font(err_lbl, lv_font_cn_get(14), 0);
                 lv_obj_set_width(err_lbl, LCD_H_RES - 8);
                 lv_label_set_long_mode(err_lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -354,13 +354,13 @@ static void python_app_activate(void)
         } else {
             result_msg = lang_get(STR_MP_FAIL);
             result_icon = LV_SYMBOL_WARNING;
-            result_color = 0xFF4444;
+            result_color = 0xC97B7B;
             ESP_LOGE(TAG, "MicroPython test FAILED");
         }
     } else if (!entry_file) {
         result_msg = lang_get(STR_MP_NO_ENTRY);
         result_icon = LV_SYMBOL_WARNING;
-        result_color = 0xFFAA00;
+        result_color = 0xC79A5B;
     } else {
         /* 执行入口文件 */
         ESP_LOGI(TAG, "Executing MicroPython app: %s", entry_file);
@@ -389,7 +389,7 @@ static void python_app_activate(void)
                 result_msg = lang_get(STR_MP_EXEC_FAIL);
             }
             result_icon = LV_SYMBOL_WARNING;
-            result_color = 0xFF4444;
+            result_color = 0xC97B7B;
             ESP_LOGE(TAG, "MicroPython app %s execution FAILED", entry_file);
         }
     }
@@ -730,9 +730,9 @@ int app_micropython_scan(const char *base_path, app_def_t *apps, int max_count)
         
         // 颜色：优先从 app.json 读取
         if (json_content) {
-            app->icon_color = json_get_color(json_content, "color", 0x3B82F6);
+            app->icon_color = json_get_color(json_content, "color", 0xD4A373);
         } else {
-            app->icon_color = 0x3B82F6; // 默认蓝色
+            app->icon_color = 0xD4A373; // 默认暖橙
         }
         
         app->type = APP_TYPE_MICROPYTHON;

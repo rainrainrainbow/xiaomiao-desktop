@@ -367,7 +367,7 @@ static void store_rebuild_visible(void)
         if (status_lbl) {
             lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(font_px), 0);
             lv_obj_set_style_text_color(status_lbl, 
-                lv_color_hex(app->installed ? 0x22C55E : colors->text_dim), 0);
+                lv_color_hex(app->installed ? 0x6FA891 : colors->text_dim), 0);
             lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -2, 0);
             lv_label_set_text(status_lbl, app->installed ? lang_get(STR_STORE_INSTALLED) : lang_get(STR_STORE_NOT_INSTALLED));
         }

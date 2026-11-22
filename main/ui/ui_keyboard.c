@@ -694,12 +694,12 @@ void ui_keyboard_show(const kb_config_t *config)
         lv_obj_t *lbl = lv_label_create(cell);
         if (lbl) {
             lv_label_set_text(lbl, kb_t9_func_labels[i]);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(i == 3 ? 0xFFFFFF : c_text), 0);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(i == 3 ? 0xE4E9EE : c_text), 0);
             lv_obj_set_style_text_font(lbl, lv_font_cn_get(14), 0);
             lv_obj_center(lbl);
         }
         /* OK 键绿色背景 */
-        if (i == 3) lv_obj_set_style_bg_color(cell, lv_color_hex(0x22C55E), 0);
+        if (i == 3) lv_obj_set_style_bg_color(cell, lv_color_hex(0x6FA891), 0);
         s_t9_func[i] = cell;
     }
 

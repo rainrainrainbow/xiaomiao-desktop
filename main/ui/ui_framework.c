@@ -42,26 +42,27 @@ static page_stash_t s_stash_global = {
 };
 
 /* ========== 主题定义 ========== */
-// 小喵OS 特色配色：黄色主题（模拟器风格）
-// 黄:#F6D34A  黑:#1B1713  棕:#5C4220  红:#E64B3C  奶:#FFF3B0  绿:#2DD466
+// 小喵OS 护眼配色（v72）：低亮度、低饱和，长时间观看不刺眼
+// 暗夜:#1B2028 底 / #C9CFD6 柔白字 / #7FB3A6 青绿强调 / #D4A373 暖橙辅助
+// 暖纸:#E6DFD0 底 / #403A30 深棕字 / #5F8578 青绿强调 / #A9764F 暖棕辅助
 static const theme_colors_t s_themes[THEME_MAX] = {
     [THEME_DARK] = {
-        .bg = 0xF6D34A,         // 黄色背景
-        .text = 0x1B1713,       // 黑色文字
-        .text_dim = 0x5C4220,   // 棕色次要文字
-        .header_bg = 0x5C4220,  // 棕色状态栏/标题栏
-        .border = 0x5C4220,     // 棕色边框
-        .sel_bg = 0x5C4220,     // 棕色选中背景
-        .sel_border = 0x5C4220, // 棕色选中边框
+        .bg = 0x1B2028,         // 深蓝灰背景（低亮度低蓝光）
+        .text = 0xC9CFD6,       // 柔和灰白文字（非纯白，避免强对比）
+        .text_dim = 0x808A97,   // 次要文字（柔灰）
+        .header_bg = 0x242A34,  // 状态栏/标题栏（比底色略亮）
+        .border = 0x333D49,     // 弱边框
+        .sel_bg = 0x2F3B46,     // 选中底色（低对比柔底）
+        .sel_border = 0x7FB3A6, // 选中强调描边（低饱和青绿）
     },
     [THEME_LIGHT] = {
-        .bg = 0xFFFFFF,         // 白色背景
-        .text = 0x1B1713,       // 黑色文字
-        .text_dim = 0x888888,   // 灰色次要文字
-        .header_bg = 0xF0F0F0,  // 浅灰状态栏/标题栏
-        .border = 0xCCCCCC,     // 浅灰边框
-        .sel_bg = 0xDDDDDD,     // 浅灰选中背景
-        .sel_border = 0xAAAAAA, // 灰色选中边框
+        .bg = 0xE6DFD0,         // 暖米纸色背景（低反光）
+        .text = 0x403A30,       // 深棕灰文字（非纯黑）
+        .text_dim = 0x7D7466,   // 次要文字
+        .header_bg = 0xD3C8B2,  // 状态栏/标题栏
+        .border = 0xC2B7A2,     // 弱边框
+        .sel_bg = 0xC9BDA4,     // 选中底色
+        .sel_border = 0x5F8578, // 选中强调描边（低饱和青绿）
     },
 };
 
@@ -524,7 +525,7 @@ lv_obj_t* ui_dock_create(lv_obj_t *parent, int total_pages, int active_idx)
             lv_obj_set_size(dot, 4, 4);
             lv_obj_set_pos(dot, dot_spacing * (i + 1) - 2, 2);
             lv_obj_set_style_radius(dot, 2, 0);
-            lv_obj_set_style_bg_color(dot, lv_color_hex(i == active_idx ? colors->text : colors->text_dim), 0);
+            lv_obj_set_style_bg_color(dot, lv_color_hex(i == active_idx ? colors->sel_border : colors->text_dim), 0);
             lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
         }
     }
@@ -592,7 +593,10 @@ void ui_desktop_cell_set_selected(lv_obj_t *cell, bool selected)
     if (selected) {
         lv_obj_set_style_bg_color(cell, lv_color_hex(colors->sel_bg), 0);
         lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(cell, lv_color_hex(colors->sel_border), 0);
+        lv_obj_set_style_border_width(cell, 1, 0);
     } else {
         lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(cell, 0, 0);
     }
 }

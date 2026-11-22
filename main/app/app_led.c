@@ -375,7 +375,7 @@ static void led_rebuild_visible(void)
             lv_obj_t *mark = lv_label_create(row);
             if (mark) {
                 lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
-                lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
+                lv_obj_set_style_text_color(mark, lv_color_hex(0x6FA891), 0);
                 lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
                 lv_label_set_text(mark, LV_SYMBOL_OK);
             }
@@ -450,7 +450,7 @@ static void led_rebuild_visible(void)
             lv_obj_t *mark = lv_label_create(row);
             if (mark) {
                 lv_obj_set_style_text_font(mark, lv_font_cn_get(font_px), 0);
-                lv_obj_set_style_text_color(mark, lv_color_hex(0x22C55E), 0);
+                lv_obj_set_style_text_color(mark, lv_color_hex(0x6FA891), 0);
                 lv_obj_align(mark, LV_ALIGN_RIGHT_MID, -2, 0);
                 lv_label_set_text(mark, LV_SYMBOL_OK);
             }

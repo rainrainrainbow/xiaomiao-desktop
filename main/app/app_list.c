@@ -146,10 +146,10 @@ static void applist_rebuild_visible(void)
         if (status_lbl) {
             if (py_apps[py_idx].install_status == APP_INSTALL_OK) {
                 lv_label_set_text(status_lbl, "Python");
-                lv_obj_set_style_text_color(status_lbl, lv_color_hex(0x22C55E), 0);
+                lv_obj_set_style_text_color(status_lbl, lv_color_hex(0x6FA891), 0);
             } else {
                 lv_label_set_text(status_lbl, app_install_status_desc(py_apps[py_idx].install_status));
-                lv_obj_set_style_text_color(status_lbl, lv_color_hex(0xEF4444), 0);
+                lv_obj_set_style_text_color(status_lbl, lv_color_hex(0xC97B7B), 0);
             }
             lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
         }

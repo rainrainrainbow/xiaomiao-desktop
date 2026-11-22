@@ -47,7 +47,7 @@ static void font_src_show_status(const char *msg, bool ok)
     if (!s_font_src_status) return;
     lv_label_set_text(s_font_src_status, msg);
     lv_obj_set_style_text_color(s_font_src_status,
-        lv_color_hex(ok ? 0x22C55E : 0xEF4444), 0);  /* 绿=成功 红=失败 */
+        lv_color_hex(ok ? 0x6FA891 : 0xC97B7B), 0);  /* 绿=成功 红=失败 */
     lv_obj_clear_flag(s_font_src_status, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -197,7 +197,7 @@ static void font_src_settings_init(void *data)
                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
     } else {
         lv_obj_set_style_text_font(s_font_src_status, lv_font_cn_get(font_px), 0);
-        lv_obj_set_style_text_color(s_font_src_status, lv_color_hex(0x22C55E), 0);
+        lv_obj_set_style_text_color(s_font_src_status, lv_color_hex(0x6FA891), 0);
         lv_obj_set_width(s_font_src_status, LCD_H_RES - 4);
         lv_label_set_long_mode(s_font_src_status, LV_LABEL_LONG_SCROLL_CIRCULAR);
         lv_obj_set_pos(s_font_src_status, 2, LCD_V_RES - DOCK_H - 12);

@@ -674,7 +674,7 @@ static void recents_page_init(void *data)
             lv_label_set_text(status_lbl, lang_get(STR_BACKGROUND));
         }
         lv_obj_set_style_text_color(status_lbl, lv_color_hex(
-            state == BG_STATE_FOREGROUND ? 0x22C55E : colors->text_dim), 0);
+            state == BG_STATE_FOREGROUND ? 0x6FA891 : colors->text_dim), 0);
         lv_obj_set_style_text_font(status_lbl, lv_font_cn_get(st->font_size), 0);
         lv_obj_align(status_lbl, LV_ALIGN_RIGHT_MID, -4, 0);
         }

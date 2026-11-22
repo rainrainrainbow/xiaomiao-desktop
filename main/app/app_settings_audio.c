@@ -64,7 +64,7 @@ static void audio_settings_refresh(void)
         if (mark_lbl) {
             if (devs[i].is_default) {
                 lv_label_set_text(mark_lbl, "●");
-                lv_obj_set_style_text_color(mark_lbl, lv_color_hex(0x22C55E), 0);
+                lv_obj_set_style_text_color(mark_lbl, lv_color_hex(0x6FA891), 0);
             } else {
                 lv_label_set_text(mark_lbl, "○");
                 lv_obj_set_style_text_color(mark_lbl, lv_color_hex(colors->text_dim), 0);
