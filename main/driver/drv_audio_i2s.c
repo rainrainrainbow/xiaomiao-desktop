@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
+#include <stdbool.h>
 
 static const char *TAG = "AUDIO_I2S";
 
@@ -60,6 +61,29 @@ static void apply_volume_24bit(void *data, size_t len, float gain)
         bytes[i * 3]     = sample & 0xFF;
         bytes[i * 3 + 1] = (sample >> 8) & 0xFF;
         bytes[i * 3 + 2] = (sample >> 16) & 0xFF;
+    }
+}
+
+/* ========== 经典 ESP32 16-bit MONO 样本对交换 workaround ==========
+ * ESP-IDF v5.3 I2S 文档 "STD TX Mode" 明确说明（芯片级 quirk）：
+ *   "for 8-bit and 16-bit mono modes, the real data on the line is swapped.
+ *    To get the correct data sequence, the writing buffer needs to swap the data every two bytes."
+ * 即写入 buffer [s0,s1,s2,s3] 在线上变成 [s1,s0,s3,s2]。
+ *
+ * 这解释了真实故障现象：tone（低频正弦）相邻样本几乎相同，交换后听感不变，
+ * 所以"滴滴声"正常；而 MP3/WAV 复杂波形相邻样本差异大，成对交换后波形被撕碎，
+ * 输出满幅噪声 —— 用户听到的"电流声"。解码数据本身始终是正确的（探针已证实）。
+ *
+ * workaround：写 I2S 前把相邻 int16 样本成对交换回来，两次交换抵消 → 线上顺序正确。
+ * 仅 16-bit MONO 需要；24/32-bit 与立体声不受影响。 */
+static void i2s_mono_swap_16bit(void *buf, size_t len)
+{
+    int16_t *s = (int16_t *)buf;
+    size_t n = len / sizeof(int16_t);
+    for (size_t i = 0; i + 1 < n; i += 2) {
+        int16_t tmp = s[i];
+        s[i] = s[i + 1];
+        s[i + 1] = tmp;
     }
 }
 
@@ -169,8 +193,8 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
 
     /* NS4168 数字功放要求标准 Philips I2S：数据在 LRCLK 变化后延迟 1 个 BCLK
      * 才输出 MSB（datasheet: "支持 I2S 格式(BCLK 延迟一个时钟)"）。
-     * 之前误用 MSB 对齐（无延迟、WS 极性相反），导致每个采样位错位 1 bit：
-     * 低频正弦 tone 仍能听出音调，但 MP3 复杂波形错位后退化为电流声/噪声。 */
+     * 注：MP3"电流声"的真实根因不是这里的格式，而是经典 ESP32 16-bit MONO
+     * 的样本对交换 quirk（见本文件 i2s_mono_swap_16bit 说明），已在写入处修复。 */
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bit_width, slot_mode),
@@ -220,35 +244,42 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
     }
 
     float gain = volume_to_gain(s_i2s_volume);
+    bool need_volume = (gain < 1.0f - 0.001f);
+    /* 经典 ESP32 16-bit MONO：线上数据会被成对交换，需预交换抵消 */
+    bool need_swap = (s_current_bits == 16 && s_current_channels == 1);
 
-    if (gain < 1.0f - 0.001f) {
-        /* 需要应用音量调整，复制数据到临时缓冲区 */
-        void *vol_buf = heap_caps_malloc(len, MALLOC_CAP_SPIRAM);
-        if (!vol_buf) {
-            ESP_LOGW(TAG, "Volume buffer alloc failed (%zu bytes), writing raw", len);
+    /* 音量调整与 MONO 样本对交换都需要可写工作缓冲。
+     * 仅在确实需要处理时才分配，满音量+非MONO(或已交换)走直写路径。 */
+    if (need_volume || need_swap) {
+        void *work = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!work) {
+            ESP_LOGW(TAG, "Work buffer alloc failed (%zu bytes), writing raw", len);
             size_t bytes_written = 0;
             return i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, pdMS_TO_TICKS(2000));
         }
-
-        memcpy(vol_buf, data, len);
-        if (s_current_bits == 16) {
-            apply_volume_16bit(vol_buf, len, gain);
-        } else if (s_current_bits == 24) {
-            apply_volume_24bit(vol_buf, len, gain);
+        memcpy(work, data, len);
+        if (need_volume) {
+            if (s_current_bits == 16) {
+                apply_volume_16bit(work, len, gain);
+            } else if (s_current_bits == 24) {
+                apply_volume_24bit(work, len, gain);
+            }
+            /* 32位：暂不做软件音量，交由后续处理 */
         }
-        /* 32位：直接乘法在i2s_channel_write中处理，暂不调整 */
+        if (need_swap) {
+            i2s_mono_swap_16bit(work, len);
+        }
 
         size_t bytes_written = 0;
-        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, vol_buf, len, &bytes_written, pdMS_TO_TICKS(2000));
-        heap_caps_free(vol_buf);
-
+        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, len, &bytes_written, pdMS_TO_TICKS(2000));
+        heap_caps_free(work);
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "I2S write (vol) failed: %s", esp_err_to_name(ret));
+            ESP_LOGE(TAG, "I2S write (work) failed: %s", esp_err_to_name(ret));
         }
         return ret;
     }
 
-    /* 满音量，直接写入 */
+    /* 满音量且无需样本对交换，直接写入 */
     size_t bytes_written = 0;
     esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, pdMS_TO_TICKS(2000));
     if (ret != ESP_OK) {
