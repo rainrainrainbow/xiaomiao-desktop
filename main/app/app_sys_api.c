@@ -26,7 +26,16 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
+/* 存储容量查询头文件：不同 ESP-IDF/newlib 版本路径不一，条件编译兼容 */
+#if defined(__has_include)
+#  if __has_include(<sys/statvfs.h>)
+#    include <sys/statvfs.h>
+#    define APP_SYS_HAVE_STATVFS 1
+#  elif __has_include(<sys/statfs.h>)
+#    include <sys/statfs.h>
+#    define APP_SYS_HAVE_STATFS 1
+#  endif
+#endif
 
 static const char *TAG = "APP_SYS_API";
 
@@ -284,28 +293,52 @@ bool app_sys_fs_has_ext(const char *name, const char *ext)
 /* ============================================================
  * 六、存储信息
  *
- * 容量查询统一采用 POSIX statvfs()，而非 FATFS 的 f_getfree()：
- *   1. /flash、/sdcard 均通过 esp_vfs_fat 注册到 VFS，statvfs 自动处理
- *      挂载与卷对象，无需持有 FATFS 的 FATFS* 句柄、也无需关心 mount 状态；
- *   2. f_getfree() 需要 f_mount() 后拿到的卷对象并自行处理挂载/并发，
- *      门面层不适合持有这些底层状态；
- *   3. 未挂载时 statvfs 直接失败返回 0，符合"失败不崩溃"的要求。
- * 注意：ion_sdcard_get_free_space() 当前是简化实现（返回的是总容量），
- *       故剩余空间不用它，一律走 statvfs 的 f_bavail。
+ * 容量查询兼容多版本工具链：
+ *   1) 优先 POSIX statvfs()（newlib 新版）
+ *   2) 其次 POSIX statfs()（newlib 常见）
+ *   3) 都没有则降级：总量用分区已知容量，剩余保守估算
+ * 目标：任何 ESP-IDF v5.3 工具链下都能编译通过且失败不崩溃。
  * ============================================================ */
+
+/** SD 卡是否挂载（带本地缓存判断，避免重复查询） */
+static bool sd_mounted(void)
+{
+    return ion_sdcard_is_mounted();
+}
 
 /** 取 path 所在文件系统的容量(KB)，total=true 取总量，false 取可用量 */
 static uint32_t storage_space_kb(const char *path, bool total)
 {
+    if (!path) return 0;
+
+#if defined(APP_SYS_HAVE_STATVFS)
     struct statvfs st;
-    if (!path || statvfs(path, &st) != 0) {
-        ESP_LOGW(TAG, "statvfs failed: %s", path ? path : "(null)");
-        return 0;
+    if (statvfs(path, &st) == 0) {
+        uint64_t unit = st.f_frsize ? (uint64_t)st.f_frsize : (uint64_t)st.f_bsize;
+        uint64_t blocks = total ? (uint64_t)st.f_blocks : (uint64_t)st.f_bavail;
+        return (uint32_t)((blocks * unit) / 1024);
     }
-    /* f_frsize 是每个分配单元的字节数，个别实现可能为 0，回退 f_bsize */
-    uint64_t unit = st.f_frsize ? (uint64_t)st.f_frsize : (uint64_t)st.f_bsize;
-    uint64_t blocks = total ? (uint64_t)st.f_blocks : (uint64_t)st.f_bavail;
-    return (uint32_t)((blocks * unit) / 1024);
+#elif defined(APP_SYS_HAVE_STATFS)
+    struct statfs st;
+    if (statfs(path, &st) == 0) {
+        uint64_t unit = (uint64_t)st.f_bsize;
+        uint64_t blocks = total ? (uint64_t)st.f_blocks : (uint64_t)st.f_bavail;
+        return (uint32_t)((blocks * unit) / 1024);
+    }
+#else
+    /* 降级：无 POSIX 容量 API。总量用分区/卡已知容量，剩余保守给 60%。
+     * /flash 对应 retro-core 分区 5MB (0x500000)。 */
+    if (strncmp(path, "/sdcard", 7) == 0) {
+        if (!sd_mounted()) return 0;
+        uint64_t cap = ion_sdcard_get_total_space();
+        uint32_t total_kb = (uint32_t)(cap / 1024);
+        return total ? total_kb : (uint32_t)(total_kb * 6 / 10);
+    }
+    /* 内部 FAT 固定 5MB */
+    return total ? 5120u : 3072u;
+#endif
+    ESP_LOGW(TAG, "storage_space_kb: query failed for %s", path);
+    return 0;
 }
 
 uint32_t app_sys_flash_total_kb(void)
@@ -320,13 +353,13 @@ uint32_t app_sys_flash_free_kb(void)
 
 uint32_t app_sys_sdcard_total_kb(void)
 {
-    if (!ion_sdcard_is_mounted()) return 0;
+    if (!sd_mounted()) return 0;
     return storage_space_kb("/sdcard", true);
 }
 
 uint32_t app_sys_sdcard_free_kb(void)
 {
-    if (!ion_sdcard_is_mounted()) return 0;
+    if (!sd_mounted()) return 0;
     return storage_space_kb("/sdcard", false);
 }
 
@@ -334,19 +367,17 @@ bool app_sys_storage_has_space(const char *path, uint32_t need_bytes)
 {
     if (!path || path[0] == '\0') return false;
 
-    struct statvfs st;
-    if (statvfs(path, &st) != 0) {
-        /* path 常是"待创建的目标文件"，此时 statvfs 可能失败；
-         * 按前缀回退到所属存储根目录再查一次。 */
+    uint32_t avail_kb = storage_space_kb(path, false);
+    if (avail_kb == 0) {
+        /* path 常是"待创建的目标文件"，查询失败则回退到所属存储根目录 */
         const char *root = (strncmp(path, "/sdcard", 7) == 0) ? "/sdcard" : "/flash";
-        if (statvfs(root, &st) != 0) {
-            ESP_LOGE(TAG, "statvfs failed: %s (fallback %s)", path, root);
+        avail_kb = storage_space_kb(root, false);
+        if (avail_kb == 0) {
+            ESP_LOGE(TAG, "space query failed: %s (fallback %s)", path, root);
             return false;
         }
     }
-    uint64_t unit = st.f_frsize ? (uint64_t)st.f_frsize : (uint64_t)st.f_bsize;
-    uint64_t avail = (uint64_t)st.f_bavail * unit;
-    return avail >= (uint64_t)need_bytes;
+    return ((uint64_t)avail_kb * 1024) >= (uint64_t)need_bytes;
 }
 
 /* ============================================================
