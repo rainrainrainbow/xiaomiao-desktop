@@ -91,6 +91,7 @@ int notifications_push(notify_category_t cat, const char *title, int jump_target
         s_read_idx = (s_read_idx + 1) % NOTIFY_MAX;
     }
 
+    n->id = id;             /* 物理槽位 id，供 UI snapshot 后单条标记已读 */
     n->category = cat;
     snprintf(n->title, sizeof(n->title), "%s", title ? title : "");
     n->timestamp = (uint32_t)(esp_timer_get_time() / 1000000);

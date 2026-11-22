@@ -13,9 +13,11 @@
 #include "esp_heap_caps.h"
 #include "system/sys_nvs.h"
 #include "driver/drv_backlight.h"
+#include "driver/drv_audio_output.h"  /* 静音：无独立 mute API，用 set_volume(0) 生效 */
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "lang/lang.h"
+#include "fonts/lv_freetype_font.h"  /* lv_font_cn_get() 中文字体 */
 #include "return_to_loader.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -72,6 +74,13 @@ static void settings_clear_confirm(void)
         s_settings_confirm = -1;
         ui_statusbar_set_title(lang_get(STR_SETTINGS));
     }
+}
+
+/* 声音开关生效：drv_audio_output 没有独立 mute API，
+ * 关闭时用音量 0 实现静音，开启时恢复用户配置的音量。 */
+static void settings_apply_sound(ui_state_t *st)
+{
+    audio_output_set_volume(st->sound_on ? (uint8_t)st->volume : 0);
 }
 
 static void settings_refresh_label(int idx)
@@ -281,6 +290,8 @@ static void settings_init(void *data)
     s_settings_sel = 0;
     s_settings_scroll = 0;
     s_settings_confirm = -1;
+    /* 进入设置页时若处于静音态，确保驱动层也静音；非静音时不覆盖当前音量 */
+    if (!st->sound_on) audio_output_set_volume(0);
     settings_rebuild_visible();
     ui_dock_create(scr, 1, 0);
 }
@@ -401,6 +412,7 @@ static bool settings_on_key(int key)
             /* 声音开关（含lv_switch） */
             if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_A) {
                 st->sound_on = !st->sound_on;
+                settings_apply_sound(st);  /* 真正驱动静音/恢复音量 */
                 if (s_settings_switch) {
                     if (st->sound_on) {
                         lv_obj_add_state(s_settings_switch, LV_STATE_CHECKED);
@@ -464,9 +476,13 @@ static bool settings_on_key(int key)
                     ESP_LOGI(TAG, "Settings reset to defaults");
                     settings_rebuild_visible();
                 } else {
-                    /* 第一次 A：进入确认态，状态栏提示再按一次 */
+                    /* 第一次 A：进入确认态，状态栏提示再按一次 + 清除范围说明。
+                     * 状态栏标题为循环滚动标签，长文本会滚动显示；用 static 缓冲避免栈开销。 */
+                    static char s_confirm_title[96];
                     s_settings_confirm = 15;
-                    ui_statusbar_set_title(lang_get(STR_REC_CONFIRM));
+                    snprintf(s_confirm_title, sizeof(s_confirm_title), "%s %s",
+                             lang_get(STR_REC_CONFIRM), lang_get(STR_SET_FACTORY_SCOPE));
+                    ui_statusbar_set_title(s_confirm_title);
                 }
             }
             return true;

@@ -33,6 +33,7 @@ idf_component_register(
         "app/bg_manager.c"
         "app/bg_tasks.c"
         "app/notifications.c"
+        "app/app_background.c"
         "app/app_ota.c"
         "app/app_led.c"
         "app/app_test.c"

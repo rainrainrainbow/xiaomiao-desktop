@@ -47,6 +47,16 @@ void led_visualizer_set_color(int preset_index);
 int  led_visualizer_get_color(void);
 
 /**
+ * @brief 设置律动灵敏度（1~10，默认 5）。
+ * 灵敏度越高，同等音量下灯带亮度/律动幅度越大；
+ * 灵敏度 1 为最克制，10 为最敏感。立即生效并持久化到 NVS。
+ */
+void led_visualizer_set_sensitivity(int level);
+
+/** 获取当前律动灵敏度（1~10）。 */
+int  led_visualizer_get_sensitivity(void);
+
+/**
  * @brief LED app 手动效果占用/释放灯带。
  * 占用期间律动服务暂停写灯，避免与手动效果任务并发操作同一 RMT。
  */

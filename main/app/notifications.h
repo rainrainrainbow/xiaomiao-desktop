@@ -36,6 +36,7 @@ typedef enum {
 
 /* 单条通知 */
 typedef struct {
+    int id;                 /* 物理槽位 id（0~11），用于 notifications_mark_read() */
     notify_category_t category;
     char title[40];         /* 通知内容，短文本 */
     uint32_t timestamp;     /* esp_timer_get_time()/1e6 秒 */
