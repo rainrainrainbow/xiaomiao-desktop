@@ -45,6 +45,7 @@ idf_component_register(
     "driver/drv_audio_decoder.c"
     "driver/drv_lrc.c"
     "driver/drv_led_strip.c"
+    "driver/drv_led_visualizer.c"
     "driver/drv_mic_lmd2718.c"
         "system/sys_nvs.c"
         "system/wifi_debug.c"

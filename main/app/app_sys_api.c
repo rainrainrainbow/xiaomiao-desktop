@@ -12,6 +12,7 @@
 #include "system/sys_nvs.h"
 #include "driver/drv_battery.h"
 #include "driver/drv_backlight.h"
+#include "driver/drv_led_visualizer.h"
 #include "ion/battery.h"
 #include "ion/sdcard.h"
 #include "lang/lang.h"
@@ -86,6 +87,8 @@ int app_sys_cfg_get_int(app_cfg_key_t key, int default_val)
     case APP_CFG_MUSIC_EQ:     return sys_nvs_load_music_eq();
     case APP_CFG_MUSIC_LRC:    return sys_nvs_load_music_lrc();
     case APP_CFG_MUSIC_MODE:   return sys_nvs_load_music_mode();
+    case APP_CFG_LED_VIS_MODE: return led_visualizer_get_mode();
+    case APP_CFG_LED_VIS_COLOR:return led_visualizer_get_color();
     default:                   return default_val;
     }
 }
@@ -126,6 +129,8 @@ void app_sys_cfg_set_int(app_cfg_key_t key, int value)
     case APP_CFG_MUSIC_EQ:     sys_nvs_save_music_eq(value); break;
     case APP_CFG_MUSIC_LRC:    sys_nvs_save_music_lrc(value); break;
     case APP_CFG_MUSIC_MODE:   sys_nvs_save_music_mode(value); break;
+    case APP_CFG_LED_VIS_MODE: led_visualizer_set_mode(value); break;
+    case APP_CFG_LED_VIS_COLOR:led_visualizer_set_color(value); break;
     default: break;
     }
 }

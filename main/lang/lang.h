@@ -224,6 +224,13 @@ typedef enum {
     STR_LED_COLOR_WHITE,
     STR_LED_COLOR_SEP,
     STR_LED_BRIGHTNESS,
+    // LED 音乐律动
+    STR_LED_VIS_TITLE,       // LED音乐律动
+    STR_LED_VIS_OFF,         // 关闭
+    STR_LED_VIS_SINGLE,      // 单色律动
+    STR_LED_VIS_RAINBOW,     // 彩虹律动
+    STR_LED_VIS_PULSE,       // 节拍脉冲
+    STR_LED_EFFECT_MUSIC,    // 音乐律动（LED app 效果项）
     // Shell 命令终端
     STR_SHELL_WELCOME,       // Shell 欢迎信息
     STR_SHELL_INPUT,         // 输入提示

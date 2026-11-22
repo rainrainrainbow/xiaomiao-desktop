@@ -29,6 +29,10 @@
 
 static const char *TAG = "AUDIO_DEC";
 
+/* LED 音乐律动数据源：镜像最近一次 read 的瞬时峰值。
+ * volatile 供后台律动任务跨任务读取；关闭/停止时归零。 */
+static volatile uint16_t s_live_peak = 0;
+
 /* ===== 流式 MP3 滑动窗口 =====
  * minimp3 每次 mp3dec_decode_frame 最多消费一帧（MPEG1 Layer3 上限 1441 字节），
  * 且需要若干字节前瞻。32KB 窗口足够容纳多帧，memmove 未消费尾部后续读即可。
@@ -489,8 +493,14 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
         decoder->probe_last_peak = pk;
         if (pk > decoder->probe_max_peak) decoder->probe_max_peak = pk;
         decoder->probe_reads++;
+        s_live_peak = (uint16_t)pk;   /* LED 律动实时数据源 */
     }
     return ret;
+}
+
+uint16_t audio_decoder_get_live_peak(void)
+{
+    return s_live_peak;
 }
 
 esp_err_t wav_decoder_seek(wav_decoder_t *decoder, uint32_t position_ms)
@@ -550,6 +560,7 @@ esp_err_t wav_decoder_close(wav_decoder_t *decoder)
     decoder->mp3_offset = 0;
     decoder->mp3_pcm_valid = 0;
     decoder->mp3_pcm_pos = 0;
+    s_live_peak = 0;   /* 停止播放：律动数据源归零，LED 渐灭 */
     return ESP_OK;
 }
 

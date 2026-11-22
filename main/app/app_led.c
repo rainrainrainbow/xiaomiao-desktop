@@ -14,6 +14,7 @@
 #include "app_manager.h"
 #include "ui_framework.h"
 #include "driver/drv_led_strip.h"
+#include "driver/drv_led_visualizer.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "fonts/lv_freetype_font.h"
@@ -33,6 +34,7 @@ typedef enum {
     LED_EFFECT_RAINBOW,        // 彩虹渐变
     LED_EFFECT_FLOW,           // 流光溢彩
     LED_EFFECT_BLINK,          // 闪烁
+    LED_EFFECT_MUSIC,          // 音乐律动（随播放的 PCM 幅度跳动）
     LED_EFFECT_COUNT
 } led_effect_t;
 
@@ -44,6 +46,7 @@ static const str_id_t s_effect_name_ids[LED_EFFECT_COUNT] = {
     STR_LED_EFFECT_RAINBOW,
     STR_LED_EFFECT_FLOW,
     STR_LED_EFFECT_BLINK,
+    STR_LED_EFFECT_MUSIC,
 };
 
 /* 预设颜色 */
@@ -247,6 +250,23 @@ static void start_effect(void)
     drv_led_strip_init();
     drv_led_strip_set_brightness(s_current_brightness);
 
+    /* "音乐律动"效果：不启动本地效果任务，而是交给常驻后台律动服务接管。
+     * 把当前选中颜色同步给服务，并设置 busy=false 让服务可以写灯。 */
+    if (s_current_effect == LED_EFFECT_MUSIC) {
+        led_visualizer_set_color(s_current_color);
+        /* 若服务当前处于关闭态，启用单色律动；否则保留用户已选的律动模式 */
+        if (led_visualizer_get_mode() == LED_VIS_MODE_OFF) {
+            led_visualizer_set_mode(LED_VIS_MODE_SINGLE);
+        }
+        led_visualizer_set_busy(false);
+        ESP_LOGI(TAG, "Music visualizer effect selected (mode=%d color=%d)",
+                 led_visualizer_get_mode(), s_current_color);
+        return;   /* 无本地任务，s_effect_running 保持 false */
+    }
+
+    /* 手动效果：通知后台律动服务让位，避免两处并发写同一 RMT */
+    led_visualizer_set_busy(true);
+
     /* 先置位运行标志再创建任务，封堵"任务已创建但尚未真正运行"的竞态窗口：
        否则用户快速连续切换时，新任务还没开始跑、s_effect_running 仍为 false，
        下一次 start_effect() 不会等待，从而创建出多个并发任务。 */
@@ -257,6 +277,7 @@ static void start_effect(void)
     BaseType_t rt = xTaskCreate(led_effect_task, "led_effect", 3072, NULL, 5, NULL);
     if (rt != pdPASS) {
         s_effect_running = false;
+        led_visualizer_set_busy(false);   /* 任务没起来，归还灯带给律动服务 */
         ESP_LOGE(TAG, "xTaskCreate(led_effect) failed! setting color once");
         /* 边界检查：确保颜色索引有效 */
         if (s_current_color < 0 || s_current_color >= (int)COLOR_PRESET_COUNT) {
@@ -526,6 +547,9 @@ static void led_destroy(void)
     /* 复位标志，为下次进入 app 做准备 */
     s_effect_running = false;
     s_effect_stop = false;
+
+    /* 归还灯带给后台律动服务：退出 LED app 后若设置了律动模式则自动恢复 */
+    led_visualizer_set_busy(false);
 
     s_led_obj = NULL;
     s_info_label = NULL;

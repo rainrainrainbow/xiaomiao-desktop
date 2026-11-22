@@ -181,6 +181,16 @@ bool wav_decoder_is_wav_file(const char *filepath);
 bool audio_decoder_is_supported(const char *filepath);
 
 /**
+ * @brief 获取"最近一次 read 输出块"的瞬时 PCM 峰值（0..32767）
+ *
+ * 供 LED 音乐律动等后台服务读取：解码器在每次 wav_decoder_read() 里
+ * 已经计算了 probe_last_peak，这里以全局静态量镜像一份，避免 LED 服务
+ * 直接依赖 wav_decoder_t 实例。停止播放/未打开时返回 0。
+ * 该值按解码块更新（通常每 20~40ms 一次），足够驱动律动。
+ */
+uint16_t audio_decoder_get_live_peak(void);
+
+/**
  * @brief 诊断 minimp3 常量表运行时读数（ESP32 PSRAM rodata 排查）
  * @param out 4 个整数：期望 [1000, -1, 999048, 785]
  */

@@ -32,12 +32,17 @@ static led_strip_handle_t s_strip = NULL;   /* 官方 led_strip 组件句柄 */
 static uint8_t s_brightness = 128;           /* 默认50%亮度 */
 static bool s_initialized = false;
 static volatile bool s_breathing = false;
+/* 引用计数：后台律动服务常驻持有一份引用，LED app 进出各 +/-1。
+ * 只有归零才真正删除 RMT 设备，避免 LED app 退出 deinit 时把常驻律动
+ * 正在使用的 RMT 释放掉（曾导致后台写 LED 失效/崩溃）。 */
+static int s_ref_count = 0;
 
 /* ========== 公共接口 ========== */
 
 esp_err_t drv_led_strip_init(void)
 {
     if (s_initialized) {
+        s_ref_count++;   /* 已初始化，仅累加引用 */
         return ESP_OK;
     }
 
@@ -77,6 +82,7 @@ esp_err_t drv_led_strip_init(void)
     }
 
     s_initialized = true;
+    s_ref_count = 1;   /* 首次初始化，引用计数从 1 开始 */
     ESP_LOGI(TAG, "NeoPixel RGB LED strip initialized (official led_strip, %d LEDs)", LED_STRIP_COUNT);
     return ESP_OK;
 }
@@ -86,7 +92,14 @@ esp_err_t drv_led_strip_deinit(void)
     if (!s_initialized) {
         return ESP_OK;
     }
-    /* 先清空灯带 */
+    /* 引用计数未归零：仅熄灭，不释放 RMT（其它持有者仍在使用） */
+    if (s_ref_count > 1) {
+        s_ref_count--;
+        drv_led_strip_clear();
+        return ESP_OK;
+    }
+    /* 归零：先清空灯带 */
+    s_ref_count = 0;
     drv_led_strip_clear();
     /* 释放 LED strip 组件（内部会释放 RMT 通道资源） */
     if (s_strip) {
