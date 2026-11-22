@@ -64,16 +64,39 @@ static void apply_volume_24bit(void *data, size_t len, float gain)
     }
 }
 
-/* ========== I2S 数据写入说明 ==========
- * NS4168 采用已验证配置：MSB 对齐(bit_shift=false) + MONO + slot_mask=BOTH
- * + ws_width=data_width（复刻 nulllaborg/NS4168 ESP32 参考设计，可直接播放
- * 16-bit/单声道 PCM）。MONO+BOTH 让两个 slot 都填同一份 mono 数据，
- * 不依赖 NS4168 CTRL 的左右声道选择。
+/* ========== I2S 数据写入说明（最终修复） ==========
+ * 根因：经典 ESP32 I2S 在 16-bit MONO 模式下，硬件会把写入 buffer 中
+ * 相邻的两个 int16 样本成对交换（ESP-IDF v5.3 官方 STD TX 文档明确记载）：
+ *   buffer [s0,s1,s2,s3] → 线上 [s1,s0,s3,s2]。
+ * 这解释了长期困扰的现象：低频正弦 tone 相邻样本高度相关，交换后听感
+ * 几乎不变（"滴滴声正常"）；而 MP3/WAV 复杂波形相邻样本差异大，成对
+ * 交换后波形被撕碎 → 满幅噪声（"电流声"）。解码数据本身始终正确。
  *
- * 之前误用 Philips(bit_shift=true) 使数据相对 WS 延迟 1 bit：
- * 低频正弦 tone 因相邻样本高度相关仍能听出音调（音量低→高正常），
- * 但 MP3/WAV 复杂波形高位错位 → 满幅噪声（用户听到的"电流声"）。
- * 改用 MSB 对齐后数据不再偏移，直接按 mono 顺序写入即可。 */
+ * 同时 NS4168（MSB/左对齐 I2S 功放）要求 bit_shift=false；若误用 Philips
+ * (bit_shift=true) 会让数据相对 WS 延迟 1 个 BCLK，进一步错位。
+ *
+ * 最终方案（两个条件必须同时满足，历史上各方案只满足其一）：
+ *   1) I2S 通道始终以 STEREO 帧打开 → 彻底规避 16-bit MONO 样本对交换 quirk；
+ *   2) 使用 MSB 对齐宏 I2S_STD_MSB_SLOT_DEFAULT_CONFIG → bit_shift=false，
+ *      且宏会正确设置 ws_width=16（此前手写 ws_width=bit_width=枚举值1 是错的）。
+ * 逻辑单声道源在写入时展开为 L=R 双声道帧；立体声源交错数据直接写入。
+ * 这样 tone 与音乐都走同一条无交换、对齐正确的路径。 */
+
+/* mono 源 → L=R 立体声帧展开（同时应用音量），规避 MONO 交换 quirk */
+static void i2s_mono_to_stereo_16bit(const void *src, void *dst, size_t len,
+                                     float gain, bool apply_gain)
+{
+    const int16_t *s = (const int16_t *)src;
+    int16_t *d = (int16_t *)dst;
+    size_t n = len / sizeof(int16_t);
+    for (size_t i = 0; i < n; i++) {
+        int32_t v = s[i];
+        if (apply_gain) v = (int32_t)(v * gain);
+        int16_t vv = (int16_t)v;
+        d[i * 2]     = vv;   /* left  */
+        d[i * 2 + 1] = vv;   /* right */
+    }
+}
 
 /* ========== 后端接口实现 ========== */
 
@@ -177,26 +200,15 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         bit_width = I2S_DATA_BIT_WIDTH_16BIT;
     }
 
-    /* NS4168 已验证能正常出声的配置（复刻 nulllaborg/NS4168 ESP32 参考设计）：
-     *   16-bit data / MONO / slot_mask=BOTH / ws_width=16bit /
-     *   bit_shift=false(MSB对齐) / msb_right=true / mclk 不用
-     *
-     * 关键：bit_shift=false（MSB 对齐），而非 Philips 的 bit_shift=true。
-     * 之前用 Philips 让数据相对 WS 延迟 1 个 BCLK，低频正弦 tone 因相邻样本
-     * 高度相关仍能听出音调，但 MP3/WAV 复杂波形高位错位 → 满幅噪声（电流声）。
-     * MONO+BOTH 让两个 slot 都填有效数据，不依赖 NS4168 CTRL 声道选择。 */
+    /* 最终配置：MSB 对齐 + 始终 STEREO 帧。
+     *   - STEREO：规避经典 ESP32 16-bit MONO 的样本对交换 quirk（电流声根因）；
+     *   - MSB 宏：bit_shift=false 满足 NS4168 左对齐要求，且宏自动把 ws_width
+     *     正确设为 slot 位宽（16），修正此前手写 ws_width=bit_width(=1) 的错误；
+     *   - 逻辑单声道源在 write 时展开为 L=R，立体声源直接交错写入。
+     * tone 与音乐共用这一条对齐正确、无交换的路径。 */
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
-        .slot_cfg = {
-            .data_bit_width = bit_width,
-            .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
-            .slot_mode = I2S_SLOT_MODE_MONO,
-            .slot_mask = I2S_STD_SLOT_BOTH,
-            .ws_width = bit_width,
-            .ws_pol = false,
-            .bit_shift = false,
-            .msb_right = true,
-        },
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bit_width, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .bclk = I2S_BCK_PIN,
             .ws = I2S_WS_PIN,
@@ -245,8 +257,28 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
     float gain = volume_to_gain(s_i2s_volume);
     bool need_volume = (gain < 1.0f - 0.001f);
 
-    /* MONO+BOTH 配置下直接按 mono 顺序写入，不做任何样本交换/展开。
-     * tone 与音乐共用此路径。 */
+    /* 逻辑单声道 16-bit 源：展开为 L=R 立体声帧写入，规避 MONO 交换 quirk。
+     * tone 与单声道 WAV/MP3 都走此分支；输出长度翻倍。 */
+    if (s_current_channels == 1 && s_current_bits == 16) {
+        size_t out_len = len * 2;
+        void *work = heap_caps_malloc(out_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!work) {
+            ESP_LOGW(TAG, "Stereo expand buffer alloc failed (%zu bytes)", out_len);
+            return ESP_ERR_NO_MEM;
+        }
+        i2s_mono_to_stereo_16bit(data, work, len, gain, need_volume);
+        size_t bytes_written = 0;
+        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, out_len,
+                                          &bytes_written, pdMS_TO_TICKS(2000));
+        heap_caps_free(work);
+        if (ret != ESP_OK || bytes_written != out_len) {
+            ESP_LOGE(TAG, "I2S write (mono->stereo) failed: %s written=%zu/%zu",
+                     esp_err_to_name(ret), bytes_written, out_len);
+        }
+        return ret;
+    }
+
+    /* 立体声源（或其它位宽）：直接写入，按需应用音量 */
     if (need_volume) {
         void *work = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!work) {
