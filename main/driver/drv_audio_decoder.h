@@ -89,6 +89,9 @@ typedef struct {
     size_t probe_offset;    /* 首个非静音样本在块内的下标 */
     int probe_first_peak;   /* open 首帧探测解码的 PCM 峰值（诊断解码器本身） */
     int first_samples[8];   /* open 首帧解码的前 8 个样本原值（诊断解码器输出） */
+    int probe_max_peak;     /* 全程最大峰值：每次 read 更新，绕过首帧静音误导 */
+    int probe_last_peak;    /* 最近一次 read 输出块峰值 */
+    int probe_reads;        /* read 调用次数 */
 } wav_decoder_t;
 
 /* ========== API函数 ========== */

@@ -1182,6 +1182,9 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             cJSON *dp = cJSON_CreateArray();
             for (int i = 0; i < 8; i++) cJSON_AddItemToArray(dp, cJSON_CreateNumber(st.deep_probe[i]));
             cJSON_AddItemToObject(data, "deep_probe", dp);
+            cJSON_AddNumberToObject(data, "probe_max_peak", st.probe_max_peak);
+            cJSON_AddNumberToObject(data, "probe_last_peak", st.probe_last_peak);
+            cJSON_AddNumberToObject(data, "probe_reads", st.probe_reads);
             cJSON_AddItemToObject(response, "data", data);
             break;
         }

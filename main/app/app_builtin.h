@@ -164,6 +164,9 @@ typedef struct {
     int first_samples[8];   /* open 首帧解码前 8 个样本原值 */
     int table_probe[4];     /* minimp3 常量表运行时读数，期望 [1000,-1,999048,785] */
     int deep_probe[8];      /* minimp3 解码内部状态（bitstream/反量化/合成） */
+    int probe_max_peak;     /* 全程最大输出峰值（真正送往 I2S 的数据幅度） */
+    int probe_last_peak;    /* 最近一块输出峰值 */
+    int probe_reads;        /* read 调用次数 */
 } app_music_status_t;
 
 /** 读取音乐应用当前状态；未启动时 count=0、is_playing=false */

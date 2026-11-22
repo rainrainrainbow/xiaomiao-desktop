@@ -433,6 +433,21 @@ esp_err_t wav_decoder_read(wav_decoder_t *decoder, void *buffer,
         }
         decoder->probe_peak = peak;
     }
+    /* 全程峰值统计：每次 read 都更新，避免首帧 encoder delay 静音误导诊断。
+     * probe_last_peak 反映真正送往 audio_output_write 的数据幅度。 */
+    {
+        const int16_t *src = (const int16_t *)buffer;
+        size_t avail = *bytes_read / 2;
+        int pk = 0;
+        for (size_t i = 0; i < avail; i++) {
+            int32_t v = src[i];
+            int a = v < 0 ? -v : v;
+            if (a > pk) pk = a;
+        }
+        decoder->probe_last_peak = pk;
+        if (pk > decoder->probe_max_peak) decoder->probe_max_peak = pk;
+        decoder->probe_reads++;
+    }
     return ret;
 }
 
