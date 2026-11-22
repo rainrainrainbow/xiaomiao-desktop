@@ -1144,7 +1144,9 @@ static void filemgr_soft_delete(void)
     struct tm tm_info;
     time(&now);
     localtime_r(&now, &tm_info);
-    char prefix[FM_RECYCLE_PREFIX_LEN + 1] = {0};
+    /* 加大缓冲：%.2d 对 int 最坏输出 11 字节，96 字节可容纳全部字段，
+     * 避免 -Wformat-truncation 误报；实际仍写入 16 字符前缀 */
+    char prefix[96] = {0};
     snprintf(prefix, sizeof(prefix), "%.4d%.2d%.2d_%.2d%.2d%.2d_",
              tm_info.tm_year + 1900, tm_info.tm_mon + 1, tm_info.tm_mday,
              tm_info.tm_hour, tm_info.tm_min, tm_info.tm_sec);

@@ -491,7 +491,7 @@ static void install_selected_app(void)
     // 3) 空间检查：需要空间 = 源目录累计大小 + 余量
     uint32_t need_bytes = app->size_kb * 1024 + STORE_COPY_MARGIN;
     if (!app_sys_storage_has_space(dest_dir, need_bytes)) {
-        ESP_LOGW(TAG, "No space for %s: need=%u bytes", app->name, need_bytes);
+        ESP_LOGW(TAG, "No space for %s: need=%u bytes", app->name, (unsigned)need_bytes);
         snprintf(s_msg, sizeof(s_msg), "%s", lang_get(STR_FILE_NOSPACE));
         return;
     }
