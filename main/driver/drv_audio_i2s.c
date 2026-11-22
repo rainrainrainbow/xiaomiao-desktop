@@ -105,15 +105,16 @@ static void apply_volume_24bit(void *data, size_t len, float gain)
  * 几乎不变（"滴滴声正常"）；而 MP3/WAV 复杂波形相邻样本差异大，成对
  * 交换后波形被撕碎 → 满幅噪声（"电流声"）。解码数据本身始终正确。
  *
- * 同时 NS4168（MSB/左对齐 I2S 功放）要求 bit_shift=false；若误用 Philips
- * (bit_shift=true) 会让数据相对 WS 延迟 1 个 BCLK，进一步错位。
+ * NS4168 数字功放实测要求标准 Philips I2S（bit_shift=true，数据相对 WS
+ * 延迟 1 个 BCLK）。曾被误改为 MSB 对齐（bit_shift=false）导致采样位错位
+ * 1 bit → MP3/WAV 退化为电流声，详见 最终交付报告.md。
  *
- * 最终方案（两个条件必须同时满足，历史上各方案只满足其一）：
+ * 最终方案（结合实机 I2S DMA 写入探针验证，两个条件必须同时满足）：
  *   1) I2S 通道始终以 STEREO 帧打开 → 彻底规避 16-bit MONO 样本对交换 quirk；
- *   2) 使用 MSB 对齐宏 I2S_STD_MSB_SLOT_DEFAULT_CONFIG → bit_shift=false，
- *      且宏会正确设置 ws_width=16（此前手写 ws_width=bit_width=枚举值1 是错的）。
+ *   2) 使用 Philips 宏 I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG → bit_shift=true，
+ *      满足 NS4168 时序。
  * 逻辑单声道源在写入时展开为 L=R 双声道帧；立体声源交错数据直接写入。
- * 这样 tone 与音乐都走同一条无交换、对齐正确的路径。 */
+ * tone 与音乐都走同一条无交换、时序正确的路径。 */
 
 /* mono 源 → L=R 立体声帧展开（同时应用音量），规避 MONO 交换 quirk */
 static void i2s_mono_to_stereo_16bit(const void *src, void *dst, size_t len,
@@ -233,15 +234,22 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         bit_width = I2S_DATA_BIT_WIDTH_16BIT;
     }
 
-    /* 最终配置：MSB 对齐 + 始终 STEREO 帧。
-     *   - STEREO：规避经典 ESP32 16-bit MONO 的样本对交换 quirk（电流声根因）；
-     *   - MSB 宏：bit_shift=false 满足 NS4168 左对齐要求，且宏自动把 ws_width
-     *     正确设为 slot 位宽（16），修正此前手写 ws_width=bit_width(=1) 的错误；
-     *   - 逻辑单声道源在 write 时展开为 L=R，立体声源直接交错写入。
-     * tone 与音乐共用这一条对齐正确、无交换的路径。 */
+    /* 格式：标准 Philips I2S + 始终 STEREO 帧 + mono->L=R 展开。
+     *
+     * 依据（最终交付报告.md 记载的实机验证结论）：NS4168 数字功放要求
+     * 标准 Philips I2S（数据相对 WS 延迟 1 个 BCLK，bit_shift=true）。
+     * 曾有人以"参考设计"为由把 Philips 改回 MSB（commit 0d96d52），
+     * 导致每个采样位错位 1 bit → 低频 tone 仍能听出音调、MP3/WAV 复杂
+     * 波形退化为电流声。本轮 I2S DMA 写入探针已证明送入硬件的数据本身
+     * 完全正确（tone 与音乐均为平滑 L=R 正弦），故问题只在时序格式。
+     *
+     * 恢复 Philips（bit_shift=true）+ STEREO 帧：
+     *   - Philips：满足 NS4168 的 1-BCLK 延迟时序，消除位错位；
+     *   - STEREO：规避经典 ESP32 16-bit MONO 样本对交换 quirk；
+     *   - mono->L=R 展开：tone 与音乐共用同一条正确路径。 */
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(bit_width, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bit_width, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .bclk = I2S_BCK_PIN,
             .ws = I2S_WS_PIN,
