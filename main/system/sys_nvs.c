@@ -268,6 +268,40 @@ int sys_nvs_load_music_mode(void)
     return 0;
 }
 
+/* ========== LED 音乐律动存储 ========== */
+void sys_nvs_save_led_vis_mode(int mode)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_LED_VIS_MODE, mode);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "LED visualizer mode saved: %d", mode);
+}
+
+int sys_nvs_load_led_vis_mode(void)
+{
+    int32_t val = 0;   /* 默认关闭 */
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_LED_VIS_MODE, &val) == ESP_OK) {
+        ESP_LOGI(TAG, "LED visualizer mode loaded: %d", (int)val);
+        return (int)val;
+    }
+    return 0;
+}
+
+void sys_nvs_save_led_vis_color(int index)
+{
+    nvs_set_i32(s_nvs_handle, NVS_KEY_LED_VIS_COLOR, index);
+    nvs_commit(s_nvs_handle);
+    ESP_LOGI(TAG, "LED visualizer color saved: %d", index);
+}
+
+int sys_nvs_load_led_vis_color(void)
+{
+    int32_t val = 4;   /* 默认青色 */
+    if (nvs_get_i32(s_nvs_handle, NVS_KEY_LED_VIS_COLOR, &val) == ESP_OK) {
+        return (int)val;
+    }
+    return 4;
+}
+
 void sys_nvs_save_wifi_credentials(const char *ssid, const char *password)
 {
     if (ssid) {

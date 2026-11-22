@@ -27,6 +27,8 @@
 #define NVS_KEY_MUSIC_EQ     "music_eq"   // 音乐频谱模式 (0=关, 1=开)
 #define NVS_KEY_MUSIC_LRC    "music_lrc"  // 音乐歌词显示 (0=关, 1=开)
 #define NVS_KEY_MUSIC_MODE   "music_mode" // 音乐循环模式 (0=单曲, 1=列表, 2=随机)
+#define NVS_KEY_LED_VIS_MODE "ledvis_mode" // LED音乐律动模式 (0=关,1=单色,2=彩虹,3=节拍脉冲)
+#define NVS_KEY_LED_VIS_COLOR "ledvis_clr" // LED音乐律动基色预设索引 (0-8)
 #define NVS_KEY_WIFI_SSID    "wifi_ssid"  // WiFi SSID
 #define NVS_KEY_WIFI_PASS    "wifi_pass"  // WiFi 密码
 
@@ -165,6 +167,21 @@ void sys_nvs_save_music_mode(int mode);
  * @return 0=单曲（默认）, 1=列表, 2=随机
  */
 int sys_nvs_load_music_mode(void);
+
+/**
+ * 保存 LED 音乐律动模式
+ * @param mode 0=关闭, 1=单色律动, 2=彩虹律动, 3=节拍脉冲
+ */
+void sys_nvs_save_led_vis_mode(int mode);
+
+/** 加载 LED 音乐律动模式，默认 0（关闭） */
+int sys_nvs_load_led_vis_mode(void);
+
+/** 保存 LED 音乐律动基色预设索引 (0-8) */
+void sys_nvs_save_led_vis_color(int index);
+
+/** 加载 LED 音乐律动基色预设索引，默认 4（青） */
+int sys_nvs_load_led_vis_color(void);
 
 /**
  * 保存 WiFi 凭据

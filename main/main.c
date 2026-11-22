@@ -59,6 +59,7 @@
 #include "driver/drv_buzzer.h"
 #include "driver/drv_audio_output.h"
 #include "driver/drv_led_strip.h"      // WS2812B LED（与蜂鸣器复用GPIO14）
+#include "driver/drv_led_visualizer.h" // LED 音乐律动服务
 #include "driver/drv_mic_lmd2718.h"    // LMD2718 数字麦克风
 
 // 系统服务
@@ -1003,6 +1004,9 @@ void app_main(void)
      * 若日后恢复蜂鸣器硬件，取消下行注释并确保与 LED 互斥即可。 */
     // drv_buzzer_init();
     drv_led_strip_init(); // 初始化 NeoPixel RGB LED（GPIO14，官方 led_strip 组件 + RMT）
+    /* 启动 LED 音乐律动服务（常驻后台任务，随音乐 PCM 幅度驱动灯带；
+     * 模式/颜色由 NVS 配置。LED app 手动效果运行时会自动让位）。 */
+    led_visualizer_init();
     drv_mic_init();      // 初始化 LMD2718 数字麦克风（GPIO21 DATA, GPIO15 CLK）
     audio_output_init(); // 初始化音频输出抽象层（自动检测并选择最佳设备）
     

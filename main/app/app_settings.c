@@ -52,13 +52,14 @@ static const char *s_settings_items[] = {
     "返回Loader", // 17
     "蓝牙",       // 18 - 蓝牙设置（状态/配对）
     "恢复模式",   // 19 - 恢复模式（类安卓 Recovery 维护菜单）
+    "LED音乐律动", // 20 - LED 随音乐律动（关/单色/彩虹/节拍脉冲）
 };
 #define SETTINGS_ITEM_COUNT (sizeof(s_settings_items) / sizeof(s_settings_items[0]))
 
 /* 可见区域（列表起始Y由ui_content_y()动态计算） */
 
 static lv_obj_t *s_settings_list = NULL;
-static lv_obj_t *s_settings_labels[20] = {0};
+static lv_obj_t *s_settings_labels[21] = {0};
 static lv_obj_t *s_settings_switch = NULL;  /* 声音开关组件（第6行） */
 static int s_settings_sel = 0;
 static int s_settings_scroll = 0;  /* 滚动偏移（行数） */
@@ -122,6 +123,17 @@ static void settings_refresh_label(int idx)
     case 12: snprintf(buf, sizeof(buf), "%s", lang_get(STR_OTA_IDLE)); break;
     case 13: snprintf(buf, sizeof(buf), "%s", lang_get(STR_APP_MANAGER)); break;
     case 14: snprintf(buf, sizeof(buf), "%s", lang_get(STR_ABOUT)); break;
+    case 20: {
+        /* LED音乐律动：显示当前模式 */
+        const char *vis_names[] = {
+            lang_get(STR_LED_VIS_OFF), lang_get(STR_LED_VIS_SINGLE),
+            lang_get(STR_LED_VIS_RAINBOW), lang_get(STR_LED_VIS_PULSE)
+        };
+        int mode = app_sys_cfg_get_int(APP_CFG_LED_VIS_MODE, 0);
+        if (mode < 0 || mode >= 4) mode = 0;
+        snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_LED_VIS_TITLE), vis_names[mode]);
+        break;
+    }
     default: {
         const char *def_items[] = {
             lang_get(STR_BRIGHTNESS), lang_get(STR_THEME), lang_get(STR_VOLUME), lang_get(STR_WIFI),
@@ -129,9 +141,9 @@ static void settings_refresh_label(int idx)
             lang_get(STR_SOUND), lang_get(STR_AUDIO_OUTPUT), lang_get(STR_SLEEP_TIMEOUT),
             lang_get(STR_DATE_TIME), lang_get(STR_OTA_IDLE), lang_get(STR_APP_MANAGER), lang_get(STR_ABOUT),
             lang_get(STR_RESET_DEFAULT), lang_get(STR_SAVE_EXIT), lang_get(STR_RETURN_LOADER),
-            lang_get(STR_BLUETOOTH), lang_get(STR_RECOVERY)
+            lang_get(STR_BLUETOOTH), lang_get(STR_RECOVERY), lang_get(STR_LED_VIS_TITLE)
         };
-        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 20 ? def_items[idx] : "");
+        snprintf(buf, sizeof(buf), "%s", idx >= 0 && idx < 21 ? def_items[idx] : "");
         break;
     }
     }
@@ -499,6 +511,16 @@ static bool settings_on_key(int key)
             if (key == KEY_A) {
                 ui_stack_push(PAGE_APP_PLACEHOLDER, &g_recovery_callbacks, NULL);
                 return true;
+            }
+            break;
+        case 20:
+            /* LED音乐律动：A/左右键循环切换模式 关→单色→彩虹→节拍 */
+            if (key == KEY_A || key == KEY_LEFT || key == KEY_RIGHT) {
+                int mode = app_sys_cfg_get_int(APP_CFG_LED_VIS_MODE, 0);
+                int delta = (key == KEY_LEFT) ? -1 : 1;
+                mode = (mode + delta + 4) % 4;   /* 4 种模式循环 */
+                app_sys_cfg_set_int(APP_CFG_LED_VIS_MODE, mode);
+                ESP_LOGI(TAG, "LED visualizer mode -> %d", mode);
             }
             break;
         }

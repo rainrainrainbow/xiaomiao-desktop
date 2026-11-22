@@ -26,7 +26,9 @@
 #include "freertos/semphr.h"
 #include "cJSON.h"
 #include "driver/drv_led_strip.h"
+#include "driver/drv_led_visualizer.h"
 #include "driver/drv_audio_i2s.h"
+#include "driver/drv_audio_decoder.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -164,6 +166,7 @@ typedef enum {
     TEST_CMD_FILE_IO,          /* 文件写入：把测试资源放进内部 FAT(/flash) */
     TEST_CMD_MUSIC_STATUS,     /* 只读诊断：查询音乐 app 扫描/解码/播放状态 */
     TEST_CMD_MUSIC_CONTROL,    /* 诊断控制：重扫/播放/停止（内部 RAM 栈任务执行） */
+    TEST_CMD_LED_VIS,          /* 诊断控制：LED 音乐律动模式/颜色查询与设置 */
 } test_cmd_type_t;
 
 /* ========== 文件写入通道（内部 RAM 栈写任务 + PSRAM 数据缓冲） ==========
@@ -1280,6 +1283,42 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             } else {
                 cJSON_AddStringToObject(response, "status", "error");
                 cJSON_AddStringToObject(response, "msg", "Missing 'index', 'r', 'g', or 'b' parameter");
+            }
+            break;
+        }
+        case TEST_CMD_LED_VIS: {
+            /* LED 音乐律动诊断控制：
+             * - 不带 op 或 op="get"：返回当前 mode/color/active/live_peak
+             * - op="set_mode" + mode：设置模式 0~3
+             * - op="set_color" + color：设置基色 0~8 */
+            cJSON *op_json = cmd->params ? cJSON_GetObjectItem(cmd->params, "op") : NULL;
+            const char *op = (op_json && cJSON_IsString(op_json)) ? op_json->valuestring : "get";
+            if (strcmp(op, "set_mode") == 0) {
+                cJSON *m = cJSON_GetObjectItem(cmd->params, "mode");
+                if (m && cJSON_IsNumber(m)) {
+                    led_visualizer_set_mode(m->valueint);
+                    cJSON_AddStringToObject(response, "status", "ok");
+                } else {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "missing mode");
+                }
+            } else if (strcmp(op, "set_color") == 0) {
+                cJSON *c = cJSON_GetObjectItem(cmd->params, "color");
+                if (c && cJSON_IsNumber(c)) {
+                    led_visualizer_set_color(c->valueint);
+                    cJSON_AddStringToObject(response, "status", "ok");
+                } else {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "missing color");
+                }
+            } else {
+                cJSON *data = cJSON_CreateObject();
+                cJSON_AddNumberToObject(data, "mode", led_visualizer_get_mode());
+                cJSON_AddNumberToObject(data, "color", led_visualizer_get_color());
+                cJSON_AddBoolToObject(data, "active", led_visualizer_is_active());
+                cJSON_AddNumberToObject(data, "live_peak", audio_decoder_get_live_peak());
+                cJSON_AddItemToObject(response, "data", data);
+                cJSON_AddStringToObject(response, "status", "ok");
             }
             break;
         }

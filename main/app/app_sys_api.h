@@ -73,6 +73,8 @@ typedef enum {
     APP_CFG_MUSIC_EQ,
     APP_CFG_MUSIC_LRC,
     APP_CFG_MUSIC_MODE,
+    APP_CFG_LED_VIS_MODE,      /* LED音乐律动模式 0=关 1=单色 2=彩虹 3=节拍 */
+    APP_CFG_LED_VIS_COLOR,     /* LED音乐律动基色 0-8 */
     APP_CFG_MAX
 } app_cfg_key_t;
 
