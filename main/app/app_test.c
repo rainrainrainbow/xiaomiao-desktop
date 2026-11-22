@@ -174,7 +174,8 @@ typedef enum {
  * UART 命令任务栈在 PSRAM，故实际 I/O 由内部栈的 s_file_io_task 执行：
  * UART 任务填充请求 → 通知 → 等待完成。FILE* 由写任务独占持有。 */
 #define FILE_IO_CHUNK_MAX  2400   /* 单次 write 解码后字节上限 */
-typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT, IO_OP_READ, IO_OP_DELETE } file_io_op_t;
+typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT, IO_OP_READ, IO_OP_DELETE,
+               IO_OP_LEDVIS_MODE, IO_OP_LEDVIS_COLOR } file_io_op_t;  /* 后两项：NVS 写入须在内部 RAM 栈执行 */
 typedef struct {
     file_io_op_t op;
     char path[256];
@@ -810,6 +811,16 @@ static void file_io_task(void *arg)
                 else r->result = errno > 0 ? -errno : -1;
             }
             break;
+        case IO_OP_LEDVIS_MODE:
+            /* NVS 写入(led_visualizer_set_mode)会禁用 flash cache，
+             * 必须在此内部 RAM 栈任务执行，不能在 PSRAM 栈的 UART 任务里调。 */
+            led_visualizer_set_mode(r->offset);
+            r->result = 0;
+            break;
+        case IO_OP_LEDVIS_COLOR:
+            led_visualizer_set_color(r->offset);
+            r->result = 0;
+            break;
         default:
             r->result = -200;
             break;
@@ -1296,8 +1307,10 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             if (strcmp(op, "set_mode") == 0) {
                 cJSON *m = cJSON_GetObjectItem(cmd->params, "mode");
                 if (m && cJSON_IsNumber(m)) {
-                    led_visualizer_set_mode(m->valueint);
-                    cJSON_AddStringToObject(response, "status", "ok");
+                    /* 经内部 RAM 栈任务写 NVS，避免 PSRAM 栈触发 cache_disabled 断言 */
+                    if (s_io_req) s_io_req->offset = m->valueint;
+                    int ret = file_io_dispatch(IO_OP_LEDVIS_MODE, NULL, NULL, NULL, 0, 0, NULL);
+                    cJSON_AddStringToObject(response, "status", (ret == 0) ? "ok" : "error");
                 } else {
                     cJSON_AddStringToObject(response, "status", "error");
                     cJSON_AddStringToObject(response, "msg", "missing mode");
@@ -1305,8 +1318,9 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             } else if (strcmp(op, "set_color") == 0) {
                 cJSON *c = cJSON_GetObjectItem(cmd->params, "color");
                 if (c && cJSON_IsNumber(c)) {
-                    led_visualizer_set_color(c->valueint);
-                    cJSON_AddStringToObject(response, "status", "ok");
+                    if (s_io_req) s_io_req->offset = c->valueint;
+                    int ret = file_io_dispatch(IO_OP_LEDVIS_COLOR, NULL, NULL, NULL, 0, 0, NULL);
+                    cJSON_AddStringToObject(response, "status", (ret == 0) ? "ok" : "error");
                 } else {
                     cJSON_AddStringToObject(response, "status", "error");
                     cJSON_AddStringToObject(response, "msg", "missing color");
