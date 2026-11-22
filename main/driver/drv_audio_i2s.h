@@ -37,6 +37,22 @@ extern "C" {
 #define I2S_WS_PIN      GPIO_NUM_32     /* I2S字选择/帧同步 (Word Select / LRCLK) — NS4168 LRCLK */
 #define I2S_DOUT_PIN    GPIO_NUM_33     /* I2S串行数据输出 (Data Out) — NS4168 SDA */
 
+/* ========== I2S 写入诊断探针 ==========
+ * 记录真正送入 i2s_channel_write() 的数据，用于区分：
+ *   - 解码/展开正确但功放出噪声（硬件/格式问题）
+ *   - 写入路径本身把数据写坏（软件问题）
+ * 与解码器内部 probe 独立，本探针位于 mono->stereo 展开之后。 */
+typedef struct {
+    int      valid;        /* 是否采到过有效块 */
+    int      count;        /* 有效样本数 */
+    int16_t  samples[16];  /* 展开后送入 DMA 的前 16 个 int16 样本 */
+    uint32_t writes;       /* 累计写入次数 */
+    uint32_t last_len;     /* 最近一次写入字节数 */
+} i2s_write_probe_t;
+
+void i2s_get_write_probe(i2s_write_probe_t *out);
+void i2s_reset_write_probe(void);
+
 /* ========== I2S后端实例 ========== */
 
 /**

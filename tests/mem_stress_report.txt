@@ -1,4 +1,5 @@
 XiaoMiao Desktop OS — 实机内存压测报告
+<<<<<<< Updated upstream
 生成时间: 2026-11-21 11:50:49
 ====================================================================
 
@@ -6,59 +7,129 @@ XiaoMiao Desktop OS — 实机内存压测报告
 [GET_INFO 原始响应] {"id": 1003, "cmd": 1, "status": "ok", "data": {"device": "Xiaomiao Desktop", "fw_version": "v71.1", "hw_version": "ESP32-WROVER", "flash_mb": 16, "psram_mb": 8, "screen_w": 160, "screen_h": 128, "buttons": 6, "leds": 3, "micropython_ready": true, "test_running": false}}
 [GET_INFO data 字段] device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running
 [GET_INFO 堆字段] 未发现（data 中无任何 heap/free/mem 字段）
+=======
+生成时间: 2026-11-22 09:10:08
+====================================================================
+
+[连接] COM6 @ 115200，PING 就绪
+[GET_INFO 原始响应] {"id": 1002, "cmd": 1, "status": "ok", "data": {"device": "Xiaomiao Desktop", "fw_version": "v71.1", "hw_version": "ESP32-WROVER", "flash_mb": 16, "psram_mb": 8, "heap_free_bytes": 3901611, "heap_min_free_bytes": 3897799, "heap_largest_block": 3801088, "psram_free_bytes": 3864552, "heap_internal_free": 43659, "heap_internal_min_free_bytes": 39879, "heap_internal_largest_block": 34816, "screen_w": 160, "screen_h": 128, "buttons": 6, "leds": 3, "micropython_ready": true, "test_running": false}}
+[GET_INFO data 字段] device,fw_version,hw_version,flash_mb,psram_mb,heap_free_bytes,heap_min_free_bytes,heap_largest_block,psram_free_bytes,heap_internal_free,heap_internal_min_free_bytes,heap_internal_largest_block,screen_w,screen_h,buttons,leds,micropython_ready,test_running
+[GET_INFO 堆字段] heap_internal_free=43659, heap_internal_min_free_bytes=39879, heap_internal_largest_block=34816, heap_free_bytes=3901611, psram_free_bytes=3864552, heap_min_free_bytes=3897799, heap_largest_block=3801088
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 a: SIMULATE_KEY 进出app
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 6 keys
 轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 6 keys
 小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+=======
+轮次 1: heap=43507 (GET_INFO.heap_internal_free) 6 keys
+轮次 2: heap=43507 (GET_INFO.heap_internal_free) 6 keys
+轮次 3: heap=43507 (GET_INFO.heap_internal_free) 6 keys
+轮次 4: heap=43507 (GET_INFO.heap_internal_free) 7 keys
+轮次 5: heap=43507 (GET_INFO.heap_internal_free) 6 keys
+小结: 完成 5/5 轮, 堆 43507->43507 (最小 43507, 净降 0), 原因:完成全部 5 轮
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 b: PLAY_TONE 多频率
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 330Hz
 轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) 440Hz
 小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+=======
+轮次 1: heap=39183 (GET_INFO.heap_internal_free) 330Hz
+轮次 2: heap=39183 (GET_INFO.heap_internal_free) 440Hz
+轮次 3: heap=39183 (GET_INFO.heap_internal_free) 660Hz
+轮次 4: heap=39183 (GET_INFO.heap_internal_free) 880Hz
+轮次 5: heap=39183 (GET_INFO.heap_internal_free) 1175Hz
+小结: 完成 5/5 轮, 堆 39183->39183 (最小 39183, 净降 0), 原因:完成全部 5 轮
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 c: SET_LED/BACKLIGHT
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) rgb(1,37,91)
 轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) rgb(2,74,182)
 小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+=======
+轮次 1: heap=39183 (GET_INFO.heap_internal_free) rgb(1,37,91)
+轮次 2: heap=39183 (GET_INFO.heap_internal_free) rgb(2,74,182)
+轮次 3: heap=39183 (GET_INFO.heap_internal_free) rgb(3,111,18)
+轮次 4: heap=39183 (GET_INFO.heap_internal_free) rgb(4,148,109)
+轮次 5: heap=39183 (GET_INFO.heap_internal_free) rgb(5,185,200)
+小结: 完成 5/5 轮, 堆 39183->39183 (最小 39183, 净降 0), 原因:完成全部 5 轮
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 d: EXEC_PYTHON
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无有效响应) script#1 | 事件:REBOOT/CRASH,PING-FAIL
 小结: 完成 1/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:设备重启/失联
+=======
+轮次 1: heap=39183 (GET_INFO.heap_internal_free) script#1
+轮次 2: heap=39183 (GET_INFO.heap_internal_free) script#2
+轮次 3: heap=39183 (GET_INFO.heap_internal_free) script#3
+轮次 4: heap=39183 (GET_INFO.heap_internal_free) script#4
+轮次 5: heap=39183 (GET_INFO.heap_internal_free) script#5
+小结: 完成 5/5 轮, 堆 39183->39183 (最小 39183, 净降 0), 原因:完成全部 5 轮
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 e: RUN_TEST 三项
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) display:2 audio:2 mpy:2
 轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) display:2 audio:2 mpy:2
 小结: 完成 2/2 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 2 轮
+=======
+轮次 1: heap=39183 (GET_INFO.heap_internal_free) display:2 audio:2 mpy:2
+轮次 2: heap=39183 (GET_INFO.heap_internal_free) display:2 audio:2 mpy:2
+轮次 3: heap=39183 (GET_INFO.heap_internal_free) display:2 audio:2 mpy:2
+轮次 4: heap=39183 (GET_INFO.heap_internal_free) display:2 audio:2 mpy:2
+轮次 5: heap=39183 (GET_INFO.heap_internal_free) display:2 audio:2 mpy:2
+小结: 完成 5/5 轮, 堆 39183->39183 (最小 39183, 净降 0), 原因:完成全部 5 轮
+>>>>>>> Stashed changes
 
 ====================================================================
 路径 f: DIAG_WIFI_SCAN x3
 ====================================================================
+<<<<<<< Updated upstream
 轮次 1: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
 轮次 2: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
 轮次 3: heap=None (GET_INFO 无堆字段(字段:device,fw_version,hw_version,flash_mb,psram_mb,screen_w,screen_h,buttons,leds,micropython_ready,test_running)) scan_ack=ok done=True
 小结: 完成 3/3 轮, 堆 N/A->N/A (最小 N/A, 净降 N/A), 原因:完成全部 3 轮
+=======
+轮次 1: heap=39095 (GET_INFO.heap_internal_free) scan_ack=ok done=True
+轮次 2: heap=39095 (GET_INFO.heap_internal_free) scan_ack=ok done=True
+轮次 3: heap=39095 (GET_INFO.heap_internal_free) scan_ack=ok done=True
+小结: 完成 3/3 轮, 堆 39095->39095 (最小 39095, 净降 0), 原因:完成全部 3 轮
+>>>>>>> Stashed changes
 
 ####################################################################
 # 汇总表
 ####################################################################
 路径   描述                             轮次      起始堆      结束堆      最小堆      净下降 可疑         终止原因
+<<<<<<< Updated upstream
 a    SIMULATE_KEY 进出app            2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
 b    PLAY_TONE 多频率                 2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
 c    SET_LED/BACKLIGHT             2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
 d    EXEC_PYTHON                   1/2      N/A      N/A      N/A      N/A 否          设备重启/失联
 e    RUN_TEST 三项                   2/2      N/A      N/A      N/A      N/A 否          完成全部 2 轮
 f    DIAG_WIFI_SCAN x3             3/3      N/A      N/A      N/A      N/A 否          完成全部 3 轮
+=======
+a    SIMULATE_KEY 进出app            5/5    43507    43507    43507        0 否          完成全部 5 轮
+b    PLAY_TONE 多频率                 5/5    39183    39183    39183        0 否          完成全部 5 轮
+c    SET_LED/BACKLIGHT             5/5    39183    39183    39183        0 否          完成全部 5 轮
+d    EXEC_PYTHON                   5/5    39183    39183    39183        0 否          完成全部 5 轮
+e    RUN_TEST 三项                   5/5    39183    39183    39183        0 否          完成全部 5 轮
+f    DIAG_WIFI_SCAN x3             3/3    39095    39095    39095        0 否          完成全部 3 轮
+>>>>>>> Stashed changes
 
 [堆可读性] GET_INFO 无堆字段 / EXEC_PYTHON 为 no-op -> 所有路径 heap=None；
            净下降无法直接测量，改以重启次数、mem free 告警、存活轮数作为泄漏代理证据。
@@ -67,8 +138,14 @@ f    DIAG_WIFI_SCAN x3             3/3      N/A      N/A      N/A      N/A 否  
 [mem free 快照] 无（未触发任何分配失败日志）
 
 [重点观察]
+<<<<<<< Updated upstream
   - d EXEC_PYTHON: 完成 1/2, 原因=设备重启/失联
   - f DIAG_WIFI_SCAN x3: 完成 3/3, 原因=完成全部 3 轮
   - a SIMULATE_KEY 进出app: 完成 2/2, 原因=完成全部 2 轮
+=======
+  - a SIMULATE_KEY 进出app: 完成 5/5, 原因=完成全部 5 轮
+  - b PLAY_TONE 多频率: 完成 5/5, 原因=完成全部 5 轮
+  - c SET_LED/BACKLIGHT: 完成 5/5, 原因=完成全部 5 轮
+>>>>>>> Stashed changes
 
 [压测期间设备状态] 发生 1 次重启/崩溃

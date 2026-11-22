@@ -26,6 +26,7 @@
 #include "freertos/semphr.h"
 #include "cJSON.h"
 #include "driver/drv_led_strip.h"
+#include "driver/drv_audio_i2s.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1210,6 +1211,19 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             cJSON_AddNumberToObject(data, "probe_max_peak", st.probe_max_peak);
             cJSON_AddNumberToObject(data, "probe_last_peak", st.probe_last_peak);
             cJSON_AddNumberToObject(data, "probe_reads", st.probe_reads);
+            /* I2S DMA 写入探针：真正送入硬件的数据（mono->stereo 展开后） */
+            {
+                i2s_write_probe_t wp;
+                i2s_get_write_probe(&wp);
+                cJSON_AddNumberToObject(data, "i2s_wp_valid", wp.valid);
+                cJSON_AddNumberToObject(data, "i2s_wp_count", wp.count);
+                cJSON_AddNumberToObject(data, "i2s_wp_writes", (double)wp.writes);
+                cJSON_AddNumberToObject(data, "i2s_wp_last_len", (double)wp.last_len);
+                cJSON *wa = cJSON_CreateArray();
+                for (int i = 0; i < wp.count; i++)
+                    cJSON_AddItemToArray(wa, cJSON_CreateNumber(wp.samples[i]));
+                cJSON_AddItemToObject(data, "i2s_wp_samples", wa);
+            }
             cJSON_AddItemToObject(response, "data", data);
             break;
         }
@@ -1229,6 +1243,7 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 cJSON_AddStringToObject(response, "msg", "Invalid op");
                 break;
             }
+            if (op == 2) i2s_reset_write_probe();  /* 每次播放前重置写入探针 */
             app_music_debug_control(op, idx);
             cJSON_AddStringToObject(response, "status", "ok");
             cJSON_AddNumberToObject(response, "op", op);

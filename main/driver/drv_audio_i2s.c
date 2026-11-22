@@ -267,6 +267,7 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
             return ESP_ERR_NO_MEM;
         }
         i2s_mono_to_stereo_16bit(data, work, len, gain, need_volume);
+        i2s_probe_capture(work, out_len);  /* 诊断：采展开后真正写入 DMA 的数据 */
         size_t bytes_written = 0;
         esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, out_len,
                                           &bytes_written, pdMS_TO_TICKS(2000));
@@ -292,12 +293,14 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
         } else if (s_current_bits == 24) {
             apply_volume_24bit(work, len, gain);
         }
+        i2s_probe_capture(work, len);  /* 诊断 */
         size_t bytes_written = 0;
         esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, len, &bytes_written, pdMS_TO_TICKS(2000));
         heap_caps_free(work);
         return ret;
     }
 
+    i2s_probe_capture(data, len);  /* 诊断 */
     size_t bytes_written = 0;
     esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, data, len, &bytes_written, pdMS_TO_TICKS(2000));
     if (ret != ESP_OK) {
@@ -362,6 +365,38 @@ static bool i2s_backend_is_available_locked(void)
  * 触发 i2s_channel_write(): "this channel is not tx channel" 刷屏并淹没 UART 响应。
  * 所有通道操作统一持锁，写超时改为 2s，避免长期占锁。 */
 static SemaphoreHandle_t s_i2s_lock = NULL;
+
+/* 写入诊断探针：记录真正送入 DMA 的数据（展开后） */
+static i2s_write_probe_t s_write_probe;
+void i2s_get_write_probe(i2s_write_probe_t *out)
+{
+    if (out) *out = s_write_probe;
+}
+void i2s_reset_write_probe(void)
+{
+    memset(&s_write_probe, 0, sizeof(s_write_probe));
+}
+static void i2s_probe_capture(const void *data, size_t len)
+{
+    s_write_probe.writes++;
+    s_write_probe.last_len = (uint32_t)len;
+    if (s_write_probe.count > 0) return;  /* 只采首个非静音块 */
+    const int16_t *s = (const int16_t *)data;
+    size_t n = len / sizeof(int16_t);
+    /* 跳过开头静音 */
+    size_t start = 0;
+    while (start < n && (s[start] == 0 || s[start] == -32768)) start++;
+    int pk = 0;
+    for (size_t i = start; i < n; i++) {
+        int a = s[i] < 0 ? -s[i] : s[i];
+        if (a > pk) pk = a;
+    }
+    if (pk < 100) return;  /* 静音块不采 */
+    size_t take = (n - start) < 16 ? (n - start) : 16;
+    for (size_t i = 0; i < take; i++) s_write_probe.samples[i] = s[start + i];
+    s_write_probe.count = (int)take;
+    s_write_probe.valid = 1;
+}
 
 static esp_err_t i2s_backend_init(void)
 {

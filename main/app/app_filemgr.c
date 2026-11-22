@@ -34,7 +34,7 @@ static int s_filemgr_count = 0;
 /* 纯 UI 显示缓存，放 PSRAM：5KB+2.5KB 内部 DRAM 释放 */
 EXT_RAM_BSS_ATTR static char s_filemgr_entries[FILEMGR_MAX_ENTRIES][FILEMGR_PATH_LEN];
 static bool s_filemgr_is_dir[FILEMGR_MAX_ENTRIES];
-static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/sdcard";
+static char s_filemgr_current_path[FILEMGR_PATH_LEN] = "/";
 static int s_filemgr_scroll = 0;
 
 /* ========== 文本查看器状态 ========== */
@@ -334,6 +334,34 @@ static void filemgr_refresh_list(void)
     }
 }
 
+/* 虚拟根目录：列出内部 FAT /flash 与外部 /sdcard 两个存储入口。
+ * ESP-IDF VFS 下 opendir("/") 只会显示已挂载的 VFS 前缀，行为不一致，
+ * 因此这里显式构造两个入口，保证内部空间始终可见。 */
+static void filemgr_scan_root(void)
+{
+    s_filemgr_count = 0;
+    /* 内部 FAT 分区（始终挂载） */
+    DIR *flash = opendir("/flash");
+    if (flash) {
+        closedir(flash);
+        strncpy(s_filemgr_entries[s_filemgr_count], "flash", FILEMGR_PATH_LEN - 1);
+        s_filemgr_entries[s_filemgr_count][FILEMGR_PATH_LEN - 1] = '\0';
+        s_filemgr_is_dir[s_filemgr_count++] = true;
+    }
+    /* 外部 SD 卡（可选） */
+    if (app_sys_sdcard_ready()) {
+        DIR *sd = opendir("/sdcard");
+        if (sd) {
+            closedir(sd);
+            strncpy(s_filemgr_entries[s_filemgr_count], "sdcard", FILEMGR_PATH_LEN - 1);
+            s_filemgr_entries[s_filemgr_count][FILEMGR_PATH_LEN - 1] = '\0';
+            s_filemgr_is_dir[s_filemgr_count++] = true;
+        }
+    }
+    s_filemgr_sd_missing = false;
+    ESP_LOGI(TAG, "File manager root: %d storage entries", s_filemgr_count);
+}
+
 static void filemgr_scan_dir(const char *path)
 {
     s_filemgr_count = 0;
@@ -341,6 +369,11 @@ static void filemgr_scan_dir(const char *path)
     s_filemgr_scroll = 0;
     strncpy(s_filemgr_current_path, path, FILEMGR_PATH_LEN - 1);
     s_filemgr_current_path[FILEMGR_PATH_LEN - 1] = '\0';
+    /* 虚拟根：内部/外部存储入口 */
+    if (strcmp(path, "/") == 0) {
+        filemgr_scan_root();
+        return;
+    }
     DIR *dir = opendir(path);
     if (!dir) {
         /* 目录打不开时区分"SD 卡未挂载"与"普通空/不可读目录"，给出明确提示 */
@@ -440,15 +473,16 @@ static bool filemgr_on_key(int key)
     }
 
     if (key == KEY_B) {
-        if (strcmp(s_filemgr_current_path, "/sdcard") == 0 ||
-            strcmp(s_filemgr_current_path, "/") == 0) {
+        if (strcmp(s_filemgr_current_path, "/") == 0) {
+            /* 虚拟根：退出应用 */
             if (ui_stack_depth() > 1) ui_stack_pop();
         } else {
             char *last_slash = strrchr(s_filemgr_current_path, '/');
             if (last_slash && last_slash != s_filemgr_current_path) {
                 *last_slash = '\0';
             } else {
-                strncpy(s_filemgr_current_path, "/sdcard", FILEMGR_PATH_LEN - 1);
+                /* 一级目录（/flash、/sdcard）返回虚拟根 */
+                strncpy(s_filemgr_current_path, "/", FILEMGR_PATH_LEN - 1);
                 s_filemgr_current_path[FILEMGR_PATH_LEN - 1] = '\0';
             }
             filemgr_scan_dir(s_filemgr_current_path);
@@ -482,8 +516,16 @@ static bool filemgr_on_key(int key)
             char new_path[FILEMGR_PATH_LEN];
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
-            int n = snprintf(new_path, sizeof(new_path), "%s/%s",
+            /* 虚拟根下的 "flash"/"sdcard" 入口直接拼成 "/flash"/"/sdcard"，
+             * 避免在根路径 "/%s" 产生 "//flash" 双斜杠。 */
+            int n;
+            if (strcmp(s_filemgr_current_path, "/") == 0) {
+                n = snprintf(new_path, sizeof(new_path), "/%s",
+                             s_filemgr_entries[s_filemgr_sel]);
+            } else {
+                n = snprintf(new_path, sizeof(new_path), "%s/%s",
                              s_filemgr_current_path, s_filemgr_entries[s_filemgr_sel]);
+            }
 #pragma GCC diagnostic pop
             /* 拼接被截断会产生非法路径：跳过该条目，不做跳转 */
             if (n < 0 || n >= (int)sizeof(new_path)) {
