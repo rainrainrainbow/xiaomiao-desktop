@@ -64,32 +64,16 @@ static void apply_volume_24bit(void *data, size_t len, float gain)
     }
 }
 
-/* ========== MONO 源 → STEREO I2S 帧展开 ==========
- * NS4168 是标准 Philips I2S 器件，其 CTRL 引脚选择左/右声道。
- * 经典 ESP32 的 I2S STD TX 在 8/16-bit MONO 模式有芯片级 quirk：
- *   "for 8-bit and 16-bit mono modes, the real data on the line is swapped.
- *    To get the correct data sequence, the writing buffer needs to swap the data every two bytes."
- * 且 MONO 模式只向单个 slot 写数据，另一个 slot 恒为 0 —— 若 NS4168 的
- * CTRL 恰好选中空 slot，或相邻样本被交换，复杂波形（MP3）就会退化为噪声，
- * 而低频正弦（tone）因相邻样本接近仍能听出音调。
+/* ========== I2S 数据写入说明 ==========
+ * NS4168 采用已验证配置：MSB 对齐(bit_shift=false) + MONO + slot_mask=BOTH
+ * + ws_width=data_width（复刻 nulllaborg/NS4168 ESP32 参考设计，可直接播放
+ * 16-bit/单声道 PCM）。MONO+BOTH 让两个 slot 都填同一份 mono 数据，
+ * 不依赖 NS4168 CTRL 的左右声道选择。
  *
- * 彻底规避方案：I2S 通道始终用 STEREO 帧打开，把每个 mono 样本同时写入
- * 左右两个 slot（L=R=sample）。这样线上顺序与 buffer 一致（无交换 quirk），
- * 两个 slot 都有有效数据（与 CTRL 选左/选右无关），NS4168 参考设计亦如此。 */
-static void i2s_mono_to_stereo_16bit(const void *src, void *dst, size_t len,
-                                    float gain, bool apply_gain)
-{
-    const int16_t *s = (const int16_t *)src;
-    int16_t *d = (int16_t *)dst;
-    size_t n = len / sizeof(int16_t);
-    for (size_t i = 0; i < n; i++) {
-        int32_t v = s[i];
-        if (apply_gain) v = (int32_t)(v * gain);
-        int16_t vv = (int16_t)v;
-        d[i * 2]     = vv;   /* left  */
-        d[i * 2 + 1] = vv;   /* right */
-    }
-}
+ * 之前误用 Philips(bit_shift=true) 使数据相对 WS 延迟 1 bit：
+ * 低频正弦 tone 因相邻样本高度相关仍能听出音调（音量低→高正常），
+ * 但 MP3/WAV 复杂波形高位错位 → 满幅噪声（用户听到的"电流声"）。
+ * 改用 MSB 对齐后数据不再偏移，直接按 mono 顺序写入即可。 */
 
 /* ========== 后端接口实现 ========== */
 
@@ -193,15 +177,26 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         bit_width = I2S_DATA_BIT_WIDTH_16BIT;
     }
 
-    /* 始终以 STEREO 帧打开 I2S。逻辑单声道源在写入时展开为 L=R 双声道，
-     * 规避经典 ESP32 MONO 模式的样本对交换 quirk 与空 slot 问题（见上方说明）。 */
-    i2s_slot_mode_t slot_mode = I2S_SLOT_MODE_STEREO;
-
-    /* NS4168 数字功放要求标准 Philips I2S：数据在 LRCLK 变化后延迟 1 个 BCLK
-     * 才输出 MSB（datasheet: "支持 I2S 格式(BCLK 延迟一个时钟)"）。 */
+    /* NS4168 已验证能正常出声的配置（复刻 nulllaborg/NS4168 ESP32 参考设计）：
+     *   16-bit data / MONO / slot_mask=BOTH / ws_width=16bit /
+     *   bit_shift=false(MSB对齐) / msb_right=true / mclk 不用
+     *
+     * 关键：bit_shift=false（MSB 对齐），而非 Philips 的 bit_shift=true。
+     * 之前用 Philips 让数据相对 WS 延迟 1 个 BCLK，低频正弦 tone 因相邻样本
+     * 高度相关仍能听出音调，但 MP3/WAV 复杂波形高位错位 → 满幅噪声（电流声）。
+     * MONO+BOTH 让两个 slot 都填有效数据，不依赖 NS4168 CTRL 声道选择。 */
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(bit_width, slot_mode),
+        .slot_cfg = {
+            .data_bit_width = bit_width,
+            .slot_bit_width = I2S_SLOT_BIT_WIDTH_AUTO,
+            .slot_mode = I2S_SLOT_MODE_MONO,
+            .slot_mask = I2S_STD_SLOT_BOTH,
+            .ws_width = bit_width,
+            .ws_pol = false,
+            .bit_shift = false,
+            .msb_right = true,
+        },
         .gpio_cfg = {
             .bclk = I2S_BCK_PIN,
             .ws = I2S_WS_PIN,
@@ -249,31 +244,9 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
 
     float gain = volume_to_gain(s_i2s_volume);
     bool need_volume = (gain < 1.0f - 0.001f);
-    /* 逻辑单声道 16-bit 源需要展开为 L=R 双声道 STEREO 帧 */
-    bool mono_expand = (s_current_channels == 1 && s_current_bits == 16);
 
-    if (mono_expand) {
-        /* 输出长度翻倍：每个 int16 样本 → 左右两个 int16 */
-        size_t out_len = len * 2;
-        void *work = heap_caps_malloc(out_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!work) {
-            ESP_LOGW(TAG, "Stereo work buffer alloc failed (%zu bytes)", out_len);
-            return ESP_ERR_NO_MEM;
-        }
-        i2s_mono_to_stereo_16bit(data, work, len, gain, need_volume);
-
-        size_t bytes_written = 0;
-        esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, out_len,
-                                          &bytes_written, pdMS_TO_TICKS(2000));
-        heap_caps_free(work);
-        if (ret != ESP_OK || bytes_written != out_len) {
-            ESP_LOGE(TAG, "I2S write (stereo) failed: %s written=%zu/%zu",
-                     esp_err_to_name(ret), bytes_written, out_len);
-        }
-        return ret;
-    }
-
-    /* 立体声源：直接写，按需应用音量 */
+    /* MONO+BOTH 配置下直接按 mono 顺序写入，不做任何样本交换/展开。
+     * tone 与音乐共用此路径。 */
     if (need_volume) {
         void *work = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!work) {
