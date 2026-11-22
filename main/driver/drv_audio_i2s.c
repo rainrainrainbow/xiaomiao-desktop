@@ -32,6 +32,39 @@ static uint32_t s_current_sample_rate = 44100;
 static uint8_t s_current_bits = 16;
 static uint8_t s_current_channels = 2;
 
+/* ========== 写入诊断探针 ==========
+ * 记录真正送入 i2s_channel_write() 的数据（mono->stereo 展开之后），
+ * 独立于解码器内部 probe，用于区分"解码正确但写入/硬件破坏"与"解码源错"。 */
+static i2s_write_probe_t s_write_probe;
+void i2s_get_write_probe(i2s_write_probe_t *out)
+{
+    if (out) *out = s_write_probe;
+}
+void i2s_reset_write_probe(void)
+{
+    memset(&s_write_probe, 0, sizeof(s_write_probe));
+}
+static void i2s_probe_capture(const void *data, size_t len)
+{
+    s_write_probe.writes++;
+    s_write_probe.last_len = (uint32_t)len;
+    if (s_write_probe.count > 0) return;  /* 只采首个非静音块 */
+    const int16_t *s = (const int16_t *)data;
+    size_t n = len / sizeof(int16_t);
+    size_t start = 0;
+    while (start < n && (s[start] == 0 || s[start] == -32768)) start++;  /* 跳过开头静音 */
+    int pk = 0;
+    for (size_t i = start; i < n; i++) {
+        int a = s[i] < 0 ? -s[i] : s[i];
+        if (a > pk) pk = a;
+    }
+    if (pk < 100) return;  /* 静音块不采 */
+    size_t take = (n - start) < 16 ? (n - start) : 16;
+    for (size_t i = 0; i < take; i++) s_write_probe.samples[i] = s[start + i];
+    s_write_probe.count = (int)take;
+    s_write_probe.valid = 1;
+}
+
 /* ========== 音量处理 ========== */
 static float volume_to_gain(uint8_t vol)
 {
@@ -365,38 +398,6 @@ static bool i2s_backend_is_available_locked(void)
  * 触发 i2s_channel_write(): "this channel is not tx channel" 刷屏并淹没 UART 响应。
  * 所有通道操作统一持锁，写超时改为 2s，避免长期占锁。 */
 static SemaphoreHandle_t s_i2s_lock = NULL;
-
-/* 写入诊断探针：记录真正送入 DMA 的数据（展开后） */
-static i2s_write_probe_t s_write_probe;
-void i2s_get_write_probe(i2s_write_probe_t *out)
-{
-    if (out) *out = s_write_probe;
-}
-void i2s_reset_write_probe(void)
-{
-    memset(&s_write_probe, 0, sizeof(s_write_probe));
-}
-static void i2s_probe_capture(const void *data, size_t len)
-{
-    s_write_probe.writes++;
-    s_write_probe.last_len = (uint32_t)len;
-    if (s_write_probe.count > 0) return;  /* 只采首个非静音块 */
-    const int16_t *s = (const int16_t *)data;
-    size_t n = len / sizeof(int16_t);
-    /* 跳过开头静音 */
-    size_t start = 0;
-    while (start < n && (s[start] == 0 || s[start] == -32768)) start++;
-    int pk = 0;
-    for (size_t i = start; i < n; i++) {
-        int a = s[i] < 0 ? -s[i] : s[i];
-        if (a > pk) pk = a;
-    }
-    if (pk < 100) return;  /* 静音块不采 */
-    size_t take = (n - start) < 16 ? (n - start) : 16;
-    for (size_t i = 0; i < take; i++) s_write_probe.samples[i] = s[start + i];
-    s_write_probe.count = (int)take;
-    s_write_probe.valid = 1;
-}
 
 static esp_err_t i2s_backend_init(void)
 {
