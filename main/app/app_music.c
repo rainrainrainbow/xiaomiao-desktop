@@ -418,8 +418,10 @@ static void music_start_playback(int idx)
      * 不再占用任务栈。播放任务自身只需容纳普通调用链，8KB 足够。
      * 栈仍在内部 RAM（flash cache disabled 时需可访问）。 */
     #define MUSIC_PLAY_TASK_STACK 8192
+    /* 音频是实时流：优先级必须高于 UI(5)/LED(5)，否则 LVGL 刷屏与 FAT
+     * 解码抢占会让 I2S DMA 欠载，听感就是"电流声/沙沙声"而非音乐。 */
     BaseType_t rt = xTaskCreate(music_play_task, "music_play", MUSIC_PLAY_TASK_STACK,
-                                (void*)(intptr_t)idx, 5, &s_play_task);
+                                (void*)(intptr_t)idx, 12, &s_play_task);
     if (rt != pdPASS) {
         /* 任务创建失败（内存不足）：复位播放状态，避免 UI 误判为正在播放 */
         ESP_LOGE(TAG, "xTaskCreate(music_play) failed");
@@ -1375,7 +1377,7 @@ void app_music_debug_control(int op, int idx)
         s_music_ctrl_task = xTaskCreateStatic(
             music_ctrl_task, "music_ctrl",
             MUSIC_CTRL_TASK_STACK / sizeof(StackType_t),
-            NULL, 10, s_music_ctrl_stack, &s_music_ctrl_tcb);
+            NULL, 12, s_music_ctrl_stack, &s_music_ctrl_tcb);
         if (!s_music_ctrl_task) return;
     }
     s_music_ctrl_idx = idx;

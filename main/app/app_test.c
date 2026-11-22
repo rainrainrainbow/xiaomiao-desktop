@@ -1219,6 +1219,8 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 cJSON_AddNumberToObject(data, "i2s_wp_count", wp.count);
                 cJSON_AddNumberToObject(data, "i2s_wp_writes", (double)wp.writes);
                 cJSON_AddNumberToObject(data, "i2s_wp_last_len", (double)wp.last_len);
+                cJSON_AddNumberToObject(data, "i2s_wp_max_gap_ms", (double)wp.max_gap_ms);
+                cJSON_AddNumberToObject(data, "i2s_wp_slow_writes", (double)wp.slow_writes);
                 cJSON *wa = cJSON_CreateArray();
                 for (int i = 0; i < wp.count; i++)
                     cJSON_AddItemToArray(wa, cJSON_CreateNumber(wp.samples[i]));
