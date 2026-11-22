@@ -263,6 +263,8 @@ static uint32_t led_scale_delay(uint32_t base_ms)
 }
 
 /** 可及时响应停止请求的分段延时：总时长 ms，单段 ≤50ms */
+static bool led_timer_check_expired(void);
+
 static void led_delay_responsive(uint32_t ms)
 {
     while (ms > 0 && !s_effect_stop) {
@@ -275,8 +277,6 @@ static void led_delay_responsive(uint32_t ms)
         ms -= slice;
     }
 }
-
-static bool led_timer_check_expired(void);
 
 /** 定时开关到期检查；到期置 s_timer_expired 并返回 true（档位保留供下次使用） */
 static bool led_timer_check_expired(void)
