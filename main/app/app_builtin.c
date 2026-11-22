@@ -32,42 +32,42 @@ static const app_def_t s_builtin_app_defs[] = {
     {
         .name = "设置",
         .icon_text = LV_SYMBOL_SETTINGS,
-        .icon_color = 0x5C4220,
+        .icon_color = 0x7FB3A6, /* 设置-青绿 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "商店",
         .icon_text = LV_SYMBOL_DOWNLOAD,
-        .icon_color = 0xE64B3C,
+        .icon_color = 0x7FB3A6, /* 商店-青绿 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "音乐",
         .icon_text = LV_SYMBOL_AUDIO,
-        .icon_color = 0x8B5CF6,
+        .icon_color = 0x7FB3A6, /* 音乐-青绿 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "Python",
         .icon_text = LV_SYMBOL_COPY,
-        .icon_color = 0x3B82F6,
+        .icon_color = 0xD4A373, /* Python-暖橙 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "文件",
         .icon_text = LV_SYMBOL_FILE,
-        .icon_color = 0x10B981,
+        .icon_color = 0x7FB3A6, /* 文件-青绿 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },
     {
         .name = "灯效",
         .icon_text = LV_SYMBOL_EDIT,
-        .icon_color = 0xF59E0B,
+        .icon_color = 0xD4A373, /* 灯效-暖橙 */
         .type = APP_TYPE_BUILTIN,
         .launch_cb = NULL,
     },

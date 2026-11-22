@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小喵桌面 · UI 护眼优化预览</title>
+<style>
+/* ============================================================
+   小喵桌面 UI 护眼改版预览
+   屏幕真实尺寸 160x128，此处按 2x 放大展示 = 320x256
+   所有配色通过 CSS 变量控制，切换主题即时预览
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --page-bg-1: #10141a;
+  --page-bg-2: #181e26;
+  --page-text: #d7dde5;
+  --page-dim: #8b96a5;
+  --card-line: #2b3440;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif;
+  background: radial-gradient(circle at 20% 0%, var(--page-bg-2), var(--page-bg-1) 70%);
+  color: var(--page-text);
+  min-height: 100vh;
+  padding: 32px 24px 64px;
+  line-height: 1.5;
+}
+
+/* ---------- 主题配色方案 ---------- */
+/* 暗夜护眼（推荐）：低亮度深蓝灰 + 柔和灰白文字，低蓝光不刺眼 */
+body[data-theme="night"] {
+  --bg: #1b2028; --panel: #242a34; --text: #c9cfd6; --dim: #808a97;
+  --accent: #7fb3a6; --accent2: #d4a373; --sel: #2f3b46; --on-sel: #e4e9ee;
+  --header: #242a34; --on-header: #cdd3da; --border: #333d49; --bar-bg: #2a313c;
+}
+/* 暖纸护眼：低饱和暖米色 + 深棕灰文字，类电子纸柔和不反光 */
+body[data-theme="paper"] {
+  --bg: #e6dfd0; --panel: #dcd3c0; --text: #403a30; --dim: #7d7466;
+  --accent: #5f8578; --accent2: #a9764f; --sel: #c9bda4; --on-sel: #363127;
+  --header: #d3c8b2; --on-header: #403a30; --border: #c2b7a2; --bar-bg: #cfc4ae;
+}
+/* 原始（刺眼黄）：当前固件配色，用于对比 */
+body[data-theme="old"] {
+  --bg: #f6d34a; --panel: #f6d34a; --text: #1b1713; --dim: #5c4220;
+  --accent: #5c4220; --accent2: #e64b3c; --sel: #5c4220; --on-sel: #f6d34a;
+  --header: #5c4220; --on-header: #f6d34a; --border: #5c4220; --bar-bg: #5c4220;
+}
+
+.wrap { max-width: 1240px; margin: 0 auto; }
+
+/* ---------- 页头 ---------- */
+.page-header { text-align: center; margin-bottom: 26px; }
+.page-header h1 { font-size: 27px; font-weight: 700; letter-spacing: .5px; }
+.page-header h1 .em { color: #7fb3a6; }
+.page-header p { color: var(--page-dim); font-size: 14px; margin-top: 8px; }
+.notice {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 14px; padding: 8px 16px; border-radius: 20px;
+  background: rgba(127,179,166,.1); border: 1px solid rgba(127,179,166,.3);
+  color: #9ecfc2; font-size: 12.5px;
+}
+.notice .dot { width: 7px; height: 7px; border-radius: 50%; background: #7fb3a6; box-shadow: 0 0 8px #7fb3a6; }
+
+/* ---------- 主题切换 ---------- */
+.switcher {
+  display: flex; justify-content: center; gap: 12px; flex-wrap: wrap;
+  margin: 26px 0 34px;
+}
+.switcher button {
+  font-family: inherit; cursor: pointer; font-size: 13.5px; font-weight: 600;
+  padding: 10px 20px; border-radius: 10px; transition: .18s;
+  background: #1e252e; color: #aeb8c4; border: 1px solid #313b47;
+  display: flex; align-items: center; gap: 9px;
+}
+.switcher button:hover { transform: translateY(-2px); border-color: #4a5867; }
+.switcher button.active { border-color: #7fb3a6; color: #eaf3f0; background: #26322f; box-shadow: 0 0 0 1px rgba(127,179,166,.3); }
+.switcher .swatch { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,.15); }
+.sw-night { background: linear-gradient(135deg,#1b2028 50%,#7fb3a6 50%); }
+.sw-paper { background: linear-gradient(135deg,#e6dfd0 50%,#5f8578 50%); }
+.sw-old   { background: linear-gradient(135deg,#f6d34a 50%,#5c4220 50%); }
+.switcher .rec { font-size: 10px; background: #7fb3a6; color: #14201d; padding: 2px 6px; border-radius: 5px; font-weight: 700; }
+
+.section-title { font-size: 15px; color: #aeb9c6; margin: 30px 0 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.section-title::before { content: ''; width: 3px; height: 16px; background: #7fb3a6; border-radius: 2px; }
+
+/* ---------- 新旧对比 ---------- */
+.compare { display: flex; gap: 40px; justify-content: center; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.compare .side { text-align: center; }
+.compare .tag { font-size: 12px; padding: 4px 12px; border-radius: 6px; display: inline-block; margin-bottom: 12px; font-weight: 600; }
+.tag.bad { background: rgba(230,75,60,.15); color: #ef8a7e; border: 1px solid rgba(230,75,60,.3); }
+.tag.good { background: rgba(127,179,166,.15); color: #9ecfc2; border: 1px solid rgba(127,179,166,.3); }
+.vs { color: #566273; font-size: 20px; font-weight: 700; padding-bottom: 90px; }
+.compare .fixed-old { /* 对比区旧版固定配色，不受主题切换影响 */ }
+
+/* ---------- 屏幕画廊 ---------- */
+.gallery {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 26px 30px; margin-top: 8px;
+}
+.screen-card { text-align: center; }
+.device {
+  display: inline-block; background: #0a0d11; padding: 12px;
+  border-radius: 22px; box-shadow: 0 14px 34px rgba(0,0,0,.5), inset 0 0 0 1px #2a313b;
+  position: relative; transition: transform .2s, box-shadow .2s;
+}
+.device::after {
+  content: ''; position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%);
+  width: 46px; height: 3px; border-radius: 3px; background: #2c333d;
+}
+.device:hover { transform: translateY(-4px); box-shadow: 0 20px 44px rgba(0,0,0,.6); }
+.caption { margin-top: 12px; font-size: 13px; color: #9aa5b3; font-weight: 600; }
+.caption small { display: block; color: #5f6b7a; font-size: 11px; font-weight: 400; margin-top: 2px; }
+
+/* ---------- 屏幕本体（320x256 = 160x128 @2x） ---------- */
+.screen {
+  width: 320px; height: 256px; border-radius: 6px; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+  transition: background .25s, color .25s;
+  font-size: 12px;
+}
+.statusbar {
+  height: 26px; flex: 0 0 26px; background: var(--header); color: var(--on-header);
+  display: flex; align-items: center; padding: 0 9px; font-size: 11px;
+  transition: .25s; position: relative;
+}
+.statusbar .brand { font-weight: 700; letter-spacing: .2px; }
+.statusbar .clock { position: absolute; left: 50%; transform: translateX(-50%); opacity: .85; }
+.statusbar .bat { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.bat-ico { width: 15px; height: 8px; border: 1px solid currentColor; border-radius: 2px; position: relative; opacity: .85; }
+.bat-ico::after { content: ''; position: absolute; right: -3px; top: 2px; width: 2px; height: 4px; background: currentColor; border-radius: 0 1px 1px 0; }
+.bat-ico i { position: absolute; left: 1px; top: 1px; bottom: 1px; width: 68%; background: currentColor; border-radius: 1px; }
+.titlebar {
+  height: 28px; flex: 0 0 28px; background: var(--header); color: var(--on-header);
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
+  border-top: 1px solid rgba(128,128,128,.12); transition: .25s;
+}
+.content { flex: 1; overflow: hidden; position: relative; }
+.dock {
+  height: 16px; flex: 0 0 16px; background: var(--header); transition: .25s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.dock .pdot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); opacity: .45; }
+.dock .pdot.on { background: var(--accent); opacity: 1; width: 14px; border-radius: 3px; }
+.hint { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--dim); }
+
+/* 桌面图标网格 */
+.grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px 4px; padding: 6px 8px; height: 100%; align-content: start; }
+.cell { height: 84px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; transition: .2s; }
+.cell.sel { background: var(--sel); box-shadow: inset 0 0 0 1px var(--accent); }
+.cell .ico { font-size: 30px; line-height: 1; color: var(--accent); }
+.cell .ico.c2 { color: var(--accent2); }
+.cell .nm { font-size: 12px; color: var(--text); }
+.cell.sel .nm { color: var(--on-sel); font-weight: 700; }
+
+/* 通用列表 */
+.list { padding: 2px 0; }
+.row { height: 27px; display: flex; align-items: center; padding: 0 11px; gap: 9px; transition: .15s; }
+.row.sel { background: var(--sel); }
+.row .r-ico { font-size: 15px; color: var(--accent); width: 18px; text-align: center; flex: 0 0 18px; }
+.row .r-txt { color: var(--text); font-size: 12.5px; }
+.row.sel .r-txt, .row.sel .r-val { color: var(--on-sel); }
+.row .r-sub { font-size: 9.5px; color: var(--dim); }
+.row .r-val { margin-left: auto; color: var(--dim); font-size: 11px; }
+.row .r-mark { margin-left: auto; color: var(--accent); font-size: 13px; }
+.sw { width: 26px; height: 14px; border-radius: 8px; background: var(--border); margin-left: auto; position: relative; flex: 0 0 26px; transition: .2s; }
+.sw.on { background: var(--accent); }
+.sw i { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--on-header); transition: .2s; }
+.sw.on i { left: 14px; background: var(--bg); }
+.sep { height: 1px; background: var(--border); margin: 3px 10px; opacity: .6; }
+
+/* 音乐播放页 */
+.player { height: 100%; display: flex; flex-direction: column; padding: 6px 12px 0; }
+.player .cover { width: 46px; height: 46px; border-radius: 6px; background: linear-gradient(135deg,var(--accent),var(--accent2)); display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--bg); }
+.player .top-row { display: flex; gap: 10px; align-items: center; }
+.player .song { font-size: 14px; font-weight: 700; }
+.player .artist { font-size: 10.5px; color: var(--dim); margin-top: 3px; }
+.lyric { margin-top: 8px; height: 46px; display: flex; flex-direction: column; justify-content: center; gap: 2px; text-align: center; }
+.lyric div { font-size: 11px; color: var(--dim); }
+.lyric div.on { color: var(--text); font-size: 12.5px; font-weight: 700; }
+.progress { height: 4px; background: var(--bar-bg); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 46%; background: var(--accent); border-radius: 3px; }
+.times { display: flex; justify-content: space-between; font-size: 9.5px; color: var(--dim); margin-top: 2px; }
+.eq { height: 26px; display: flex; align-items: flex-end; gap: 3px; margin-top: 6px; justify-content: center; }
+.eq i { width: 6px; background: var(--accent); border-radius: 2px 2px 0 0; opacity: .85; }
+
+/* 文件管理 */
+.pathbar { height: 22px; display: flex; align-items: center; padding: 0 10px; font-size: 10.5px; color: var(--dim); border-bottom: 1px solid var(--border); }
+.chip { display: inline-block; background: var(--sel); color: var(--on-sel); padding: 1px 6px; border-radius: 4px; font-size: 9px; margin-right: 6px; }
+
+/* 灯效颜色块 */
+.colorrow { display: flex; gap: 7px; padding: 6px 11px; }
+.cbox { width: 20px; height: 20px; border-radius: 5px; border: 2px solid transparent; }
+.cbox.sel { border-color: var(--text); }
+
+/* Shell 终端 */
+.term { height: 100%; background: var(--bg); padding: 8px 10px; font-family: Consolas, 'Courier New', monospace; font-size: 10.5px; line-height: 1.55; color: var(--text); }
+.term .p { color: var(--accent); }
+.term .dim { color: var(--dim); }
+.cursor { display: inline-block; width: 6px; height: 11px; background: var(--accent); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* 统计卡片 */
+.metric { flex: 1; }
+.metric .k { font-size: 9.5px; color: var(--dim); }
+.metric .v { font-size: 12px; color: var(--accent); font-weight: 700; }
+.met-row { display: flex; gap: 6px; padding: 8px 10px; }
+.met-box { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+
+/* ---------- 改进说明 ---------- */
+.notes { display: grid; grid-template-columns: repeat(auto-fill,minmax(280px,1fr)); gap: 14px; margin-top: 16px; }
+.note { background: #171d25; border: 1px solid var(--card-line); border-radius: 12px; padding: 16px 18px; }
+.note h3 { font-size: 14px; color: #cdd6e0; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.note h3 .n { width: 22px; height: 22px; border-radius: 6px; background: rgba(127,179,166,.15); color: #8fc4b6; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+.note p { color: #8b96a5; font-size: 12.5px; line-height: 1.65; }
+
+/* ---------- 放大模态 ---------- */
+.modal { display: none; position: fixed; inset: 0; background: rgba(6,9,13,.86); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 18px; }
+.modal.open { display: flex; }
+.modal .device { transform: scale(1.7); }
+.modal .close { position: fixed; top: 22px; right: 28px; font-size: 30px; color: #889; cursor: pointer; background: none; border: none; }
+.modal .mtip { color: #667; font-size: 12px; }
+
+@media (max-width: 720px) {
+  .device { padding: 8px; } .compare { gap: 18px; } .vs { display: none; }
+}
+</style>
+</head>
+<body data-theme="night">
+<div class="wrap">
+
+  <div class="page-header">
+    <h1>小喵桌面 · <span class="em">UI 护眼优化预览</span></h1>
+    <p>针对“高饱和黄底 + 棕色”刺眼问题，重做整套界面配色与间距 · 覆盖全部界面 · 真实屏幕 160×128 按 2× 放大</p>
+    <div class="notice"><span class="dot"></span>此页仅为效果预览，不会改动固件代码。确认满意后再进入代码修改。</div>
+  </div>
+
+  <div class="switcher">
+    <button data-set="night" class="active"><span class="swatch sw-night"></span>暗夜护眼 <span class="rec">推荐</span></button>
+    <button data-set="paper"><span class="swatch sw-paper"></span>暖纸护眼</button>
+    <button data-set="old"><span class="swatch sw-old"></span>原始刺眼黄（对比）</button>
+  </div>
+
+  <!-- ============ 新旧对比 ============ -->
+  <div class="section-title">改版前后对比 · 桌面主页</div>
+  <div class="compare">
+    <div class="side">
+      <div class="tag bad">改版前 · 高饱和黄，眼睛疼</div>
+      <div class="device" style="--bg:#f6d34a;--header:#5c4220;--on-header:#f6d34a;--text:#1b1713;--dim:#5c4220;--accent:#5c4220;--accent2:#e64b3c;--sel:#5c4220;--on-sel:#f6d34a;--bar-bg:#5c4220;">
+        <div class="screen">
+          <div class="statusbar"><span class="brand">XiaoMiaoOS</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+          <div class="content"><div class="grid">
+            <div class="cell sel"><div class="ico">⚙</div><div class="nm">设置</div></div>
+            <div class="cell"><div class="ico">⬇</div><div class="nm">商店</div></div>
+            <div class="cell"><div class="ico">♪</div><div class="nm">音乐</div></div>
+            <div class="cell"><div class="ico c2">▣</div><div class="nm">Python</div></div>
+            <div class="cell"><div class="ico">▤</div><div class="nm">文件</div></div>
+            <div class="cell"><div class="ico c2">✦</div><div class="nm">灯效</div></div>
+          </div></div>
+          <div class="dock"><span class="pdot on"></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="vs">VS</div>
+    <div class="side">
+      <div class="tag good">改版后 · 低亮度低饱和，护眼舒适</div>
+      <div class="device" style="--bg:#1b2028;--header:#242a34;--on-header:#cdd3da;--text:#c9cfd6;--dim:#808a97;--accent:#7fb3a6;--accent2:#d4a373;--sel:#2f3b46;--on-sel:#e4e9ee;--bar-bg:#2a313c;">
+        <div class="screen">
+          <div class="statusbar"><span class="brand">XiaoMiaoOS</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+          <div class="content"><div class="grid">
+            <div class="cell sel"><div class="ico">⚙</div><div class="nm">设置</div></div>
+            <div class="cell"><div class="ico">⬇</div><div class="nm">商店</div></div>
+            <div class="cell"><div class="ico">♪</div><div class="nm">音乐</div></div>
+            <div class="cell"><div class="ico c2">▣</div><div class="nm">Python</div></div>
+            <div class="cell"><div class="ico">▤</div><div class="nm">文件</div></div>
+            <div class="cell"><div class="ico c2">✦</div><div class="nm">灯效</div></div>
+          </div></div>
+          <div class="dock"><span class="pdot on"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 全部界面 ============ -->
+  <div class="section-title">全部界面预览 · 点击屏幕可放大查看</div>
+  <div class="gallery">
+
+    <!-- 桌面主页 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">XiaoMiaoOS</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="content"><div class="grid">
+        <div class="cell sel"><div class="ico">⚙</div><div class="nm">设置</div></div>
+        <div class="cell"><div class="ico">⬇</div><div class="nm">商店</div></div>
+        <div class="cell"><div class="ico">♪</div><div class="nm">音乐</div></div>
+        <div class="cell"><div class="ico c2">▣</div><div class="nm">Python</div></div>
+        <div class="cell"><div class="ico">▤</div><div class="nm">文件</div></div>
+        <div class="cell"><div class="ico c2">✦</div><div class="nm">灯效</div></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span><span class="pdot"></span></div>
+    </div></div><div class="caption">桌面主页<small>降低背景亮度与饱和，图标统一低饱和点缀色</small></div></div>
+
+    <!-- 应用列表 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">XiaoMiaoOS</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">应用</div>
+      <div class="content"><div class="list">
+        <div class="row sel"><span class="r-ico">⚙</span><span class="r-txt">设置</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico">⬇</span><span class="r-txt">商店</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico">♪</span><span class="r-txt">音乐</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico c2" style="color:var(--accent2)">▣</span><span class="r-txt">Python</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico">▤</span><span class="r-txt">文件</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico c2" style="color:var(--accent2)">✦</span><span class="r-txt">灯效</span><span class="r-sub">系统</span><span class="r-val">内置</span></div>
+        <div class="row"><span class="r-ico">＋</span><span class="r-txt">贪吃蛇</span><span class="r-sub">Python</span><span class="r-val" style="color:var(--accent)">已装</span></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">应用列表<small>选中行低对比底色，次要信息弱化</small></div></div>
+
+    <!-- 设置 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">设置</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="r-txt">WiFi</span><span class="r-val">已连接</span></div>
+        <div class="row"><span class="r-txt">亮度</span><span class="r-val">75%</span></div>
+        <div class="row"><span class="r-txt">音量</span><span class="r-val">60%</span></div>
+        <div class="row sel"><span class="r-txt">主题</span><span class="r-val">暗夜护眼</span></div>
+        <div class="row"><span class="r-txt">布局</span><span class="r-val">3 列</span></div>
+        <div class="row"><span class="r-txt">字体</span><span class="r-val">14px</span></div>
+        <div class="row"><span class="r-txt">语言</span><span class="r-val">中文</span></div>
+        <div class="row"><span class="r-txt">LED音乐律动</span><span class="r-val">单色</span></div>
+        <div class="row"><span class="r-txt">屏幕超时</span><span class="r-val">60 秒</span></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">设置主列表<small>行距舒朗，选中项一眼可辨但不反光</small></div></div>
+
+    <!-- 主题设置 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">设置</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">主题</div>
+      <div class="content"><div class="list">
+        <div class="row sel"><span class="r-mark">☑</span><span class="r-txt">暗夜护眼</span></div>
+        <div class="row"><span class="r-mark" style="color:var(--dim)">☐</span><span class="r-txt">暖纸护眼</span></div>
+        <div class="sep"></div>
+        <div class="row"><span class="r-txt">当前：暗夜护眼</span></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">主题设置<small>两套护眼主题，可按需选择</small></div></div>
+
+    <!-- 音乐列表 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">音乐</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">播放列表</div>
+      <div class="content"><div class="list">
+        <div class="row sel"><span class="r-ico">♪</span><span class="r-txt">人世间</span><span class="r-val" style="color:var(--accent)">播放中</span></div>
+        <div class="row"><span class="r-ico">♪</span><span class="r-txt">小星星</span></div>
+        <div class="row"><span class="r-ico">♪</span><span class="r-txt">静夜思</span></div>
+        <div class="row"><span class="r-ico">♪</span><span class="r-txt">ASDF - 测试曲</span></div>
+        <div class="row"><span class="r-ico">▤</span><span class="r-txt">/sdcard/music</span><span class="r-val">TF卡</span></div>
+      </div>
+      <div class="hint">A 播放 · 左右切歌</div></div>
+      <div class="dock"><span class="pdot"></span><span class="pdot on"></span><span class="pdot"></span></div>
+    </div></div><div class="caption">音乐 · 列表<small>列表三页同源配色，切换不跳色</small></div></div>
+
+    <!-- 音乐播放 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">音乐</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="content"><div class="player">
+        <div class="top-row"><div class="cover">♪</div><div><div class="song">人世间</div><div class="artist">雷佳 · 内部存储</div></div></div>
+        <div class="lyric"><div>草木会发芽 孩子会长大</div><div class="on">岁月的列车 不为谁停下</div><div>命运的站台 悲欢离合都是刹那</div></div>
+        <div class="progress"><i></i></div>
+        <div class="times"><span>01:24</span><span>03:56</span></div>
+        <div class="eq"><i style="height:40%"></i><i style="height:70%"></i><i style="height:95%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:35%"></i><i style="height:65%"></i><i style="height:45%"></i><i style="height:75%"></i><i style="height:50%"></i><i style="height:30%"></i><i style="height:60%"></i></div>
+      </div></div>
+      <div class="dock"><span class="pdot"></span><span class="pdot on"></span><span class="pdot"></span></div>
+    </div></div><div class="caption">音乐 · 播放中<small>歌词高亮、频谱、进度条统一用强调色</small></div></div>
+
+    <!-- 文件管理 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">文件</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="content">
+        <div class="pathbar"><span class="chip">内部</span>/flash/music</div>
+        <div class="list">
+          <div class="row sel"><span class="r-ico">▤</span><span class="r-txt">人世间.mp3</span><span class="r-val">480 KB</span></div>
+          <div class="row"><span class="r-ico">▤</span><span class="r-txt">小星星.mp3</span><span class="r-val">152 KB</span></div>
+          <div class="row"><span class="r-ico">▤</span><span class="r-txt">静夜思.mp3</span><span class="r-val">210 KB</span></div>
+          <div class="row"><span class="r-ico c2" style="color:var(--accent2)">◆</span><span class="r-txt">font.bin</span><span class="r-val">1.2 MB</span></div>
+          <div class="row"><span class="r-ico">▤</span><span class="r-txt">config.json</span><span class="r-val">1 KB</span></div>
+        </div>
+      </div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">文件管理<small>路径面包屑与文件类型分级清晰</small></div></div>
+
+    <!-- 灯效 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">灯效</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">LED 效果</div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="r-txt">关闭</span><span class="r-mark" style="color:var(--dim)">☐</span></div>
+        <div class="row"><span class="r-txt">呼吸</span><span class="r-mark" style="color:var(--dim)">☐</span></div>
+        <div class="row sel"><span class="r-txt">音乐律动 · 单色</span><span class="r-mark">☑</span></div>
+        <div class="row"><span class="r-txt">音乐律动 · 彩虹</span><span class="r-mark" style="color:var(--dim)">☐</span></div>
+        <div class="row"><span class="r-txt">节拍脉冲</span><span class="r-mark" style="color:var(--dim)">☐</span></div>
+      </div>
+      <div class="colorrow"><div class="cbox sel" style="background:#7fb3a6"></div><div class="cbox" style="background:#d4a373"></div><div class="cbox" style="background:#9a8fc4"></div><div class="cbox" style="background:#c97b7b"></div><div class="cbox" style="background:#88a9c9"></div></div>
+      </div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">灯效 · LED 律动<small>色块与列表柔和处理，且色板本身是低饱和护眼色</small></div></div>
+
+    <!-- 商店 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">商店</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">应用商店</div>
+      <div class="content"><div class="list">
+        <div class="row sel"><span class="r-ico">▣</span><span class="r-txt">贪吃蛇</span><span class="r-val" style="color:var(--accent)">已安装</span></div>
+        <div class="row"><span class="r-ico">▣</span><span class="r-txt">计算器</span><span class="r-val">安装</span></div>
+        <div class="row"><span class="r-ico">▣</span><span class="r-txt">时钟</span><span class="r-val">安装</span></div>
+        <div class="row"><span class="r-ico">▣</span><span class="r-txt">画板</span><span class="r-val">安装</span></div>
+      </div>
+      <div class="hint">A 安装 / 卸载</div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">应用商店<small>状态色用低饱和青绿，不再大红大绿</small></div></div>
+
+    <!-- Shell -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">Shell</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="content"><div class="term">
+        <div class="p">xiaomiao@esp32:~$</div>
+        <div>ls /flash</div>
+        <div class="dim">music/  font.bin  config.json</div>
+        <div class="p">xiaomiao@esp32:~$</div>
+        <div>free</div>
+        <div class="dim">heap: 84KB  psram: 3120KB</div>
+        <div class="p">xiaomiao@esp32:~$ <span class="cursor"></span></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">Shell 终端<small>终端文字柔化，长时间看不累</small></div></div>
+
+    <!-- WiFi 设置 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">设置</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">WiFi 设置</div>
+      <div class="content"><div class="list">
+        <div class="row"><span class="r-txt">WiFi 开关</span><span class="sw on"><i></i></span></div>
+        <div class="sep"></div>
+        <div class="row sel"><span class="r-ico">▮</span><span class="r-txt">Home_5G</span><span class="r-val" style="color:var(--accent)">已连接</span></div>
+        <div class="row"><span class="r-ico">▮</span><span class="r-txt">OfficeWiFi</span><span class="r-val">●●○</span></div>
+        <div class="row"><span class="r-ico">▮</span><span class="r-txt">CMCC-8F2A</span><span class="r-val">●●●</span></div>
+        <div class="row"><span class="r-ico">▮</span><span class="r-txt">iPhone热点</span><span class="r-val">●○○</span></div>
+      </div></div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">WiFi 设置<small>开关与信号强度用同一强调色系统</small></div></div>
+
+    <!-- 关于/系统信息 -->
+    <div class="screen-card"><div class="device"><div class="screen">
+      <div class="statusbar"><span class="brand">设置</span><span class="clock">10:24</span><span class="bat"><span class="bat-ico"><i></i></span>78%</span></div>
+      <div class="titlebar">关于</div>
+      <div class="content">
+        <div class="met-row"><div class="met-box"><div class="k">内部 RAM</div><div class="v">84 KB</div></div><div class="met-box"><div class="k">PSRAM</div><div class="v">3120 KB</div></div><div class="met-box"><div class="k">Flash</div><div class="v">16 MB</div></div></div>
+        <div class="list">
+          <div class="row"><span class="r-txt">版本</span><span class="r-val">v71</span></div>
+          <div class="row"><span class="r-txt">芯片</span><span class="r-val">ESP32-WROVER</span></div>
+          <div class="row"><span class="r-txt">屏幕</span><span class="r-val">160×128 ST7735</span></div>
+          <div class="row"><span class="r-txt">SDK</span><span class="r-val">ESP-IDF 5.3</span></div>
+          <div class="row"><span class="r-txt">运行时长</span><span class="r-val">02:16:33</span></div>
+        </div>
+      </div>
+      <div class="dock"><span class="pdot on"></span></div>
+    </div></div><div class="caption">关于 / 系统信息<small>数据卡片弱边框，信息密度高但不压迫</small></div></div>
+
+  </div>
+
+  <!-- ============ 改进说明 ============ -->
+  <div class="section-title">针对“眼睛疼”做的 6 项关键改动</div>
+  <div class="notes">
+    <div class="note"><h3><span class="n">1</span>背景降亮降饱和</h3><p>去掉大面积高饱和黄 <b>#F6D34A</b>，改为低亮度深蓝灰 <b>#1B2028</b>（或暖纸色），屏幕整体发光量大幅下降。</p></div>
+    <div class="note"><h3><span class="n">2</span>文字不再纯黑纯白</h3><p>正文用柔和灰白 <b>#C9CFD6</b>、次要信息用 <b>#808A97</b>，避免纯黑/纯白造成的强对比刺激。</p></div>
+    <div class="note"><h3><span class="n">3</span>选中态从棕块改柔底</h3><p>原来选中就是整条高饱和棕色，改为低对比 <b>#2F3B46</b> 底色 + 细青绿描边，醒目但不刺眼。</p></div>
+    <div class="note"><h3><span class="n">4</span>图标统一低饱和</h3><p>六个图标不再红/紫/绿/橙各来一套，统一到青绿 + 暖橙两种低饱和点缀色，视觉更整。</p></div>
+    <div class="note"><h3><span class="n">5</span>留白与行距加大</h3><p>列表行距、图标间距重新排布，减少 160×128 小屏上的拥挤感，长时间浏览更轻松。</p></div>
+    <div class="note"><h3><span class="n">6</span>两套主题可选</h3><p>提供“暗夜 / 暖纸”两套护眼主题，弱光环境用暗夜、亮光环境用暖纸，设置里随时切换。</p></div>
+  </div>
+
+  <div class="notice" style="margin-top:30px"><span class="dot"></span>确认采用哪套主题（或提出调整意见）后，我再进入固件代码修改，并用 GitHub Actions 编译 + COM6 烧录 + 全测验证。</div>
+
+</div>
+
+<div class="modal" id="modal">
+  <button class="close" id="closeBtn">×</button>
+  <div id="modalBody"></div>
+  <div class="mtip">点击空白处或右上角 × 关闭</div>
+</div>
+
+<script>
+// 主题切换：只影响“全部界面预览”画廊 + 页面变量；对比区使用内联固定色不受影响
+const btns = document.querySelectorAll('.switcher button');
+btns.forEach(b => b.addEventListener('click', () => {
+  btns.forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  document.body.dataset.theme = b.dataset.set;
+}));
+
+// 点击屏幕放大
+const modal = document.getElementById('modal');
+const modalBody = document.getElementById('modalBody');
+document.querySelectorAll('.gallery .device').forEach(dev => {
+  dev.style.cursor = 'zoom-in';
+  dev.addEventListener('click', () => {
+    modalBody.innerHTML = '';
+    modalBody.appendChild(dev.querySelector('.screen').cloneNode(true));
+    modal.classList.add('open');
+  });
+});
+function closeModal(){ modal.classList.remove('open'); }
+document.getElementById('closeBtn').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal || e.target.id === 'modalBody') closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+</script>
+</body>
+</html>
