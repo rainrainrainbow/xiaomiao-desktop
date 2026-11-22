@@ -99,13 +99,16 @@ static int s_settings_sel = 0;
 #define SETTINGS_ITEM_COUNT 4  /* 音量/频谱/循环/输出 */
 
 /* 文件列表 */
-/* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放 */
-EXT_RAM_BSS_ATTR static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_PATH_LEN];
+/* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放。
+ * 每个条目保存完整路径（/flash/music/xxx.mp3 或 /sdcard/music/yyy.mp3），
+ * 以便同时列出内置 FAT 与 SD 卡两个目录的音频。 */
+EXT_RAM_BSS_ATTR static char s_music_entries[MUSIC_MAX_ENTRIES][MUSIC_FULLPATH_LEN];
 static int s_music_count = 0;
-/* 优先使用内部 5MB FAT 分区（retro-core 挂载点 /flash）中的音乐；
- * 若该目录不存在或为空，回退到存储卡 /sdcard/music。 */
+/* 音频搜索目录：内置 5MB FAT（/flash/music）与存储卡（/sdcard/music）。
+ * 两个目录都会被扫描并合并到同一列表，插卡后无需手动切换。 */
 #define MUSIC_DIR_FLASH  "/flash/music"
 #define MUSIC_DIR_SD     "/sdcard/music"
+/* 兼容测试探针：保留最近一次扫描的主目录字段（取实际使用的第一个目录） */
 static char s_music_current_path[MUSIC_PATH_LEN] = MUSIC_DIR_FLASH;
 
 /* 播放状态 */
@@ -121,6 +124,9 @@ static bool s_lrc_enabled = true;      /* 歌词显示开关 */
 static wav_decoder_t s_wav_decoder;
 static lrc_parser_t s_lrc;
 static TaskHandle_t s_play_task = NULL;
+
+/* 拼接完整路径：path + '/' + name（定义见下方，此处前置声明供扫描使用） */
+static void music_build_path(const char *path, const char *name, char *out, size_t out_size);
 
 /* ========== 文件扫描 ========== */
 /* 统计指定目录中可解码音频文件数（不填充列表），用于目录自动选择 */
@@ -143,16 +149,17 @@ static int music_count_audio(const char *path)
     return count;
 }
 
-static void music_scan_dir(const char *path)
+/* 扫描一个目录，把其中的音频文件以【完整路径】追加到列表。
+ * path 为 NULL 时忽略（例如 SD 卡未挂载）。返回本次新增数量。 */
+static int music_scan_dir(const char *path)
 {
-    s_music_count = 0;
-    strncpy(s_music_current_path, path, MUSIC_PATH_LEN - 1);
-    s_music_current_path[MUSIC_PATH_LEN - 1] = '\0';
+    if (!path) return 0;
 
+    int added = 0;
     DIR *dir = opendir(path);
     if (!dir) {
         ESP_LOGW(TAG, "Cannot open music directory: %s", path);
-        return;
+        return 0;
     }
 
     struct dirent *entry;
@@ -165,26 +172,42 @@ static void music_scan_dir(const char *path)
         if (strcasecmp(ext, ".wav") != 0 && strcasecmp(ext, ".wave") != 0 &&
             strcasecmp(ext, ".mp3") != 0) continue;
 
-        strncpy(s_music_entries[s_music_count], entry->d_name, MUSIC_PATH_LEN - 1);
-        s_music_entries[s_music_count][MUSIC_PATH_LEN - 1] = '\0';
+        /* 直接保存完整路径：目录 + '/' + 文件名 */
+        music_build_path(path, entry->d_name,
+                         s_music_entries[s_music_count], MUSIC_FULLPATH_LEN);
         s_music_count++;
+        added++;
     }
     closedir(dir);
 
-    ESP_LOGI(TAG, "Music scan: %d audio files in %s", s_music_count, path);
+    ESP_LOGI(TAG, "Music scan: +%d audio files in %s", added, path);
+    return added;
 }
 
-/* 自动选择音乐目录：内置 FAT 优先，空则回退 SD 卡 */
+/* 自动搜索：同时扫描内置 FAT 与 SD 卡，合并到统一列表。
+ * 先 Flash 后 SD，这样内置《人世间》始终在列表前部；插卡后卡内音频追加在后面。 */
 static void music_scan_auto(void)
 {
-    const char *chosen = MUSIC_DIR_FLASH;
+    s_music_count = 0;
+
     int n_flash = music_count_audio(MUSIC_DIR_FLASH);
-    if (n_flash <= 0) {
-        int n_sd = music_count_audio(MUSIC_DIR_SD);
-        if (n_sd > 0) chosen = MUSIC_DIR_SD;
+    strncpy(s_music_current_path, MUSIC_DIR_FLASH, MUSIC_PATH_LEN - 1);
+    s_music_current_path[MUSIC_PATH_LEN - 1] = '\0';
+    music_scan_dir(MUSIC_DIR_FLASH);
+
+    /* 若开机时未挂载（例如开机后才插卡），此处再尝试挂载一次 */
+    if (!app_sys_sdcard_ready()) {
+        app_sys_sdcard_try_mount();
     }
-    ESP_LOGI(TAG, "Music dir select: %s (flash=%d)", chosen, n_flash);
-    music_scan_dir(chosen);
+
+    int n_sd = 0;
+    if (app_sys_sdcard_ready()) {
+        n_sd = music_count_audio(MUSIC_DIR_SD);
+        music_scan_dir(MUSIC_DIR_SD);
+    }
+
+    ESP_LOGI(TAG, "Music dir scan done: flash=%d sd=%d total=%d",
+             n_flash, n_sd, s_music_count);
 }
 
 /* ========== 播放控制 ========== */
@@ -242,13 +265,20 @@ static void music_build_path(const char *path, const char *name, char *out, size
     out[pos] = '\0';
 }
 
+/* 取第 idx 个音频条目的完整路径（条目本身已存完整路径） */
+static void music_get_fullpath(int idx, char *out, size_t out_size)
+{
+    strncpy(out, s_music_entries[idx], out_size - 1);
+    out[out_size - 1] = '\0';
+}
+
 /* ========== 播放任务 ========== */
 static void music_play_task(void *arg)
 {
     int file_idx = (int)(intptr_t)arg;
     char fullpath[MUSIC_FULLPATH_LEN];
 
-    music_build_path(s_music_current_path, s_music_entries[file_idx], fullpath, sizeof(fullpath));
+    music_get_fullpath(file_idx, fullpath, sizeof(fullpath));
 
     ESP_LOGI(TAG, "Starting playback: %s", fullpath);
 
@@ -334,7 +364,7 @@ static void music_play_task(void *arg)
                 /* 关闭当前文件，打开下一个 */
                 wav_decoder_close(&s_wav_decoder);
 
-                music_build_path(s_music_current_path, s_music_entries[file_idx], fullpath, sizeof(fullpath));
+                music_get_fullpath(file_idx, fullpath, sizeof(fullpath));
 
                 if (wav_decoder_open(&s_wav_decoder, fullpath) != ESP_OK) {
                     ESP_LOGE(TAG, "Failed to open next file: %s", fullpath);
@@ -346,7 +376,7 @@ static void music_play_task(void *arg)
 
                 /* 加载歌词 */
                 char lrc_base[MUSIC_FULLPATH_LEN];
-                music_build_path(s_music_current_path, s_music_entries[file_idx], lrc_base, sizeof(lrc_base));
+                music_get_fullpath(file_idx, lrc_base, sizeof(lrc_base));
                 char *dot = strrchr(lrc_base, '.');
                 if (dot) *dot = '\0';
                 lrc_parser_load(&s_lrc, lrc_base);
@@ -408,7 +438,7 @@ static void music_start_playback(int idx)
     lrc_parser_init(&s_lrc);
     {
         char lrc_base[MUSIC_FULLPATH_LEN];
-        music_build_path(s_music_current_path, s_music_entries[idx], lrc_base, sizeof(lrc_base));
+        music_get_fullpath(idx, lrc_base, sizeof(lrc_base));
         char *dot = strrchr(lrc_base, '.');
         if (dot) *dot = '\0';
         lrc_parser_load(&s_lrc, lrc_base);
@@ -567,10 +597,14 @@ static void music_update_eq_visual(void)
 
 /* ========== UI刷新 ========== */
 
-/* 显示文件名（去掉扩展名） */
+/* 显示文件名：从完整路径取 basename 并去掉扩展名 */
 static void music_get_display_name(const char *name, char *out, size_t out_size)
 {
-    strncpy(out, name, out_size - 1);
+    if (out_size == 0) return;
+    /* 取最后一个 '/' 之后的文件名 */
+    const char *base = strrchr(name, '/');
+    base = base ? base + 1 : name;
+    strncpy(out, base, out_size - 1);
     out[out_size - 1] = '\0';
     char *dot = strrchr(out, '.');
     if (dot) *dot = '\0';
@@ -1415,7 +1449,10 @@ void app_music_get_status(app_music_status_t *out)
 
     int idx = s_playing_idx >= 0 ? (int)s_playing_idx : s_music_sel;
     if (idx >= 0 && idx < s_music_count) {
-        strncpy(out->current_file, s_music_entries[idx], sizeof(out->current_file) - 1);
+        /* 测试脚本按文件名匹配，故返回 basename 而非完整路径 */
+        const char *base = strrchr(s_music_entries[idx], '/');
+        base = base ? base + 1 : s_music_entries[idx];
+        strncpy(out->current_file, base, sizeof(out->current_file) - 1);
     }
 }
 

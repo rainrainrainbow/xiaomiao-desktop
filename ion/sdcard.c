@@ -14,6 +14,8 @@
 #include "driver/spi_common.h"
 #include "sdmmc_cmd.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <sys/stat.h>
 
@@ -65,7 +67,10 @@ bool ion_sdcard_init(const char *mount_point)
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     /* SDSPI_HOST_DEFAULT 使用 SPI2_HOST，与 LCD 共享总线 */
     host.slot = SD_SPI_HOST;
-    
+    /* 降低最大时钟：默认 20MHz 对部分卡/较长排线会在初始化阶段超时(0x107)。
+     * 降到 5MHz 显著提高兼容性；SD 初始化本身会从 400kHz 起步，稳定后再提速。 */
+    host.max_freq_khz = 5000;
+
     sdspi_device_config_t slot_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_cfg.gpio_cs = SD_PIN_CS;
     slot_cfg.host_id = SD_SPI_HOST;
@@ -77,16 +82,29 @@ bool ion_sdcard_init(const char *mount_point)
         .allocation_unit_size = 16 * 1024,
     };
 
-    /* 挂载 SD 卡
-     * 挂载过程涉及 SPI 总线通信，获取互斥锁保护 */
-    ion_spi_mutex_lock(5000);
-    esp_err_t ret = esp_vfs_fat_sdspi_mount(s_mount_point, &host, &slot_cfg, &mount_cfg, &s_card);
-    ion_spi_mutex_unlock();
+    /* 挂载 SD 卡，失败重试（热插拔/接触不良/卡未完全上电时首轮常超时）。
+     * 挂载过程涉及 SPI 总线通信，每次尝试都获取互斥锁保护。 */
+    esp_err_t ret = ESP_FAIL;
+    const int retry_max = 3;
+    for (int attempt = 1; attempt <= retry_max; attempt++) {
+        ion_spi_mutex_lock(5000);
+        ret = esp_vfs_fat_sdspi_mount(s_mount_point, &host, &slot_cfg, &mount_cfg, &s_card);
+        ion_spi_mutex_unlock();
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "SD card mounted on attempt %d", attempt);
+            break;
+        }
+        ESP_LOGW(TAG, "SD mount attempt %d/%d failed: %d (0x%x)",
+                 attempt, retry_max, ret, ret);
+        if (attempt < retry_max) {
+            vTaskDelay(pdMS_TO_TICKS(200));  /* 等待卡稳定后重试 */
+        }
+    }
     if (ret != ESP_OK) {
         if (ret == ESP_ERR_NOT_FOUND) {
             ESP_LOGW(TAG, "SD card not found (no card inserted)");
         } else {
-            ESP_LOGE(TAG, "Failed to mount SD card: %d", ret);
+            ESP_LOGE(TAG, "Failed to mount SD card after %d attempts: %d", retry_max, ret);
         }
         return false;
     }

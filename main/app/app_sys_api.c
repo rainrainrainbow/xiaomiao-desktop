@@ -41,6 +41,12 @@ bool app_sys_sdcard_ready(void)
     return ion_sdcard_is_mounted();
 }
 
+bool app_sys_sdcard_try_mount(void)
+{
+    if (ion_sdcard_is_mounted()) return true;
+    return ion_sdcard_init("/sdcard");
+}
+
 uint32_t app_sys_heap_internal_free(void)
 {
     return (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);

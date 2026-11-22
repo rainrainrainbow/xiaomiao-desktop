@@ -41,6 +41,9 @@ uint16_t app_sys_battery_mv(void);
 /** SD 卡是否已挂载 */
 bool app_sys_sdcard_ready(void);
 
+/** 尝试挂载 SD 卡（支持开机后热插）；已挂载则直接返回 true */
+bool app_sys_sdcard_try_mount(void);
+
 /** 内部 DRAM 空闲字节数 */
 uint32_t app_sys_heap_internal_free(void);
 
