@@ -170,7 +170,7 @@ typedef enum {
  * UART 命令任务栈在 PSRAM，故实际 I/O 由内部栈的 s_file_io_task 执行：
  * UART 任务填充请求 → 通知 → 等待完成。FILE* 由写任务独占持有。 */
 #define FILE_IO_CHUNK_MAX  2400   /* 单次 write 解码后字节上限 */
-typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT, IO_OP_READ } file_io_op_t;
+typedef enum { IO_OP_NONE=0, IO_OP_OPEN, IO_OP_WRITE, IO_OP_CLOSE, IO_OP_MKDIR, IO_OP_STAT, IO_OP_READ, IO_OP_DELETE } file_io_op_t;
 typedef struct {
     file_io_op_t op;
     char path[256];
@@ -792,6 +792,13 @@ static void file_io_task(void *arg)
             r->result = mkdir(r->path, 0777);  /* 0=ok, -1=exists/error */
             if (r->result != 0) r->result = errno > 0 ? -errno : -1;
             break;
+        case IO_OP_DELETE:
+            {
+                /* 删除前先确保没有打开的文件句柄指向它 */
+                r->result = unlink(r->path);
+                if (r->result != 0) r->result = errno > 0 ? -errno : -1;
+            }
+            break;
         case IO_OP_STAT:
             {
                 struct stat st;
@@ -1104,6 +1111,24 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                     } else {
                         cJSON_AddStringToObject(response, "status", "ok");
                         cJSON_AddNumberToObject(response, "size", sz);
+                    }
+                }
+            } else if (strcmp(op, "delete") == 0) {
+                cJSON *path_json = cJSON_GetObjectItem(cmd->params, "path");
+                if (!path_json || !cJSON_IsString(path_json)) {
+                    cJSON_AddStringToObject(response, "status", "error");
+                    cJSON_AddStringToObject(response, "msg", "Missing 'path'");
+                } else {
+                    /* 若目标文件正被 FILE_IO 打开，先关闭 */
+                    if (s_file_io_fp) { fclose(s_file_io_fp); s_file_io_fp = NULL; }
+                    int rc = file_io_dispatch(IO_OP_DELETE, path_json->valuestring, NULL, NULL, 0, 0, NULL);
+                    if (rc != 0) {
+                        cJSON_AddStringToObject(response, "status", "error");
+                        cJSON_AddStringToObject(response, "msg", "delete failed");
+                        cJSON_AddNumberToObject(response, "errno", -rc);
+                    } else {
+                        cJSON_AddStringToObject(response, "status", "ok");
+                        cJSON_AddStringToObject(response, "msg", "file deleted");
                     }
                 }
             } else if (strcmp(op, "read") == 0) {
