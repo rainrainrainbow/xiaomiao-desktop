@@ -12,6 +12,7 @@
  * 5. WiFi开关移到第1行，模式行独立
  */
 #include "app_builtin.h"
+#include "app_sys_api.h"      /* app_sys_net_ip()：状态行显示本机 IP */
 #include "ui_framework.h"
 #include "ui_keyboard.h"
 #include "lang/lang.h"
@@ -22,6 +23,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "nvs.h"              /* nvs_open/erase_key/commit：忘记网络 */
 #include "system/sys_nvs.h"
 #include "system/wifi_debug.h"
 #include "freertos/FreeRTOS.h"
@@ -119,6 +121,13 @@ static int s_wifi_scroll = 0;
 static int s_wifi_vis_rows = 6;
 static int s_wifi_row_h = 14;
 static int s_wifi_total = 0;
+
+/* "忘记网络"行索引：固定排在列表末尾（STA=网络列表后，AP=AP信息后） */
+static int wifi_forget_row_idx(void)
+{
+    if (s_mode_sel == WIFI_MODE_SEL_AP) return WIFI_ROW_NET_BASE + AP_INFO_ROWS;
+    return WIFI_ROW_NET_BASE + s_network_count;
+}
 
 /* ========== 前向声明 ========== */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -477,6 +486,28 @@ static void wifi_disconnect(void)
     }
 }
 
+/* 忘记网络：清除 NVS 保存的凭据并断开当前连接。
+ * 复用 app_recovery.c「清除WiFi凭据」的 nvs_open/erase_key/commit/close 方式，
+ * 不额外引入新的清除接口，也不擦除亮度/音量等其它用户设置。 */
+static void wifi_forget_network(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        nvs_erase_key(h, NVS_KEY_WIFI_SSID);
+        nvs_erase_key(h, NVS_KEY_WIFI_PASS);
+        err = nvs_commit(h);
+        nvs_close(h);
+    }
+    /* 断开并暂停开机自动重连，避免刚清掉的旧凭据被立刻重新使用；
+     * 退出本页时 destroy 会恢复自动重连（既有逻辑）。 */
+    wifi_disconnect();
+    wifi_debug_pause_autoreconnect(true);
+    s_pending_connect_idx = -1;
+    memset(s_pending_password, 0, sizeof(s_pending_password));
+    ESP_LOGI(TAG, "WiFi credentials forgotten (nvs=%s)", esp_err_to_name(err));
+}
+
 /* ========== WiFi事件处理 ========== */
 /* 注意：WiFi事件是异步的，连接成功后需要更新UI状态 */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -596,7 +627,7 @@ static void wifi_refresh_label(int idx)
     if (idx < 0 || idx >= (int)(sizeof(s_wifi_labels) / sizeof(s_wifi_labels[0]))) return;
     if (!s_wifi_labels[idx]) return;
     ui_state_t *st = ui_state_get();
-    char buf[64];
+    char buf[80];  /* 已连接行需拼接 SSID + IP，略放大避免截断 */
 
     if (idx == WIFI_ROW_MODE) {
         /* 第0行：模式切换 */
@@ -616,10 +647,17 @@ static void wifi_refresh_label(int idx)
             snprintf(buf, sizeof(buf), "%s", lang_get(STR_WIFI_CONNECTING));
         } else if (s_wifi_state == WIFI_STATE_CONNECTED && s_connected_idx >= 0 &&
                    s_connected_idx < s_network_count) {
-            snprintf(buf, sizeof(buf), "%s: %s", lang_get(STR_WIFI_CONNECTED_PREFIX), s_networks[s_connected_idx].ssid);
+            /* 已连接状态行同时显示本机 IP（原先只在 GOT_IP 事件里打日志，UI 看不到） */
+            char ip[16];
+            app_sys_net_ip(ip, sizeof(ip));
+            snprintf(buf, sizeof(buf), "%s: %s %s:%s", lang_get(STR_WIFI_CONNECTED_PREFIX),
+                     s_networks[s_connected_idx].ssid, lang_get(STR_SET_IP), ip);
         } else {
             snprintf(buf, sizeof(buf), "%s%d %s", lang_get(STR_WIFI_SCANNED_PREFIX), s_network_count, lang_get(STR_WIFI_SCAN_HINT));
         }
+    } else if (idx == wifi_forget_row_idx()) {
+        /* 列表末尾：忘记网络操作行 */
+        snprintf(buf, sizeof(buf), "%s", lang_get(STR_SET_FORGET));
     } else if (idx >= WIFI_ROW_NET_BASE) {
         if (s_mode_sel == WIFI_MODE_SEL_AP) {
             /* AP模式信息行 */
@@ -673,13 +711,9 @@ static void wifi_rebuild_visible(void)
     memset(s_wifi_labels, 0, sizeof(s_wifi_labels));
     memset(s_wifi_bars, 0, sizeof(s_wifi_bars));
 
-    if (s_mode_sel == WIFI_MODE_SEL_AP) {
-        s_wifi_total = WIFI_ROW_NET_BASE + AP_INFO_ROWS;  /* 模式+开关+状态+3行AP信息 */
-        if (s_wifi_total < WIFI_ROW_NET_BASE) s_wifi_total = WIFI_ROW_NET_BASE;
-    } else {
-        s_wifi_total = WIFI_ROW_NET_BASE + s_network_count;  /* 模式+开关+状态+网络列表 */
-        if (s_wifi_total < WIFI_ROW_NET_BASE) s_wifi_total = WIFI_ROW_NET_BASE;
-    }
+    /* 末尾额外一行「忘记网络」，两种模式统一按索引计算 */
+    s_wifi_total = wifi_forget_row_idx() + 1;
+    if (s_wifi_total < WIFI_ROW_NET_BASE + 1) s_wifi_total = WIFI_ROW_NET_BASE + 1;
 
     /* 确保选中项在可见范围内 */
     if (s_wifi_sel < s_wifi_scroll) s_wifi_scroll = s_wifi_sel;
@@ -946,6 +980,12 @@ static bool wifi_settings_on_key(int key)
                 wifi_scan();
                 wifi_rebuild_visible();
             }
+            return true;
+        }
+        if (s_wifi_sel == wifi_forget_row_idx()) {
+            /* 忘记网络：清除凭据 + 断开，不擦除其它用户设置 */
+            wifi_forget_network();
+            wifi_rebuild_visible();
             return true;
         }
         if (s_wifi_sel >= WIFI_ROW_NET_BASE && s_mode_sel == WIFI_MODE_SEL_STA) {

@@ -60,7 +60,7 @@ MARKERS = {
     "audio_bt":      "Bluetooth A2DP Sink initialized successfully",
     "mpy":           "MicroPython runtime initialized successfully",
     "desktop":       "Desktop page pushed successfully",
-    "apps":          "Registered 6 builtin apps",
+    "apps":          "Registered 7 builtin apps",
     "apptest":       "Test interface ready on USB CDC",
     "uart_err":      "uart driver error",
     "sd_ok":         "SD card mounted",
@@ -295,7 +295,7 @@ class Runner:
                     ("audio_bt", "Bluetooth A2DP Sink initialized"),
                     ("mpy", "MicroPython runtime initialized"),
                     ("desktop", "Desktop page loaded"),
-                    ("apps", "6 builtin apps registered"),
+                    ("apps", "7 builtin apps registered"),
                     ("apptest", "Test interface ready"),
                 ]:
                     self.record(section, label, SKIP,
@@ -317,7 +317,7 @@ class Runner:
             ("audio_bt", "Bluetooth A2DP Sink initialized"),
             ("mpy", "MicroPython runtime initialized"),
             ("desktop", "Desktop page loaded"),
-            ("apps", "6 builtin apps registered"),
+            ("apps", "7 builtin apps registered"),
             ("apptest", "Test interface ready"),
         ]
         for key, label in module_markers:

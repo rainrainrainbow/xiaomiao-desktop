@@ -50,6 +50,8 @@
 #include "app/app_builtin.h"
 #include "app/app_micropython.h"
 #include "app/bg_manager.h"
+#include "app/bg_tasks.h"       // 后台任务框架（任务列表/进度/控制）
+#include "app/notifications.h"  // 通知中心
 #include "app/app_test.h"  // 自动化测试接口
 
 // 驱动层
@@ -983,6 +985,9 @@ void app_main(void)
     
     // 初始化系统服务
     sys_nvs_init();
+    /* 后台任务框架 + 通知中心（供音乐/OTA/安装/文件复制等模块发布进度与事件） */
+    bg_tasks_init();
+    notifications_init();
     
     // 初始化网络接口（WiFi用，只需一次）
     esp_netif_init();

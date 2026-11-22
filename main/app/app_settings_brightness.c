@@ -18,9 +18,12 @@
 static const char *TAG = "APP_BRIGHTNESS";
 
 /* ========== UI状态 ========== */
+#define BR_ROW_AUTO 3   /* 自动亮度开关行（无光线传感器，仅展示且标注不支持） */
+#define BR_TOTAL    4
 static lv_obj_t *s_br_list = NULL;
-static lv_obj_t *s_br_labels[3] = {0};
+static lv_obj_t *s_br_labels[BR_TOTAL] = {0};
 static lv_obj_t *s_br_slider = NULL; /* LVGL 滑块组件 */
+static lv_obj_t *s_br_auto_switch = NULL; /* 自动亮度开关（禁用态） */
 static int s_br_sel = 0;
 static int s_br_vis_rows = 6;
 static int s_br_row_h = 14;
@@ -34,6 +37,8 @@ static void br_refresh_label(int idx)
     case 0: snprintf(buf, sizeof(buf), "%s: %d%%", lang_get(STR_BRIGHTNESS), st->brightness); break;
     case 1: snprintf(buf, sizeof(buf), "%s", lang_get(STR_BRIGHTNESS)); break;
     case 2: snprintf(buf, sizeof(buf), "%s", lang_get(STR_BRIGHTNESS_HINT)); break;
+    /* 无环境光传感器：给出开关 UI 但明确标注不支持，不伪造自动调节 */
+    case BR_ROW_AUTO: snprintf(buf, sizeof(buf), "%s: 不支持(需光线传感器)", lang_get(STR_SET_AUTO_BRIGHT)); break;
     default: buf[0] = '\0'; break;
     }
     lv_label_set_text(s_br_labels[idx], buf);
@@ -55,7 +60,8 @@ static void br_rebuild_visible(void)
     lv_obj_clean(s_br_list);
     memset(s_br_labels, 0, sizeof(s_br_labels));
     s_br_slider = NULL;
-    for (int i = 0; i < s_br_vis_rows && i < 3; i++) {
+    s_br_auto_switch = NULL;
+    for (int i = 0; i < s_br_vis_rows && i < BR_TOTAL; i++) {
         lv_obj_t *row = lv_obj_create(s_br_list);
         if (!row) {
             ESP_LOGE(TAG, "lv_obj_create(row) failed! mem free=%lu",
@@ -113,6 +119,32 @@ static void br_rebuild_visible(void)
                 s_br_slider = slider;
             }
         }
+
+        /* 第4行：自动亮度开关 UI —— 无光线传感器，置为禁用态并明确标注不支持 */
+        if (i == BR_ROW_AUTO) {
+            lv_obj_t *sw = lv_switch_create(row);
+            if (!sw) {
+                ESP_LOGE(TAG, "lv_switch_create(auto) failed! mem free=%lu",
+                         (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+            } else {
+                lv_obj_remove_style_all(sw);
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->border), 0);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, 0);
+                lv_obj_set_style_radius(sw, 8, 0);
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->text_dim), LV_PART_INDICATOR);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR);
+                lv_obj_set_style_radius(sw, 8, LV_PART_INDICATOR);
+                lv_obj_set_style_bg_color(sw, lv_color_hex(colors->bg), LV_PART_KNOB);
+                lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
+                lv_obj_set_style_radius(sw, 6, LV_PART_KNOB);
+                lv_obj_set_style_pad_all(sw, 2, LV_PART_KNOB);
+                lv_obj_set_size(sw, 32, s_br_row_h - 4);
+                lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -6, 0);
+                lv_obj_clear_state(sw, LV_STATE_CHECKED);
+                lv_obj_add_state(sw, LV_STATE_DISABLED);
+                s_br_auto_switch = sw;
+            }
+        }
     }
 }
 
@@ -154,12 +186,18 @@ static void br_settings_destroy(void)
     s_br_list = NULL;
     memset(s_br_labels, 0, sizeof(s_br_labels));
     s_br_slider = NULL;
+    s_br_auto_switch = NULL;
 }
 
 static bool br_settings_on_key(int key)
 {
     ui_state_t *st = ui_state_get();
     if (key == KEY_B) { if (ui_stack_depth() > 1) ui_stack_pop(); return true; }
+    /* 上下键切换焦点；默认焦点 0，原有左右键调节亮度行为不变 */
+    if (key == KEY_UP)   { s_br_sel = (s_br_sel - 1 + BR_TOTAL) % BR_TOTAL; br_rebuild_visible(); return true; }
+    if (key == KEY_DOWN) { s_br_sel = (s_br_sel + 1) % BR_TOTAL; br_rebuild_visible(); return true; }
+    /* 自动亮度行无传感器，左右键不生效（开关为禁用态） */
+    if (s_br_sel == BR_ROW_AUTO) return true;
     if (key == KEY_LEFT) {
         st->brightness -= 10; if (st->brightness < 10) st->brightness = 10;
         drv_backlight_set_brightness(st->brightness); br_refresh_slider(); br_refresh_label(0); return true;

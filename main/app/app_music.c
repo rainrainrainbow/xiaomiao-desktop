@@ -5,12 +5,15 @@
  * 功能：
  * - 列表页：优先扫描内置 FAT（/flash/music），回退存储卡（/sdcard/music）；
  *           支持 .wav / .mp3（minimp3 解码）
- * - 播放页：歌词显示(LRC)、频谱可视化、播放进度、音量、循环模式、上下一首、暂停
- * - 设置页：音量、频谱开关、循环模式、播放输出设备
+ * - 播放页：歌词显示(LRC)、频谱可视化、播放进度(触摸拖动/键盘调节)、
+ *           音量、循环模式(含顺序播放)、上下一首、暂停、真 EQ 音效
+ * - 设置页：音量、频谱开关、循环模式、播放输出设备、音效预设
+ * - 后台播放：切到桌面/其它 App 不停播，注册到 bg_tasks 供"最近任务"查看
  *
  * 操作说明：
  *   列表页：UP/DOWN选择  A播放  RIGHT进入播放页  LEFT进入设置页  B返回
- *   播放页：A播放/暂停  LEFT上一首  RIGHT下一首  B返回列表
+ *   播放页：A进入/确认进度调节  LEFT/RIGHT切歌  UP/DOWN播放暂停  B返回列表
+ *   进度调节模式：LEFT/RIGHT±5秒  UP/DOWN±30秒  A确认跳转  B取消
  *   设置页：UP/DOWN选择  A切换  LEFT/RIGHT调节  B返回
  *
  * 架构：
@@ -22,11 +25,14 @@
 #include "app_builtin.h"
 #include "app_manager.h"
 #include "app_sys_api.h"
+#include "bg_tasks.h"
 #include "ui_framework.h"
 #include "driver/drv_audio_output.h"
 #include "driver/drv_audio_decoder.h"
 #include "driver/drv_lrc.h"
 #include "system/sys_nvs.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
@@ -44,6 +50,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <math.h>      /* EQ 系数计算：expf（仅在配置变化时调用，非逐样本） */
 
 static const char *TAG = "APP_MUSIC";
 
@@ -58,8 +65,25 @@ typedef enum {
     PLAY_MODE_SINGLE = 0,      /* 单曲循环（播完重播当前） */
     PLAY_MODE_LIST_LOOP,       /* 列表循环 */
     PLAY_MODE_RANDOM,          /* 随机播放 */
+    PLAY_MODE_ORDER,           /* 顺序播放：列表播完停止，不循环 */
     PLAY_MODE_MAX
 } play_mode_t;
+
+/* ========== EQ 音效预设 ==========
+ * APP_CFG_MUSIC_EQ 严格按需求存 0=OFF/1=POP/2=ROCK/3=CLASSICAL/4=BASS。
+ * 旧版本该键存的是频谱开关(0/1)，首次升级时迁移到独立 NVS 键。 */
+typedef enum {
+    MUSIC_EQ_OFF = 0,          /* 关闭音效（PCM 直通） */
+    MUSIC_EQ_POP,              /* 流行 */
+    MUSIC_EQ_ROCK,             /* 摇滚 */
+    MUSIC_EQ_CLASSICAL,        /* 古典 */
+    MUSIC_EQ_BASS,             /* 重低音 */
+    MUSIC_EQ_MAX
+} music_eq_preset_t;
+
+/* 频谱动画开关单独存：原 APP_CFG_MUSIC_EQ 已被 EQ 预设占用，不引入新配置文件 */
+#define MUSIC_NVS_NS          "music_ui"
+#define MUSIC_NVS_KEY_SPEC    "spectrum"
 
 /* ========== 页面类型 ========== */
 typedef enum {
@@ -96,7 +120,7 @@ static int s_music_row_h = 15;
 
 /* 设置页选中项 */
 static int s_settings_sel = 0;
-#define SETTINGS_ITEM_COUNT 4  /* 音量/频谱/循环/输出 */
+#define SETTINGS_ITEM_COUNT 7  /* 音量/频谱/循环/输出/音效/当前曲/清空队列 */
 
 /* 文件列表 */
 /* 纯 UI 音乐列表缓存，放 PSRAM：4KB 内部 DRAM 释放。
@@ -125,8 +149,155 @@ static wav_decoder_t s_wav_decoder;
 static lrc_parser_t s_lrc;
 static TaskHandle_t s_play_task = NULL;
 
+/* ---- 后台播放 / 进度调节：跨 UI 主线程与播放任务的共享状态 ----
+ * s_is_playing / s_is_paused / s_playing_idx / s_seek_req_ms 均为 volatile，
+ * UI 只写请求标志，真正的解码器 seek 由播放任务在自身上下文完成。 */
+static int s_bg_task_id = -1;                       /* bg_tasks 槽位，-1=未注册 */
+static volatile int32_t s_seek_req_ms = -1;         /* UI 提交的 seek 请求(ms)，-1=无 */
+static volatile bool s_seek_mode = false;           /* 播放页：键盘进度调节模式 */
+static uint32_t s_seek_cursor_ms = 0;               /* 进度调节游标(ms)，UI 线程独占 */
+static music_eq_preset_t s_eq_preset = MUSIC_EQ_OFF; /* 当前音效预设 */
+static volatile bool s_eq_reload = false;           /* UI 改预设后置位，由播放任务重载系数 */
+
 /* 拼接完整路径：path + '/' + name（定义见下方，此处前置声明供扫描使用） */
 static void music_build_path(const char *path, const char *name, char *out, size_t out_size);
+
+/* ========== EQ 音效：定点一阶 IIR 低通 + 高通互补拆分 ==========
+ * 思路：x 经过一阶低通得到低频 lp，高频 hp = x - lp；
+ *      输出 = lp * 低频增益 + hp * 高频增益（Q14 定点增益）。
+ * 每声道只保留 1 个 int32 历史值，逐样本无浮点运算，ESP32 上开销极小。
+ * 滤波状态为全局 static（BSS），不占播放任务栈；切歌/seek 时清零防止爆音。 */
+typedef struct {
+    int32_t lp_state[2];    /* 左右声道低通历史值 */
+    int16_t a_lp_q15;       /* 低通系数 a=1-exp(-2πfc/fs)，Q15 */
+    int16_t g_bass_q14;     /* 低频增益 Q14（16384=1.0） */
+    int16_t g_treble_q14;   /* 高频增益 Q14 */
+    uint8_t channels;
+    bool enabled;
+} music_eq_state_t;
+
+static music_eq_state_t s_eq_state;
+
+static void music_eq_reset_state(void)
+{
+    s_eq_state.lp_state[0] = 0;
+    s_eq_state.lp_state[1] = 0;
+}
+
+/* 预设 + 采样率 -> 系数。仅在开播/切歌/改预设时调用，非逐样本路径 */
+static void music_eq_setup(music_eq_preset_t preset, uint32_t sample_rate, uint8_t channels)
+{
+    /* fc / 低频增益Q14 / 高频增益Q14；增益预留 0.85~0.9 余量防削波 */
+    static const struct {
+        uint16_t fc;
+        int16_t bass_q14;
+        int16_t treble_q14;
+    } cfg[MUSIC_EQ_MAX] = {
+        {   0, 16384, 16384},  /* OFF：旁路，不走滤波 */
+        { 350, 14746, 16958},  /* POP：轻微提亮高频 (0.90 / 1.035) */
+        { 260, 17408, 17408},  /* ROCK：两端抬升 V 型 (1.0625 / 1.0625) */
+        { 500, 14788, 16344},  /* CLASSICAL：平直略透 (0.9025 / 0.9975) */
+        { 120, 20972, 11141},  /* BASS：强低频弱高频 (1.28 / 0.68) */
+    };
+
+    memset(&s_eq_state, 0, sizeof(s_eq_state));
+    s_eq_state.channels = channels ? channels : 2;
+    if (preset <= MUSIC_EQ_OFF || preset >= MUSIC_EQ_MAX || sample_rate == 0) {
+        s_eq_state.enabled = false;   /* OFF：直接旁路，零 CPU 开销 */
+        return;
+    }
+    s_eq_state.enabled = true;
+    s_eq_state.g_bass_q14 = cfg[preset].bass_q14;
+    s_eq_state.g_treble_q14 = cfg[preset].treble_q14;
+
+    /* a = 1 - exp(-2πfc/fs)，只在配置变化时算一次浮点 */
+    float a = 1.0f - expf(-2.0f * 3.14159265f * (float)cfg[preset].fc / (float)sample_rate);
+    int a_q = (int)(a * 32768.0f);
+    if (a_q < 1) a_q = 1;
+    if (a_q > 32767) a_q = 32767;
+    s_eq_state.a_lp_q15 = (int16_t)a_q;
+    music_eq_reset_state();
+    ESP_LOGI(TAG, "EQ preset=%d fc=%u a_q15=%d fs=%u ch=%u",
+             (int)preset, (unsigned)cfg[preset].fc, a_q,
+             (unsigned)sample_rate, (unsigned)s_eq_state.channels);
+}
+
+/* 对 16bit PCM 就地滤波（左右声道交错）。逐样本只有整数乘加/移位。 */
+static void music_eq_apply(int16_t *pcm, size_t bytes)
+{
+    if (!s_eq_state.enabled || !pcm) return;
+    size_t n = bytes / 2;
+    int32_t a = s_eq_state.a_lp_q15;
+    int ch = (s_eq_state.channels > 1) ? 2 : 1;
+
+    for (size_t i = 0; i < n; i++) {
+        int c = (ch == 2) ? (i & 1) : 0;
+        int32_t x = pcm[i];
+        int32_t lp = s_eq_state.lp_state[c];
+        /* y += a*(x-y)：Q15 乘，int64 中间量防止 32767*65535 溢出 */
+        lp += (int32_t)(((int64_t)a * ((int64_t)x - lp)) >> 15);
+        s_eq_state.lp_state[c] = lp;
+        int32_t hp = x - lp;   /* 互补高通 */
+        int64_t y = ((int64_t)lp * s_eq_state.g_bass_q14 +
+                     (int64_t)hp * s_eq_state.g_treble_q14 + 8192) >> 14;
+        if (y > 32767) y = 32767;
+        else if (y < -32768) y = -32768;
+        pcm[i] = (int16_t)y;
+    }
+}
+
+/* 频谱动画开关存到本文件专属 NVS 键（不动 app_builtin.h / app_sys_api.h） */
+static void music_save_spectrum(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(MUSIC_NVS_NS, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, MUSIC_NVS_KEY_SPEC, s_eq_enabled ? 1 : 0);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+}
+
+/* EQ 预设仍走统一配置门面：严格 0..4 */
+static void music_save_eq_cfg(void)
+{
+    app_sys_cfg_set_int(APP_CFG_MUSIC_EQ, (int)s_eq_preset);
+}
+
+static void music_load_eq_cfg(void)
+{
+    /* 1) 读取频谱开关；NVS 键不存在说明是旧版本数据 */
+    nvs_handle_t h;
+    int32_t spec = 1;
+    bool legacy = true;
+    if (nvs_open(MUSIC_NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        legacy = (nvs_get_i32(h, MUSIC_NVS_KEY_SPEC, &spec) != ESP_OK);
+        nvs_close(h);
+    }
+
+    /* 2) 读取 EQ 预设 */
+    int v = app_sys_cfg_get_int(APP_CFG_MUSIC_EQ, MUSIC_EQ_OFF);
+    if (legacy) {
+        /* 旧版本：APP_CFG_MUSIC_EQ 存的是频谱开关 0/1，迁移一次 */
+        s_eq_enabled = (v != 0);
+        s_eq_preset = MUSIC_EQ_OFF;
+        music_save_spectrum();
+        music_save_eq_cfg();
+        ESP_LOGI(TAG, "Migrated legacy music EQ config: spectrum=%d", (int)s_eq_enabled);
+    } else {
+        s_eq_enabled = (spec != 0);
+        s_eq_preset = (v >= 0 && v < MUSIC_EQ_MAX) ? (music_eq_preset_t)v : MUSIC_EQ_OFF;
+    }
+}
+
+static void music_eq_set_preset(music_eq_preset_t preset)
+{
+    if (preset < 0 || preset >= MUSIC_EQ_MAX) return;
+    s_eq_preset = preset;
+    music_save_eq_cfg();
+    /* 不在这里直接改 s_eq_state：UI 线程与播放任务会同时碰它。
+     * 只置标志，由播放任务在自身上下文调用 music_eq_setup，避免撕裂状态/爆音。 */
+    s_eq_reload = true;
+}
 
 /* ========== 文件扫描 ========== */
 /* 统计指定目录中可解码音频文件数（不填充列表），用于目录自动选择 */
@@ -221,6 +392,9 @@ static int music_next_index(int current)
         return current;  /* 单曲循环：重播当前 */
     case PLAY_MODE_LIST_LOOP:
         return (current + 1) % s_music_count;
+    case PLAY_MODE_ORDER:
+        /* 顺序播放：到列表末尾返回 -1，播放任务收尾停止，不循环 */
+        return (current + 1 < s_music_count) ? (current + 1) : -1;
     case PLAY_MODE_RANDOM:
     default: {
         int next = rand() % s_music_count;
@@ -272,6 +446,15 @@ static void music_get_fullpath(int idx, char *out, size_t out_size)
     out[out_size - 1] = '\0';
 }
 
+/* 释放后台任务槽位（幂等）。播放任务所有退出路径统一调用。 */
+static void music_bg_task_release(void)
+{
+    if (s_bg_task_id >= 0) {
+        bg_tasks_remove(s_bg_task_id);
+        s_bg_task_id = -1;
+    }
+}
+
 /* ========== 播放任务 ========== */
 static void music_play_task(void *arg)
 {
@@ -289,6 +472,7 @@ static void music_play_task(void *arg)
         s_is_playing = false;
         s_playing_idx = -1;
         s_play_task = NULL;
+        music_bg_task_release();
         vTaskDelete(NULL);
         return;
     }
@@ -306,9 +490,13 @@ static void music_play_task(void *arg)
         s_is_playing = false;
         s_playing_idx = -1;
         s_play_task = NULL;
+        music_bg_task_release();
         vTaskDelete(NULL);
         return;
     }
+
+    /* EQ：按当前文件采样率/声道数计算滤波系数（OFF 预设自动旁路） */
+    music_eq_setup(s_eq_preset, fmt->sample_rate, fmt->channels);
 
     /* 解码缓冲区（16位PCM样本） */
     /* 解码 PCM 缓冲通过 audio_output_write 送入 I2S，源数据可驻留 PSRAM；
@@ -325,14 +513,36 @@ static void music_play_task(void *arg)
         s_is_playing = false;
         s_playing_idx = -1;
         s_play_task = NULL;
+        music_bg_task_release();
         vTaskDelete(NULL);
         return;
     }
 
     s_is_playing = true;
     s_is_paused = false;
+    int progress_tick = 0;   /* 进度上报节流：约每 20 个解码块刷一次 */
 
     while (1) {
+        /* UI 线程改了音效预设：在播放任务上下文重载系数，避免并发改写滤波状态 */
+        if (s_eq_reload) {
+            s_eq_reload = false;
+            music_eq_setup(s_eq_preset, fmt->sample_rate, fmt->channels);
+        }
+
+        /* 处理 UI 线程提交的 seek 请求：
+         * 先 stop 冲掉 I2S DMA 中旧数据（避免拖动瞬间爆音），
+         * 再 seek（解码器内部已重置状态），最后清 EQ 历史并继续写入。 */
+        if (s_seek_req_ms >= 0) {
+            int32_t target_ms = s_seek_req_ms;
+            s_seek_req_ms = -1;              /* 消费请求 */
+            ESP_LOGI(TAG, "Seek request: %d ms", (int)target_ms);
+            audio_output_stop();
+            esp_err_t se = wav_decoder_seek(&s_wav_decoder, (uint32_t)target_ms);
+            if (se != ESP_OK) ESP_LOGW(TAG, "wav_decoder_seek failed: %s", esp_err_to_name(se));
+            music_eq_reset_state();          /* 清滤波历史，防止直流冲击 */
+            if (s_bg_task_id >= 0) bg_tasks_set_progress(s_bg_task_id, 0, NULL);
+        }
+
         /* 检查是否被要求停止 */
         if (!s_is_playing || s_playing_idx != file_idx) {
             break;
@@ -373,6 +583,9 @@ static void music_play_task(void *arg)
 
                 const wav_format_t *next_fmt = wav_decoder_get_format(&s_wav_decoder);
                 audio_output_open(next_fmt->sample_rate, 16, next_fmt->channels);
+                /* 切歌：清 EQ 历史并按新文件格式重算系数 */
+                music_eq_reset_state();
+                music_eq_setup(s_eq_preset, next_fmt->sample_rate, next_fmt->channels);
 
                 /* 加载歌词 */
                 char lrc_base[MUSIC_FULLPATH_LEN];
@@ -385,10 +598,23 @@ static void music_play_task(void *arg)
             break;
         }
 
+        /* 真音效：PCM 送 I2S 之前做 EQ 滤波（OFF 预设内部直接旁路） */
+        music_eq_apply(decode_buf, bytes_read);
+
         /* 写入音频输出（通过I2S DAC或蓝牙A2DP） */
         ret = audio_output_write(decode_buf, bytes_read);
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "audio_output_write returned %s", esp_err_to_name(ret));
+        }
+
+        /* 向后台任务表上报进度（播放任务内完成，不依赖 UI 定时器） */
+        if ((++progress_tick % 20) == 0 && s_bg_task_id >= 0) {
+            const wav_format_t *pf = wav_decoder_get_format(&s_wav_decoder);
+            uint32_t pm = wav_decoder_get_position_ms(&s_wav_decoder);
+            int pct = (pf && pf->duration_ms) ? (int)(pm * 100 / pf->duration_ms) : 0;
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            bg_tasks_set_progress(s_bg_task_id, pct, NULL);
         }
     }
 
@@ -396,6 +622,8 @@ static void music_play_task(void *arg)
     heap_caps_free(decode_buf);
     audio_output_stop();
     wav_decoder_close(&s_wav_decoder);
+    /* 播放真正结束/被停止才移除后台任务；切界面(destroy)不会走到这里 */
+    music_bg_task_release();
 
     s_is_playing = false;
     s_playing_idx = -1;
@@ -458,12 +686,31 @@ static void music_start_playback(int idx)
         s_is_playing = false;
         s_playing_idx = -1;
         s_play_task = NULL;
+        music_bg_task_release();
+    } else {
+        /* 登记后台任务：切到桌面/其它 App 后仍在"最近任务"中可见可控 */
+        s_bg_task_id = bg_tasks_register(BG_TASK_MUSIC, lang_get(STR_MUSIC_BACKGROUND),
+                                         NULL, NULL, NULL, NULL);
+        if (s_bg_task_id >= 0) {
+            bg_tasks_set_state(s_bg_task_id,
+                               s_is_paused ? BG_TASK_STATE_PAUSED : BG_TASK_STATE_RUNNING);
+        } else {
+            ESP_LOGW(TAG, "bg_tasks_register(MUSIC) failed, no free slot");
+        }
     }
 }
 
 static void music_stop_playback(void)
 {
     music_stop_task_and_wait();
+    /* 兜底：任务若尚未进入清理分支，这里确保槽位释放 */
+    music_bg_task_release();
+}
+
+/* 对外查询：播放任务是否仍存活（含暂停态）。声明由集成方在头文件补充。 */
+bool music_is_playing(void)
+{
+    return s_is_playing;
 }
 
 /* 切换到指定曲目 */
@@ -503,8 +750,14 @@ static void music_ui_timer_cb(lv_timer_t *timer)
             const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
             uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
 
+            /* 进度调节模式 / seek 未完成时，用游标显示，避免 200ms 刷新
+             * 把用户刚拖到（或刚按键调到）的位置冲掉；歌词仍跟真实进度。 */
+            uint32_t disp_ms = s_seek_mode ? s_seek_cursor_ms : pos_ms;
+            if (s_seek_req_ms >= 0) disp_ms = (uint32_t)s_seek_req_ms;
+
             if (dur_ms > 0) {
-                int pct = (int)(pos_ms * 100 / dur_ms);
+                int pct = (int)(disp_ms * 100 / dur_ms);
+                if (pct < 0) pct = 0;
                 if (pct > 100) pct = 100;
                 lv_bar_set_value(s_progress_bar, pct, LV_ANIM_OFF);
             }
@@ -512,7 +765,7 @@ static void music_ui_timer_cb(lv_timer_t *timer)
             /* 更新时间标签 */
             if (s_time_lbl) {
                 char buf[24];
-                uint32_t pos_s = pos_ms / 1000;
+                uint32_t pos_s = disp_ms / 1000;
                 uint32_t dur_s = dur_ms / 1000;
                 snprintf(buf, sizeof(buf), "%02u:%02u/%02u:%02u",
                          (unsigned int)(pos_s / 60), (unsigned int)(pos_s % 60),
@@ -554,8 +807,8 @@ static void music_ui_timer_cb(lv_timer_t *timer)
             }
         }
     } else if (s_music_page == MUSIC_PAGE_LIST) {
-        /* 列表页刷新进度条 */
-        if (s_progress_bar && s_is_playing && s_playing_idx >= 0) {
+        /* 列表页刷新进度条（seek 请求处理中暂停刷新，避免来回跳） */
+        if (s_progress_bar && s_is_playing && s_playing_idx >= 0 && s_seek_req_ms < 0) {
             uint32_t pos_ms = wav_decoder_get_position_ms(&s_wav_decoder);
             const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
             uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
@@ -610,6 +863,37 @@ static void music_get_display_name(const char *name, char *out, size_t out_size)
     if (dot) *dot = '\0';
 }
 
+/* 进度条触摸/拖动回调：把点击的横坐标换算成百分比，提交 seek 请求。
+ * 真正的 wav_decoder_seek 在播放任务里执行，这里只写 volatile 请求，线程安全。 */
+static void music_progress_event_cb(lv_event_t *e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code != LV_EVENT_PRESSED && code != LV_EVENT_RELEASED) return;
+
+    lv_obj_t *bar = lv_event_get_target(e);
+    lv_indev_t *indev = lv_indev_active();
+    if (!bar || !indev) return;
+
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    lv_area_t area;
+    lv_obj_get_coords(bar, &area);
+    int w = (int)(area.x2 - area.x1) + 1;
+    if (w <= 0) return;
+
+    int pct = (int)(((int64_t)(p.x - area.x1)) * 100 / w);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    lv_bar_set_value(bar, pct, LV_ANIM_OFF);
+
+    if (!s_is_playing || s_playing_idx < 0) return;
+    const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
+    uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
+    if (dur_ms == 0) return;
+    s_seek_req_ms = (int32_t)(((uint64_t)pct * dur_ms) / 100);
+    ESP_LOGI(TAG, "Touch seek: %d%% -> %d ms", pct, (int)s_seek_req_ms);
+}
+
 /* 创建进度条 */
 static lv_obj_t* music_create_progress_bar(lv_obj_t *parent, int y)
 {
@@ -631,6 +915,9 @@ static lv_obj_t* music_create_progress_bar(lv_obj_t *parent, int y)
     lv_obj_set_pos(bar, 4, y);
     lv_bar_set_range(bar, 0, 100);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+    /* 触摸拖动进度：PRESSED/RELEASED 都换算位置，拖动结束以松手位置为准 */
+    lv_obj_add_event_cb(bar, music_progress_event_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(bar, music_progress_event_cb, LV_EVENT_RELEASED, NULL);
     return bar;
 }
 /* 创建频谱条 */
@@ -722,8 +1009,10 @@ static void music_refresh_list_page(void)
     if (s_is_playing && s_playing_idx >= 0) {
         char display_name[MUSIC_DISPLAY_LEN];
         music_get_display_name(s_music_entries[s_playing_idx], display_name, sizeof(display_name));
-        snprintf(status, sizeof(status), "%s %s",
-                 s_is_paused ? "⏸" : "▶", display_name);
+        /* 切到其它 App/桌面后仍在播放，列表页状态栏标注"后台播放" */
+        snprintf(status, sizeof(status), "%s %s · %s",
+                 s_is_paused ? "⏸" : "▶", display_name,
+                 lang_get(STR_MUSIC_BACKGROUND));
     } else {
         snprintf(status, sizeof(status), "%s", lang_get(STR_MUSIC_LIST));
     }
@@ -915,7 +1204,10 @@ static void music_refresh_play_page(void)
         /* 无歌词时显示提示 */
         lv_obj_t *no_lrc = lv_label_create(s_music_obj);
         if (no_lrc) {
-            lv_label_set_text(no_lrc, lang_get(STR_MUSIC_LRC_OFF));
+            /* 歌词功能开着但没找到同名 .lrc -> "暂无歌词"；
+             * 仅当用户主动关歌词时才显示"歌词:关" */
+            lv_label_set_text(no_lrc,
+                s_lrc_enabled ? lang_get(STR_MUSIC_NO_LRC) : lang_get(STR_MUSIC_LRC_OFF));
             lv_obj_set_style_text_color(no_lrc, lv_color_hex(colors->text_dim), 0);
             lv_obj_set_style_text_font(no_lrc, lv_font_cn_get(14), 0);
             lv_obj_align(no_lrc, LV_ALIGN_TOP_MID, 0, y + 4);
@@ -949,6 +1241,7 @@ static void music_refresh_play_page(void)
     case PLAY_MODE_SINGLE: snprintf(mode_str, sizeof(mode_str), "%s", lang_get(STR_MUSIC_LOOP_SINGLE)); break;
     case PLAY_MODE_LIST_LOOP: snprintf(mode_str, sizeof(mode_str), "%s", lang_get(STR_MUSIC_LOOP_LIST)); break;
     case PLAY_MODE_RANDOM: snprintf(mode_str, sizeof(mode_str), "%s", lang_get(STR_MUSIC_LOOP_RANDOM)); break;
+    case PLAY_MODE_ORDER: snprintf(mode_str, sizeof(mode_str), "%s", lang_get(STR_MUSIC_ORDER)); break;
     default: mode_str[0] = '\0'; break;
     }
     lv_obj_t *mode_lbl = lv_label_create(s_music_obj);
@@ -975,12 +1268,26 @@ static void music_refresh_play_page(void)
     /* 底部操作提示 */
     lv_obj_t *hint_lbl = lv_label_create(s_music_obj);
     if (hint_lbl) {
-        lv_label_set_text(hint_lbl, lang_get(STR_MUSIC_PLAY_HINT2));
+        lv_label_set_text(hint_lbl,
+            s_seek_mode ? lang_get(STR_MUSIC_SEEK) : lang_get(STR_MUSIC_PLAY_HINT2));
         lv_obj_set_style_text_color(hint_lbl, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_text_font(hint_lbl, lv_font_cn_get(14), 0);
         lv_obj_align(hint_lbl, LV_ALIGN_BOTTOM_MID, 0, -DOCK_H);
     }
     music_update_eq_visual();
+}
+
+/* EQ 预设显示名（直接使用已加好的 lang 字符串） */
+static const char *music_eq_preset_name(music_eq_preset_t p)
+{
+    switch (p) {
+    case MUSIC_EQ_POP:       return lang_get(STR_MUSIC_EQ_POP);
+    case MUSIC_EQ_ROCK:      return lang_get(STR_MUSIC_EQ_ROCK);
+    case MUSIC_EQ_CLASSICAL: return lang_get(STR_MUSIC_EQ_CLASSICAL);
+    case MUSIC_EQ_BASS:      return lang_get(STR_MUSIC_EQ_BASS);
+    case MUSIC_EQ_OFF:
+    default:                 return lang_get(STR_MUSIC_EQ_OFF);
+    }
 }
 
 /* ========== 设置页刷新 ========== */
@@ -1027,6 +1334,7 @@ static void music_refresh_settings_page(void)
     case PLAY_MODE_SINGLE: snprintf(values[2], sizeof(values[2]), "%s", lang_get(STR_MUSIC_LOOP_SINGLE)); break;
     case PLAY_MODE_LIST_LOOP: snprintf(values[2], sizeof(values[2]), "%s", lang_get(STR_MUSIC_LOOP_LIST)); break;
     case PLAY_MODE_RANDOM: snprintf(values[2], sizeof(values[2]), "%s", lang_get(STR_MUSIC_LOOP_RANDOM)); break;
+    case PLAY_MODE_ORDER: snprintf(values[2], sizeof(values[2]), "%s", lang_get(STR_MUSIC_ORDER)); break;
     default: values[2][0] = '\0'; break;
     }
 
@@ -1044,6 +1352,24 @@ static void music_refresh_settings_page(void)
         }
         snprintf(values[3], sizeof(values[3]), "%s", dev_name);
     }
+
+    labels[4] = lang_get(STR_MUSIC_EQ);
+    snprintf(values[4], sizeof(values[4]), "%s", music_eq_preset_name(s_eq_preset));
+
+    /* 5: 播放队列——显示当前正在播放的曲目名（无播放显示 -） */
+    labels[5] = lang_get(STR_MUSIC_QUEUE);
+    if (s_playing_idx >= 0 && s_playing_idx < s_music_count) {
+        const char *full = s_music_entries[s_playing_idx];
+        const char *base = strrchr(full, '/');
+        base = base ? base + 1 : full;
+        snprintf(values[5], sizeof(values[5]), "%s", base);
+    } else {
+        snprintf(values[5], sizeof(values[5]), "-");
+    }
+
+    /* 6: 清空队列（A 键执行） */
+    labels[6] = lang_get(STR_MUSIC_QUEUE_CLEAR);
+    values[6][0] = '\0';
 
     for (int i = 0; i < SETTINGS_ITEM_COUNT; i++) {
         lv_obj_t *row = lv_obj_create(s_music_obj);
@@ -1115,7 +1441,8 @@ static void music_init(void *data)
 
     /* 从 NVS 加载音乐设置（统一走配置门面层，保持原有默认值语义） */
     s_volume = audio_output_get_volume();
-    s_eq_enabled = app_sys_cfg_get_int(APP_CFG_MUSIC_EQ, 1) != 0;
+    /* EQ 预设走 APP_CFG_MUSIC_EQ；频谱开关走本文件专属 NVS 键 */
+    music_load_eq_cfg();
     s_lrc_enabled = app_sys_cfg_get_int(APP_CFG_MUSIC_LRC, 1) != 0;
     int saved_mode = app_sys_cfg_get_int(APP_CFG_MUSIC_MODE, PLAY_MODE_SINGLE);
     if (saved_mode >= 0 && saved_mode < PLAY_MODE_MAX) {
@@ -1146,8 +1473,11 @@ static void music_init(void *data)
 
 static void music_destroy(void)
 {
-    ESP_LOGI(TAG, "Music destroy");
-    music_stop_playback();
+    ESP_LOGI(TAG, "Music destroy (background playback kept: %d)", (int)s_is_playing);
+    /* 关键：ui_stack_pop 会调用 destroy，切到桌面/其它 App 时【不停止】播放。
+     * 播放状态(s_is_playing/s_playing_idx/s_wav_decoder)与后台任务均为全局持久，
+     * 这里只销毁 UI 对象与定时器；真正停止只发生在：
+     *   1) 播放任务正常结束（含顺序播放到末尾）；2) 用户/诊断主动调用 music_stop_playback。 */
     if (s_ui_timer) {
         lv_timer_del(s_ui_timer);
         s_ui_timer = NULL;
@@ -1159,8 +1489,11 @@ static void music_destroy(void)
     s_vol_lbl = NULL;
     s_time_lbl = NULL;
     for (int i = 0; i < MUSIC_LRC_LINES; i++) s_lrc_labels[i] = NULL;
-    s_music_count = 0;
-    lrc_parser_clear(&s_lrc);
+    /* 不清 s_music_count：后台播放切歌时 music_next_index() 仍需要列表 */
+    if (!s_is_playing) {
+        lrc_parser_clear(&s_lrc);
+    }
+    s_seek_mode = false;   /* 离开页面时退出进度调节模式 */
 }
 
 /* ========== 按键处理 ========== */
@@ -1214,44 +1547,88 @@ static bool music_on_key(int key)
 
     /* ===== 播放页 ===== */
     case MUSIC_PAGE_PLAY:
+        if (s_seek_mode) {
+            /* ---- 进度调节模式（5键无触摸设备的必须路径） ----
+             * LEFT/RIGHT：∓5 秒   UP/DOWN：∓30 秒
+             * A：确认跳转并退出   B：取消并退出 */
+            if (key == KEY_A) {
+                s_seek_req_ms = (int32_t)s_seek_cursor_ms;
+                s_seek_mode = false;
+                ESP_LOGI(TAG, "Seek confirmed: %u ms", (unsigned)s_seek_cursor_ms);
+                music_refresh_page();
+                return true;
+            }
+            if (key == KEY_B) {
+                s_seek_mode = false;   /* 取消，不提交 seek */
+                music_refresh_page();
+                return true;
+            }
+            if (key == KEY_LEFT || key == KEY_RIGHT || key == KEY_UP || key == KEY_DOWN) {
+                const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
+                uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
+                int delta = (key == KEY_LEFT || key == KEY_RIGHT) ? 5000 : 30000;
+                if (key == KEY_LEFT || key == KEY_UP) {
+                    s_seek_cursor_ms = (s_seek_cursor_ms > (uint32_t)delta)
+                                         ? s_seek_cursor_ms - (uint32_t)delta : 0;
+                } else {
+                    s_seek_cursor_ms += (uint32_t)delta;
+                    if (dur_ms > 0 && s_seek_cursor_ms > dur_ms) s_seek_cursor_ms = dur_ms;
+                }
+                music_refresh_page();   /* 刷新提示行；进度条由 UI 定时器按游标刷新 */
+                return true;
+            }
+            return true;   /* 调节模式屏蔽其它键，避免误切歌 */
+        }
         if (key == KEY_B) {
-            /* 返回列表页 */
+            /* 返回列表页（不停止播放，后台继续） */
             s_music_page = MUSIC_PAGE_LIST;
             music_refresh_page();
             return true;
         }
         if (key == KEY_A) {
-            /* 播放/暂停 */
-            if (s_is_playing) {
-                s_is_paused = !s_is_paused;
-                if (s_is_paused) {
-                    audio_output_stop();
+            /* A：未播放时开始播放；播放中进入进度调节模式 */
+            if (!s_is_playing) {
+                if (s_music_count > 0) {
+                    int idx = (s_playing_idx >= 0) ? s_playing_idx : s_music_sel;
+                    music_play_track(idx);
+                    music_refresh_page();
                 }
-                music_refresh_page();
-            } else if (s_music_count > 0) {
-                int idx = (s_playing_idx >= 0) ? s_playing_idx : s_music_sel;
-                music_play_track(idx);
-                music_refresh_page();
+                return true;
             }
+            s_seek_cursor_ms = wav_decoder_get_position_ms(&s_wav_decoder);
+            {
+                const wav_format_t *fmt = wav_decoder_get_format(&s_wav_decoder);
+                uint32_t dur_ms = fmt ? fmt->duration_ms : 0;
+                if (dur_ms > 0 && s_seek_cursor_ms > dur_ms) s_seek_cursor_ms = dur_ms;
+                if (s_seek_req_ms >= 0) s_seek_cursor_ms = (uint32_t)s_seek_req_ms;
+            }
+            s_seek_mode = true;
+            music_refresh_page();
             return true;
         }
         if (key == KEY_LEFT) {
-            /* 上一首 */
+            /* 上一首（保留原操作） */
             music_play_prev();
             music_refresh_page();
             return true;
         }
         if (key == KEY_RIGHT) {
-            /* 下一首 */
+            /* 下一首（保留原操作） */
             music_play_next();
             music_refresh_page();
             return true;
         }
         if (key == KEY_UP || key == KEY_DOWN) {
-            /* 循环模式切换 */
-            s_play_mode = (play_mode_t)((s_play_mode + 1) % PLAY_MODE_MAX);
-            app_sys_cfg_set_int(APP_CFG_MUSIC_MODE, (int)s_play_mode);
-            music_refresh_page();
+            /* 播放/暂停：原播放页的循环模式切换移到设置页，腾出按键给进度调节 */
+            if (s_is_playing) {
+                s_is_paused = !s_is_paused;
+                if (s_is_paused) audio_output_stop();
+                if (s_bg_task_id >= 0) {
+                    bg_tasks_set_state(s_bg_task_id,
+                        s_is_paused ? BG_TASK_STATE_PAUSED : BG_TASK_STATE_RUNNING);
+                }
+                music_refresh_page();
+            }
             return true;
         }
         return true;
@@ -1283,9 +1660,9 @@ static bool music_on_key(int key)
             switch (s_settings_sel) {
             case 0: /* 音量 */
                 break;
-            case 1: /* 频谱开关 */
+            case 1: /* 频谱动画开关（独立 NVS 键，不占 EQ 预设值） */
                 s_eq_enabled = !s_eq_enabled;
-                app_sys_cfg_set_int(APP_CFG_MUSIC_EQ, s_eq_enabled ? 1 : 0);
+                music_save_spectrum();
                 music_refresh_page();
                 break;
             case 2: /* 循环模式 */
@@ -1319,6 +1696,24 @@ static bool music_on_key(int key)
                     music_refresh_page();
                 }
                 break;
+            case 4: /* 音效预设：OFF->POP->ROCK->CLASSICAL->BASS->OFF */
+                music_eq_set_preset((music_eq_preset_t)((s_eq_preset + 1) % MUSIC_EQ_MAX));
+                music_refresh_page();
+                break;
+            case 5: /* 播放队列：回到列表页并定位当前播放曲 */
+                if (s_playing_idx >= 0 && s_playing_idx < s_music_count) {
+                    s_music_sel = s_playing_idx;   /* 滚动由列表页渲染自动适配 */
+                    s_music_page = MUSIC_PAGE_LIST;
+                    music_refresh_page();
+                }
+                break;
+            case 6: /* 清空队列：停止播放并清空列表（不删文件，重新扫描可恢复） */
+                music_stop_playback();
+                s_music_count = 0;
+                s_music_sel = 0;
+                s_music_scroll = 0;
+                music_refresh_page();
+                break;
             }
             return true;
         }
@@ -1334,9 +1729,9 @@ static bool music_on_key(int key)
                 sys_nvs_save_volume(s_volume);
                 music_refresh_page();
                 break;
-            case 1: /* 频谱开关 */
+            case 1: /* 频谱动画开关（独立 NVS 键，不占 EQ 预设值） */
                 s_eq_enabled = !s_eq_enabled;
-                app_sys_cfg_set_int(APP_CFG_MUSIC_EQ, s_eq_enabled ? 1 : 0);
+                music_save_spectrum();
                 music_refresh_page();
                 break;
             case 2: /* 循环模式 */
@@ -1365,6 +1760,13 @@ static bool music_on_key(int key)
                             break;
                         }
                     }
+                    music_refresh_page();
+                }
+                break;
+            case 4: /* 音效预设：左右键双向循环切换 */
+                {
+                    int p = (int)s_eq_preset + ((key == KEY_RIGHT) ? 1 : (MUSIC_EQ_MAX - 1));
+                    music_eq_set_preset((music_eq_preset_t)(p % MUSIC_EQ_MAX));
                     music_refresh_page();
                 }
                 break;

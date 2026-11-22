@@ -2,14 +2,26 @@
  * @file app_shell.c
  * @brief Shell 命令执行器应用（原 Python 应用改为 shell 终端）
  *
- * 交互：
- * - A 键：弹出虚拟键盘输入命令
- * - UP/DOWN：滚动查看输出
- * - B 键：返回桌面
+ * 交互（5 键）：
+ * - 输出视图（默认）：
+ *   A         — 弹出虚拟键盘输入新命令
+ *   UP/DOWN   — 滚动查看输出
+ *   LEFT/RIGHT— 切换到「历史视图」
+ *   B         — 返回桌面
+ * - 历史视图（LEFT/RIGHT 进入）：
+ *   UP/DOWN   — 在最近命令列表中移动选择（UP=更早，DOWN=更新）
+ *   A         — 直接重新执行选中的历史命令
+ *   RIGHT     — 把选中命令预填进输入框（可继续追加/退格编辑），确认后执行
+ *   LEFT / B  — 返回输出视图
+ * - 虚拟键盘：A 输入字符，B 退格（无文本时取消），方向键移动字符网格，
+ *   网格 OK 键提交。键盘本身不支持光标移动，故编辑方式为「回填 + 追加/退格」。
  *
  * 支持命令：
  *   help / ls / cat / echo / clear / sysinfo
  *   mem / bat / sd / brightness / ver / py / reboot
+ *
+ * 历史：最近 16 条命令环形缓存在内部 RAM（static ~1KB），通过 NVS blob
+ *   键 "shell_hist" 持久化，启动加载、提交命令时保存。
  */
 #include "app_sys_api.h"   /* 系统状态 / 配置持久化门面层 */
 #include "app_builtin.h"
@@ -18,7 +30,11 @@
 #include "ui_keyboard.h"
 #include "fonts/lv_freetype_font.h"
 #include "lang/lang.h"
+#include "system/sys_nvs.h"   /* NVS_NAMESPACE：与系统设置共用同一命名空间 */
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "esp_log.h"
+#include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
 #include "esp_system.h"
@@ -45,11 +61,112 @@ EXT_RAM_BSS_ATTR static char s_lines[SHELL_MAX_LINES][SHELL_LINE_LEN];
 static int  s_count = 0;
 static int  s_scroll = 0;          /* 当前显示的第一行索引 */
 
+/* 输出/历史视图共用渲染缓冲（PSRAM，避免两个静态 buf 各占 3KB） */
+EXT_RAM_BSS_ATTR static char s_render_buf[SHELL_MAX_LINES * (SHELL_LINE_LEN + 1)];
+
 static lv_obj_t *s_out_lbl = NULL;
 static lv_obj_t *s_hint_lbl = NULL;
 
+/* ========== 命令历史（环形缓冲，内部 RAM 静态 ~1KB） ========== */
+#define SHELL_HIST_MAX     16
+#define SHELL_HIST_LEN     64
+#define SHELL_HIST_NVS_KEY "shell_hist"
+
+typedef struct {
+    int  count;                              /* 已保存命令数 0..SHELL_HIST_MAX */
+    int  head;                               /* 下一条写入位置 0..SHELL_HIST_MAX-1 */
+    char items[SHELL_HIST_MAX][SHELL_HIST_LEN];
+} shell_hist_t;
+
+static shell_hist_t s_hist;                  /* 不用栈上大数组，整体 static */
+static int s_view = 0;                       /* 0=输出视图 1=历史视图 */
+static int s_hist_sel = 0;                   /* 历史视图选中项（逻辑索引 0..count-1） */
+
+#define SHELL_VIEW_OUTPUT 0
+#define SHELL_VIEW_HIST   1
+
 /* ========== 输出管理 ========== */
 static void shell_render(void);
+
+/* ---------- 历史持久化：NVS blob ---------- */
+static void shell_hist_save(void)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "history nvs_open failed: %s", esp_err_to_name(err));
+        return;
+    }
+    err = nvs_set_blob(h, SHELL_HIST_NVS_KEY, &s_hist, sizeof(s_hist));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "history nvs_set_blob failed: %s", esp_err_to_name(err));
+    } else {
+        err = nvs_commit(h);
+        if (err != ESP_OK) ESP_LOGE(TAG, "history nvs_commit failed: %s", esp_err_to_name(err));
+    }
+    nvs_close(h);
+    ESP_LOGI(TAG, "history saved (%d cmds)", s_hist.count);
+}
+
+static void shell_hist_load(void)
+{
+    memset(&s_hist, 0, sizeof(s_hist));
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "history nvs_open(RO) failed: %s", esp_err_to_name(err));
+        return;
+    }
+    size_t len = sizeof(s_hist);
+    err = nvs_get_blob(h, SHELL_HIST_NVS_KEY, &s_hist, &len);
+    if (err == ESP_OK && len == sizeof(s_hist)) {
+        /* 校验范围，防止旧版本/损坏数据导致越界 */
+        if (s_hist.count >= 0 && s_hist.count <= SHELL_HIST_MAX &&
+            s_hist.head >= 0 && s_hist.head < SHELL_HIST_MAX) {
+            for (int i = 0; i < SHELL_HIST_MAX; i++) {
+                s_hist.items[i][SHELL_HIST_LEN - 1] = '\0';
+            }
+            ESP_LOGI(TAG, "history loaded (%d cmds)", s_hist.count);
+        } else {
+            ESP_LOGW(TAG, "history data invalid, reset");
+            memset(&s_hist, 0, sizeof(s_hist));
+        }
+    } else {
+        ESP_LOGI(TAG, "no history in NVS (err=%s, len=%u)",
+                 esp_err_to_name(err), (unsigned)len);
+    }
+    nvs_close(h);
+}
+
+/* 逻辑索引 i（0=最旧, count-1=最新）映射到环形缓冲物理槽位 */
+static char *shell_hist_item(int idx)
+{
+    if (idx < 0 || idx >= s_hist.count) return NULL;
+    int phys = (s_hist.head - s_hist.count + idx) % SHELL_HIST_MAX;
+    if (phys < 0) phys += SHELL_HIST_MAX;
+    return s_hist.items[phys];
+}
+
+/* 提交命令时记录历史：去首尾空白、跳过空串与连续重复，再写环形缓冲并落盘 */
+static void shell_hist_add(const char *cmd)
+{
+    if (!cmd || !cmd[0]) return;
+    const char *p = cmd;
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p) return;
+
+    if (s_hist.count > 0) {
+        char *last = shell_hist_item(s_hist.count - 1);
+        if (last && strncmp(last, p, SHELL_HIST_LEN) == 0) return;
+    }
+
+    char *slot = s_hist.items[s_hist.head];
+    strncpy(slot, p, SHELL_HIST_LEN - 1);
+    slot[SHELL_HIST_LEN - 1] = '\0';
+    s_hist.head = (s_hist.head + 1) % SHELL_HIST_MAX;
+    if (s_hist.count < SHELL_HIST_MAX) s_hist.count++;
+    shell_hist_save();
+}
 
 static void shell_append(const char *fmt, ...)
 {
@@ -90,8 +207,9 @@ static void shell_render(void)
         s_scroll = 0;
         lv_label_set_text(s_out_lbl, lang_get(STR_SHELL_WELCOME));
         if (s_hint_lbl) {
-            char h[48];
-            snprintf(h, sizeof(h), "A:%s  B:%s", lang_get(STR_SHELL_INPUT), lang_get(STR_BACK));
+            char h[96];
+            snprintf(h, sizeof(h), "A:%s  <:%s  B:%s", lang_get(STR_SHELL_INPUT),
+                     lang_get(STR_SHELL_HISTORY), lang_get(STR_COMMON_BACK));
             lv_label_set_text(s_hint_lbl, h);
         }
         return;
@@ -103,24 +221,84 @@ static void shell_render(void)
     int end = start + vis;
     if (end > s_count) end = s_count;
 
-    EXT_RAM_BSS_ATTR static char buf[SHELL_MAX_LINES * (SHELL_LINE_LEN + 1)];
     int pos = 0;
-    for (int i = start; i < end && pos < (int)sizeof(buf) - 2; i++) {
+    for (int i = start; i < end && pos < (int)sizeof(s_render_buf) - 2; i++) {
         int l = (int)strlen(s_lines[i]);
-        if (pos + l + 1 >= (int)sizeof(buf)) break;
-        memcpy(buf + pos, s_lines[i], l);
+        if (pos + l + 1 >= (int)sizeof(s_render_buf)) break;
+        memcpy(s_render_buf + pos, s_lines[i], l);
         pos += l;
-        buf[pos++] = '\n';
+        s_render_buf[pos++] = '\n';
     }
-    buf[pos] = '\0';
-    lv_label_set_text(s_out_lbl, buf);
+    s_render_buf[pos] = '\0';
+    lv_label_set_text(s_out_lbl, s_render_buf);
 
     if (s_hint_lbl) {
-        char h[48];
-        snprintf(h, sizeof(h), "A:%s %d/%d", lang_get(STR_SHELL_INPUT),
-                 start + 1, s_count);
+        char h[96];
+        snprintf(h, sizeof(h), "A:%s <:%s %d/%d", lang_get(STR_SHELL_INPUT),
+                 lang_get(STR_SHELL_HISTORY), start + 1, s_count);
         lv_label_set_text(s_hint_lbl, h);
     }
+}
+
+/* ========== 历史视图渲染 ========== */
+static void shell_render_history(void)
+{
+    if (!s_out_lbl) return;
+    ui_state_t *st = ui_state_get();
+    int line_h = st->font_size + 3;
+    if (line_h < 17) line_h = 17;
+    int vis = (LCD_V_RES - ui_content_y() - DOCK_H - 16) / line_h;
+    if (vis < 1) vis = 1;
+
+    int pos = 0;
+    int n;
+
+    if (s_hist.count == 0) {
+        n = snprintf(s_render_buf, sizeof(s_render_buf), "%s\n(empty)\n",
+                     lang_get(STR_SHELL_HISTORY));
+        if (n > 0) pos = n < (int)sizeof(s_render_buf) ? n : (int)sizeof(s_render_buf) - 1;
+    } else {
+        if (s_hist_sel < 0) s_hist_sel = 0;
+        if (s_hist_sel >= s_hist.count) s_hist_sel = s_hist.count - 1;
+        /* 窗口保证选中项可见；默认选中最新一条（底部），符合 shell 习惯 */
+        int start = s_hist_sel - vis + 1;
+        if (start < 0) start = 0;
+        if (start > s_hist.count - vis) start = s_hist.count - vis;
+        if (start < 0) start = 0;
+        int end = start + vis;
+        if (end > s_hist.count) end = s_hist.count;
+
+        for (int i = start; i < end; i++) {
+            const char *mark = (i == s_hist_sel) ? "> " : "  ";
+            char *item = shell_hist_item(i);
+            n = snprintf(s_render_buf + pos, sizeof(s_render_buf) - pos, "%s%d. %s\n",
+                         mark, i + 1, item ? item : "");
+            if (n < 0 || pos + n >= (int)sizeof(s_render_buf)) break;
+            pos += n;
+        }
+    }
+    s_render_buf[pos] = '\0';
+    lv_label_set_text(s_out_lbl, s_render_buf);
+
+    if (s_hint_lbl) {
+        char h[96];
+        if (s_hist.count > 0) {
+            snprintf(h, sizeof(h), "A:%s >:%s <:%s B:%s",
+                     lang_get(STR_COMMON_CONFIRM), lang_get(STR_SHELL_INPUT),
+                     lang_get(STR_SHELL_HISTORY), lang_get(STR_COMMON_BACK));
+        } else {
+            snprintf(h, sizeof(h), "<:%s B:%s",
+                     lang_get(STR_SHELL_HISTORY), lang_get(STR_COMMON_BACK));
+        }
+        lv_label_set_text(s_hint_lbl, h);
+    }
+}
+
+/* 根据当前视图渲染 */
+static void shell_render_current(void)
+{
+    if (s_view == SHELL_VIEW_HIST) shell_render_history();
+    else shell_render();
 }
 
 /* ========== 命令实现 ========== */
@@ -251,6 +429,7 @@ static void cmd_py(const char *arg)
 static void shell_execute(const char *cmdline)
 {
     if (!cmdline || !cmdline[0]) return;
+    shell_hist_add(cmdline);          /* 记录历史并持久化（含历史重放） */
     shell_append("$ %s", cmdline);
 
     char cmd[SHELL_LINE_LEN];
@@ -284,11 +463,13 @@ static void shell_execute(const char *cmdline)
     else shell_append("%s: %s (%s)", lang_get(STR_SHELL_UNKNOWN), cmd, lang_get(STR_SHELL_HELP));
 }
 
-/* ========== 键盘确认回调 ========== */
+/* ========== 键盘确认/取消回调 ========== */
 static void shell_kb_confirm(const char *text, void *user_data)
 {
     (void)user_data;
     ui_keyboard_hide();
+    /* 无论从输出视图还是历史视图（预填编辑）提交，都回到输出视图展示结果 */
+    s_view = SHELL_VIEW_OUTPUT;
     shell_execute(text);
 }
 
@@ -298,11 +479,33 @@ static void shell_kb_cancel(void *user_data)
     ui_keyboard_hide();
 }
 
+/* 统一入口：可传入历史命令作为预填值。
+ * 键盘内部无光标移动能力，故编辑方式为「回填后在末尾追加 / 退格」。 */
+static void shell_open_keyboard(const char *prefill)
+{
+    kb_config_t cfg = {
+        .title = lang_get(STR_SHELL_TITLE),
+        .placeholder = ">",
+        .max_length = SHELL_HIST_LEN,       /* 允许 63 字符，完整容纳历史命令 */
+        .password_mode = false,
+        .on_confirm = shell_kb_confirm,
+        .on_cancel = shell_kb_cancel,
+        .user_data = NULL,
+    };
+    ui_keyboard_show(&cfg);
+    /* 必须在 show 之后调用：此时输入框对象已创建，set_text 会刷新显示 */
+    if (prefill && prefill[0]) ui_keyboard_set_text(prefill);
+}
+
 /* ========== 页面生命周期 ========== */
 static void shell_init(void *data)
 {
     (void)data;
     ESP_LOGI(TAG, "Shell app init");
+    shell_hist_load();                  /* 启动时从 NVS 恢复历史 */
+    s_view = SHELL_VIEW_OUTPUT;
+    s_hist_sel = 0;
+
     lv_obj_t *scr = lv_screen_active();
     const theme_colors_t *colors = ui_theme_colors();
     lv_obj_clean(scr);
@@ -348,8 +551,9 @@ static void shell_init(void *data)
         lv_obj_set_style_text_font(s_hint_lbl, lv_font_cn_get(12), 0);
         lv_obj_set_pos(s_hint_lbl, 2, LCD_V_RES - DOCK_H - 15);
         {
-            char h[48];
-            snprintf(h, sizeof(h), "A:%s  B:%s", lang_get(STR_SHELL_INPUT), lang_get(STR_BACK));
+            char h[96];
+            snprintf(h, sizeof(h), "A:%s  <:%s  B:%s", lang_get(STR_SHELL_INPUT),
+                     lang_get(STR_SHELL_HISTORY), lang_get(STR_COMMON_BACK));
             lv_label_set_text(s_hint_lbl, h);
         }
     }
@@ -366,7 +570,7 @@ static void shell_init(void *data)
 static void shell_activate(void)
 {
     ESP_LOGI(TAG, "Shell app activate");
-    shell_render();
+    shell_render_current();
 }
 
 static void shell_destroy(void)
@@ -377,30 +581,75 @@ static void shell_destroy(void)
     s_hint_lbl = NULL;
     s_count = 0;
     s_scroll = 0;
+    s_view = SHELL_VIEW_OUTPUT;   /* 历史数据保留在 s_hist，已持久化，不清空 */
+    s_hist_sel = 0;
 }
 
 static bool shell_on_key(int key)
 {
-    /* 键盘可见时，按键交给键盘处理 */
+    /* 键盘可见时，按键交给键盘处理（含其字符网格导航） */
     if (ui_keyboard_is_visible()) {
         return ui_keyboard_on_key(key);
     }
 
+    /* ========== 历史视图：UP/DOWN 切换命令，而非滚动输出 ========== */
+    if (s_view == SHELL_VIEW_HIST) {
+        switch (key) {
+        case KEY_UP:
+            if (s_hist.count > 0 && s_hist_sel > 0) {
+                s_hist_sel--;
+                shell_render_history();
+            }
+            return true;
+        case KEY_DOWN:
+            if (s_hist.count > 0 && s_hist_sel < s_hist.count - 1) {
+                s_hist_sel++;
+                shell_render_history();
+            }
+            return true;
+        case KEY_A: {
+            /* 直接重新执行选中命令。先拷贝到局部变量，避免
+             * shell_execute -> shell_hist_add 写入环形缓冲时与源指针重叠。 */
+            if (s_hist.count > 0) {
+                char cmd[SHELL_HIST_LEN];
+                char *item = shell_hist_item(s_hist_sel);
+                if (item) {
+                    strncpy(cmd, item, sizeof(cmd) - 1);
+                    cmd[sizeof(cmd) - 1] = '\0';
+                    s_view = SHELL_VIEW_OUTPUT;   /* 回输出视图展示执行结果 */
+                    shell_execute(cmd);
+                }
+            }
+            return true;
+        }
+        case KEY_RIGHT: {
+            /* 回填到输入框：键盘预填选中命令，可追加/退格后确认执行 */
+            if (s_hist.count > 0) {
+                char *item = shell_hist_item(s_hist_sel);
+                if (item) shell_open_keyboard(item);
+            }
+            return true;
+        }
+        case KEY_LEFT:
+        case KEY_B:
+            s_view = SHELL_VIEW_OUTPUT;
+            shell_render_current();
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    /* ========== 输出视图 ========== */
     switch (key) {
     case KEY_A:
-        /* 弹出命令输入键盘 */
-        {
-            kb_config_t cfg = {
-                .title = lang_get(STR_SHELL_TITLE),
-                .placeholder = ">",
-                .max_length = 60,
-                .password_mode = false,
-                .on_confirm = shell_kb_confirm,
-                .on_cancel = shell_kb_cancel,
-                .user_data = NULL,
-            };
-            ui_keyboard_show(&cfg);
-        }
+        shell_open_keyboard(NULL);            /* 空输入框，输入新命令 */
+        return true;
+    case KEY_LEFT:
+    case KEY_RIGHT:
+        s_view = SHELL_VIEW_HIST;             /* 切到历史视图 */
+        s_hist_sel = (s_hist.count > 0) ? (s_hist.count - 1) : 0;
+        shell_render_history();
         return true;
     case KEY_UP:
         if (s_scroll > 0) { s_scroll--; shell_render(); }

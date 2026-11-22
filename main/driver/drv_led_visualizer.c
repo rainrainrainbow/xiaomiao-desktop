@@ -16,6 +16,8 @@
 #include "system/sys_nvs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
@@ -40,9 +42,13 @@ static const led_rgb_t s_vis_palette[] = {
 /* ========== 内部状态 ========== */
 static int  s_mode = LED_VIS_MODE_OFF;   /* 当前模式 */
 static int  s_color = 4;                  /* 当前基色预设索引（默认青） */
+static int  s_sens = 5;                   /* 律动灵敏度 1~10（默认 5） */
 static volatile bool s_busy = false;      /* LED app 手动效果占用中 */
 static bool s_started = false;
 static TaskHandle_t s_task = NULL;
+
+#define VIS_NVS_NAMESPACE "led_vis"
+#define VIS_NVS_KEY_SENS  "sens"
 
 /* ========== 颜色辅助 ========== */
 static led_rgb_t hsv_to_rgb(uint16_t h, uint8_t sat, uint8_t v)
@@ -125,8 +131,13 @@ static void led_visualizer_task(void *arg)
         }
         if (auto_gain < 800.0f) auto_gain = 800.0f;   /* 防止除零/过度放大噪声 */
 
-        /* 归一化幅度 0~1（留 15% 头room，避免满幅一直顶格） */
-        float level = (float)peak / (auto_gain * 1.15f);
+        /* 灵敏度增益：1~10 映射到 0.6~1.8 倍率。
+         * 灵敏度越高（10），倍率越大，同等音量下 level 越高、律动越明显；
+         * 灵敏度 1 最克制。倍率同时放大归一化结果，可越界后由下方钳位。 */
+        float sens_gain = 0.6f + (float)(s_sens - 1) * (1.2f / 9.0f);   /* 1→0.6, 10→1.8 */
+
+        /* 归一化幅度 0~1（留 15% 头room，避免满幅一直顶格；叠加灵敏度增益） */
+        float level = (float)peak / (auto_gain * 1.15f) * sens_gain;
         if (level > 1.0f) level = 1.0f;
         if (level < 0.0f) level = 0.0f;
 
@@ -217,6 +228,18 @@ esp_err_t led_visualizer_init(void)
     s_color = sys_nvs_load_led_vis_color();
     if (s_color < 0 || s_color >= (int)VIS_PALETTE_COUNT) s_color = 4;
 
+    /* 加载律动灵敏度（独立 NVS namespace，避免污染主 handle） */
+    {
+        nvs_handle_t h;
+        if (nvs_open(VIS_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
+            int32_t sens = 5;
+            if (nvs_get_i32(h, VIS_NVS_KEY_SENS, &sens) == ESP_OK) s_sens = (int)sens;
+            nvs_close(h);
+        }
+        if (s_sens < 1) s_sens = 1;
+        if (s_sens > 10) s_sens = 10;
+    }
+
     /* 常驻持有一份 LED 引用：即便 LED app 退出 deinit 也不会释放 RMT */
     drv_led_strip_init();
 
@@ -255,6 +278,25 @@ void led_visualizer_set_color(int preset_index)
 int led_visualizer_get_color(void)
 {
     return s_color;
+}
+
+void led_visualizer_set_sensitivity(int level)
+{
+    if (level < 1) level = 1;
+    if (level > 10) level = 10;
+    s_sens = level;
+    nvs_handle_t h;
+    if (nvs_open(VIS_NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_i32(h, VIS_NVS_KEY_SENS, level);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    ESP_LOGI(TAG, "sensitivity set to %d", level);
+}
+
+int led_visualizer_get_sensitivity(void)
+{
+    return s_sens;
 }
 
 void led_visualizer_set_busy(bool busy)

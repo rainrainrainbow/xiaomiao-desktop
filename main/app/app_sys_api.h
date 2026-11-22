@@ -26,6 +26,7 @@
 
 #include "ui_framework.h"      /* page_callbacks_t / page_type_t / key_type_t / lvgl */
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* ============================================================
@@ -143,5 +144,74 @@ bool app_sys_fs_is_file(const char *path);
 
 /** 文件名是否具有指定后缀（大小写不敏感），如 ".py" ".mp3" */
 bool app_sys_fs_has_ext(const char *name, const char *ext);
+
+/* ============================================================
+ * 六、存储信息
+ * ============================================================ */
+
+/** 内部存储 /flash 总容量(KB) */
+uint32_t app_sys_flash_total_kb(void);
+
+/** 内部存储 /flash 剩余容量(KB) */
+uint32_t app_sys_flash_free_kb(void);
+
+/** SD 卡总容量(KB)，未挂载返回 0 */
+uint32_t app_sys_sdcard_total_kb(void);
+
+/** SD 卡剩余容量(KB)，未挂载返回 0 */
+uint32_t app_sys_sdcard_free_kb(void);
+
+/** 检查路径所在存储剩余空间是否足够(bytes)，不足返回 false。用于安装/复制/缓存前检查 */
+bool app_sys_storage_has_space(const char *path, uint32_t need_bytes);
+
+/* ============================================================
+ * 七、网络信息
+ * ============================================================ */
+
+/** 本机 WiFi MAC 地址字符串，形如 "3C:71:BF:xx:xx:xx"，写入 buf(至少18字节) */
+void app_sys_net_mac(char *buf, size_t buf_size);
+
+/** 本机 IPv4 地址字符串，未连接返回 "0.0.0.0" */
+void app_sys_net_ip(char *buf, size_t buf_size);
+
+/** 当前连接 WiFi 的信号强度 dBm（负值），未连接返回 0 */
+int8_t app_sys_net_rssi(void);
+
+/* ============================================================
+ * 八、文件系统写操作封装（供文件管理器/安装器复用，统一错误码）
+ * ============================================================ */
+
+typedef enum {
+    APP_FS_OK = 0, APP_FS_ERR_NOTFOUND, APP_FS_ERR_NOACCESS,
+    APP_FS_ERR_NOSPACE, APP_FS_ERR_EXIST, APP_FS_ERR_FAIL
+} app_fs_result_t;
+
+/** 创建目录（含父目录） */
+app_fs_result_t app_sys_fs_mkdir(const char *path);
+
+/** 删除文件或空目录 */
+app_fs_result_t app_sys_fs_remove(const char *path);
+
+/** 重命名/移动 */
+app_fs_result_t app_sys_fs_rename(const char *src, const char *dst);
+
+/** 复制文件，返回字节数<0 失败；带进度回调 cb(可选)，cb 返回 false 中止 */
+int app_sys_fs_copy(const char *src, const char *dst, bool (*cb)(int copied, int total));
+
+/** 获取文件大小(bytes)，失败返回 -1 */
+int64_t app_sys_fs_size(const char *path);
+
+/* ============================================================
+ * 九、设备信息
+ * ============================================================ */
+
+/** 芯片模型字符串，如 "ESP32-WROVER" */
+const char *app_sys_chip_model(void);
+
+/** SDK 版本字符串 */
+const char *app_sys_sdk_version(void);
+
+/** ESP-IDF 芯片唯一 ID（8字节 hex 字符串，写入 buf 至少17字节） */
+void app_sys_chip_id(char *buf, size_t buf_size);
 
 #endif /* APP_SYS_API_H */

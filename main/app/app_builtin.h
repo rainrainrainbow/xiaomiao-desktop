@@ -32,6 +32,11 @@ extern const page_callbacks_t g_settings_callbacks;
 extern const page_callbacks_t g_about_callbacks;
 
 /**
+ * 后台管理页面回调（任务/服务/通知）
+ */
+extern const page_callbacks_t g_background_callbacks;
+
+/**
  * 应用管理页面回调
  */
 extern const page_callbacks_t g_applist_callbacks;

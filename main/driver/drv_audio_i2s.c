@@ -220,7 +220,12 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
     ESP_LOGI(TAG, "Opening I2S: %u Hz, %d bit, %d ch",
              (unsigned)sample_rate, bits, channels);
 
-    /* ---- 创建I2S TX通道（ESP-IDF v5.3新API） ---- */
+    /* ---- 创建I2S TX通道（DMA 描述符自适应降级） ----
+     * i2s_alloc_dma_desc 需要在内部 RAM 的 DMA 池中循环分配
+     * dma_desc_num 个 (lldesc_t + dma_frame_num*slot*bits/8) 块。
+     * 系统长时间运行后内部 RAM 碎片化，16 desc (~16.5KB) 可能分配失败
+     * (ESP_ERR_NO_MEM)。按 16→8→4 降级重试：8KB≈46ms、4KB≈23ms@44.1k
+     * 立体声缓冲，配合写超时与 auto_clear 仍可稳定播放。 */
     i2s_chan_config_t chan_cfg = {
         .id = I2S_NUM_0,
         .role = I2S_ROLE_MASTER,
@@ -231,14 +236,8 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         .auto_clear = true,
     };
 
+    static const uint32_t dma_desc_candidates[] = { 16, 8, 4 };
     /* IDF v5.3 参数顺序为 (tx_handle, rx_handle)，不是 (rx, tx) */
-    esp_err_t ret = i2s_new_channel(&chan_cfg, &s_i2s_tx_handle, NULL);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    /* ---- 配置I2S标准模式 ---- */
     i2s_data_bit_width_t bit_width;
     if (bits == 24) {
         bit_width = I2S_DATA_BIT_WIDTH_24BIT;
@@ -277,21 +276,40 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         },
     };
 
-    ret = i2s_channel_init_std_mode(s_i2s_tx_handle, &std_cfg);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "i2s_channel_init_std_mode failed: %s", esp_err_to_name(ret));
-        i2s_del_channel(s_i2s_tx_handle);
-        s_i2s_tx_handle = NULL;
-        return ret;
-    }
+    esp_err_t ret = ESP_FAIL;
+    for (size_t i = 0; i < sizeof(dma_desc_candidates) / sizeof(dma_desc_candidates[0]); i++) {
+        chan_cfg.dma_desc_num = dma_desc_candidates[i];
 
-    /* ---- 启用通道 ---- */
-    ret = i2s_channel_enable(s_i2s_tx_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(ret));
-        i2s_del_channel(s_i2s_tx_handle);
-        s_i2s_tx_handle = NULL;
-        return ret;
+        ret = i2s_new_channel(&chan_cfg, &s_i2s_tx_handle, NULL);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "i2s_new_channel(%u desc) failed: %s",
+                     (unsigned)chan_cfg.dma_desc_num, esp_err_to_name(ret));
+            s_i2s_tx_handle = NULL;
+            continue;
+        }
+
+        ret = i2s_channel_init_std_mode(s_i2s_tx_handle, &std_cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "i2s_channel_init_std_mode(%u desc) failed: %s",
+                     (unsigned)chan_cfg.dma_desc_num, esp_err_to_name(ret));
+            i2s_del_channel(s_i2s_tx_handle);
+            s_i2s_tx_handle = NULL;
+            continue;
+        }
+
+        ret = i2s_channel_enable(s_i2s_tx_handle);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "i2s_channel_enable(%u desc) failed: %s",
+                     (unsigned)chan_cfg.dma_desc_num, esp_err_to_name(ret));
+            i2s_del_channel(s_i2s_tx_handle);
+            s_i2s_tx_handle = NULL;
+            continue;
+        }
+        break;  /* 当前档位创建+初始化+启用全部成功 */
+    }
+    if (ret != ESP_OK || !s_i2s_tx_handle) {
+        ESP_LOGE(TAG, "I2S channel create failed at all DMA sizes (16/8/4 desc)");
+        return (ret == ESP_OK) ? ESP_FAIL : ret;
     }
 
     s_i2s_opened = true;

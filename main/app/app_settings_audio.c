@@ -5,6 +5,7 @@
 #include "ui/ui_framework.h"
 #include "lang/lang.h"
 #include "driver/drv_audio_output.h"
+#include "driver/drv_audio_decoder.h"   /* audio_decoder_get_live_peak()：电平显示 */
 #include "system/sys_nvs.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -17,9 +18,22 @@ static const char *TAG = "AUDIO_SETTINGS";
 /* ========== 页面状态 ========== */
 static int s_audio_selected = 0;
 static int s_audio_scroll = 0;
-static lv_obj_t *s_audio_rows[AUDIO_OUT_MAX + 2] = {0};
+/* 行：0..dev_count-1 设备 / dev_count 模式 / dev_count+1 音量 / dev_count+2 测试音+电平 */
+static lv_obj_t *s_audio_rows[AUDIO_OUT_MAX + 3] = {0};
 static lv_obj_t *s_audio_mode_label = NULL;
 static lv_obj_t *s_audio_volume_bar = NULL;
+static lv_obj_t *s_audio_level_bar = NULL;
+static lv_timer_t *s_audio_timer = NULL;  /* 电平刷新定时器 */
+
+/* 电平条刷新：解码器实时峰值(0..32767) → 0..100 */
+static void audio_level_refresh(lv_timer_t *t)
+{
+    if (!s_audio_level_bar) return;
+    uint16_t peak = audio_decoder_get_live_peak();
+    uint32_t level = (uint32_t)peak * 100u / 32768u;
+    if (level > 100) level = 100;
+    lv_bar_set_value(s_audio_level_bar, (int)level, LV_ANIM_OFF);
+}
 
 /* ========== 刷新页面 ========== */
 static void audio_settings_refresh(void)
@@ -72,6 +86,18 @@ static void audio_settings_refresh(void)
         }
     }
     
+    /* 模式/音量/测试音行的选中高亮（原逻辑只高亮设备行） */
+    for (int i = dev_count; i <= dev_count + 2; i++) {
+        lv_obj_t *row = s_audio_rows[i];
+        if (!row) continue;
+        if (i == s_audio_selected) {
+            lv_obj_set_style_bg_color(row, lv_color_hex(colors->sel_bg), 0);
+            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        } else {
+            lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+        }
+    }
+
     /* 更新模式标签 */
     if (s_audio_mode_label) {
         bool auto_mode = audio_output_is_auto_mode();
@@ -94,7 +120,8 @@ static void audio_settings_init(void *data)
     const theme_colors_t *colors = ui_theme_colors();
     ui_state_t *state = ui_state_get();
     int font_px = state->font_size;
-    int row_h = font_px + 4;
+    /* 行高略收紧，为新增的"测试音/电平"行留出空间（160x128 小屏） */
+    int row_h = font_px + 2;
     
     /* 清屏 */
     lv_obj_clean(scr);
@@ -169,7 +196,7 @@ static void audio_settings_init(void *data)
         lv_obj_set_style_bg_color(sep, lv_color_hex(colors->text_dim), 0);
         lv_obj_set_style_bg_opa(sep, LV_OPA_30, 0);
     }
-    y += 4;
+    y += 2;  /* 收紧间距，为新增行腾出空间 */
     
     /* 模式选择行 */
     lv_obj_t *mode_row = lv_obj_create(content);
@@ -200,7 +227,7 @@ static void audio_settings_init(void *data)
     }
     
     s_audio_rows[dev_count] = mode_row;  // 存储模式行
-    y += row_h + 4;
+    y += row_h + 2;
     
     /* 音量调节行 */
     lv_obj_t *vol_row = lv_obj_create(content);
@@ -231,7 +258,40 @@ static void audio_settings_init(void *data)
     }
     
     s_audio_rows[dev_count + 1] = vol_row;  // 存储音量行
-    
+    y += row_h;  /* 原音量行未推进 y，新增行必须先下移一行避免重叠 */
+
+    /* 测试音 + 电平显示行：A 键播放提示音，右侧电平条跟随解码峰值跳动 */
+    lv_obj_t *tone_row = lv_obj_create(content);
+    if (!tone_row) {
+        ESP_LOGE(TAG, "lv_obj_create(tone_row) failed! mem free=%lu",
+                 (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT));
+    } else {
+        lv_obj_remove_style_all(tone_row);
+        lv_obj_set_pos(tone_row, 0, y);
+        lv_obj_set_size(tone_row, LCD_H_RES, row_h);
+        lv_obj_clear_flag(tone_row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *tone_title = lv_label_create(tone_row);
+        if (tone_title) {
+            lv_label_set_text(tone_title, lang_get(STR_SET_TESTTONE));
+            lv_obj_set_style_text_font(tone_title, lv_font_cn_get(font_px), 0);
+            lv_obj_align(tone_title, LV_ALIGN_LEFT_MID, 8, 0);
+        }
+
+        s_audio_level_bar = lv_bar_create(tone_row);
+        if (s_audio_level_bar) {
+            lv_obj_set_size(s_audio_level_bar, 50, 6);
+            lv_bar_set_range(s_audio_level_bar, 0, 100);
+            lv_bar_set_value(s_audio_level_bar, 0, LV_ANIM_OFF);
+            lv_obj_set_style_bg_color(s_audio_level_bar, lv_color_hex(colors->sel_bg), LV_PART_INDICATOR);
+            lv_obj_align(s_audio_level_bar, LV_ALIGN_RIGHT_MID, -8, 0);
+        }
+    }
+    s_audio_rows[dev_count + 2] = tone_row;
+    if (s_audio_timer) lv_timer_del(s_audio_timer);
+    s_audio_timer = lv_timer_create(audio_level_refresh, 100, NULL);
+    lv_timer_set_repeat_count(s_audio_timer, -1);
+
     /* 底部提示 */
     lv_obj_t *hint = lv_label_create(scr);
     if (hint) {
@@ -252,11 +312,16 @@ static void audio_settings_init(void *data)
 static void audio_settings_destroy(void)
 {
     ESP_LOGI(TAG, "Audio settings destroy");
-    for (int i = 0; i < AUDIO_OUT_MAX + 2; i++) {
+    if (s_audio_timer) {
+        lv_timer_del(s_audio_timer);
+        s_audio_timer = NULL;
+    }
+    for (int i = 0; i < AUDIO_OUT_MAX + 3; i++) {
         s_audio_rows[i] = NULL;
     }
     s_audio_mode_label = NULL;
     s_audio_volume_bar = NULL;
+    s_audio_level_bar = NULL;
 }
 
 static bool audio_settings_on_key(int key)
@@ -264,7 +329,7 @@ static bool audio_settings_on_key(int key)
     /* 获取设备列表 */
     audio_device_info_t devs[AUDIO_OUT_MAX];
     int dev_count = audio_output_get_devices(devs, AUDIO_OUT_MAX);
-    int total_items = dev_count + 2;  // 设备 + 模式 + 音量
+    int total_items = dev_count + 3;  // 设备 + 模式 + 音量 + 测试音/电平
     
     if (key == KEY_B) {
         ui_stack_pop();
@@ -301,6 +366,10 @@ static bool audio_settings_on_key(int key)
             audio_output_set_auto_mode(!auto_mode);
             sys_nvs_save_audio_auto(!auto_mode);
             audio_settings_refresh();
+        } else if (s_audio_selected == dev_count + 2) {
+            /* 测试音：播放 880Hz/300ms 提示音，用于确认当前输出设备是否正常 */
+            audio_output_tone(880, 300);
+            ESP_LOGI(TAG, "Test tone played on active output");
         }
         /* 音量行不响应A键 */
         return true;
