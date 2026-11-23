@@ -1,0 +1,5 @@
+source_commit: 5f20845694e9fec3c2693e883f728c98187847c2
+run_id: 45101116589
+built_at: 2026-11-23T02:40:12Z
+flash_size: 16MB
+flash: 0x1000 bootloader.bin / 0x8000 partition-table.bin / 0x110000 otadata.bin(指向 ota_0) / 0x120000 app.bin(launcher/ota_0)
