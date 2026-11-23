@@ -29,6 +29,7 @@
 #include "driver/drv_led_visualizer.h"
 #include "driver/drv_audio_i2s.h"
 #include "driver/drv_audio_decoder.h"
+#include "esp_wifi.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,6 +168,7 @@ typedef enum {
     TEST_CMD_MUSIC_STATUS,     /* 只读诊断：查询音乐 app 扫描/解码/播放状态 */
     TEST_CMD_MUSIC_CONTROL,    /* 诊断控制：重扫/播放/停止（内部 RAM 栈任务执行） */
     TEST_CMD_LED_VIS,          /* 诊断控制：LED 音乐律动模式/颜色查询与设置 */
+    TEST_CMD_DIAG_WIFI_CONNECT,/* 诊断：对指定 ssid/password 直接发起 STA 连接（观察断连 reason） */
 } test_cmd_type_t;
 
 /* ========== 文件写入通道（内部 RAM 栈写任务 + PSRAM 数据缓冲） ==========
@@ -1334,6 +1336,39 @@ static void test_handle_cmd(const test_cmd_t *cmd)
                 cJSON_AddItemToObject(response, "data", data);
                 cJSON_AddStringToObject(response, "status", "ok");
             }
+            break;
+        }
+        case TEST_CMD_DIAG_WIFI_CONNECT: {
+            /* 诊断：直接对指定 ssid/password 发起 STA 连接（绕过 UI/T9 输入）。
+             * 连接结果异步：成功看 "Got IP"，失败看 WIFI_EVENT_STA_DISCONNECTED
+             * 的 reason 日志（app_settings_wifi.c 已打印原因码+可读描述）。 */
+            cJSON *sj = cmd->params ? cJSON_GetObjectItem(cmd->params, "ssid") : NULL;
+            cJSON *pj = cmd->params ? cJSON_GetObjectItem(cmd->params, "password") : NULL;
+            if (!sj || !cJSON_IsString(sj) || sj->valuestring[0] == '\0') {
+                cJSON_AddStringToObject(response, "status", "error");
+                cJSON_AddStringToObject(response, "msg", "missing ssid");
+                break;
+            }
+            const char *ssid = sj->valuestring;
+            const char *pass = (pj && cJSON_IsString(pj)) ? pj->valuestring : "";
+
+            wifi_config_t wc;
+            memset(&wc, 0, sizeof(wc));
+            strncpy((char *)wc.sta.ssid, ssid, sizeof(wc.sta.ssid) - 1);
+            strncpy((char *)wc.sta.password, pass, sizeof(wc.sta.password) - 1);
+            wc.sta.threshold.authmode = (pass[0] == '\0') ? WIFI_AUTH_OPEN
+                                                          : WIFI_AUTH_WPA2_PSK;
+            wc.sta.scan_method = WIFI_FAST_SCAN;
+
+            esp_wifi_set_mode(WIFI_MODE_STA);
+            esp_err_t e1 = esp_wifi_set_config(WIFI_IF_STA, &wc);
+            esp_err_t e2 = esp_wifi_connect();
+            ESP_LOGW("WIFIDIAG", "diag connect ssid=\"%s\" pass_len=%d set_config=%s connect=%s",
+                     ssid, (int)strlen(pass), esp_err_to_name(e1), esp_err_to_name(e2));
+            cJSON_AddStringToObject(response, "status",
+                                    (e1 == ESP_OK && e2 == ESP_OK) ? "ok" : "error");
+            cJSON_AddStringToObject(response, "set_config", esp_err_to_name(e1));
+            cJSON_AddStringToObject(response, "connect", esp_err_to_name(e2));
             break;
         }
         case TEST_CMD_SET_BACKLIGHT: {

@@ -309,6 +309,9 @@ static void wifi_scan(void)
  * 该事件回调串行执行（事件循环单线程），静态缓冲无并发冲突。 */
 static wifi_ap_record_t s_scan_ap_records[MAX_NETWORKS];
 
+/* 诊断模式：诊断命令触发的一次性扫描会把 AP 明细(RSSI/信道/加密)打印到串口 */
+static volatile bool s_diag_verbose = false;
+
 /* 扫描完成回调（在 WiFi 事件循环线程中执行，不操作 LVGL）：
  * 仅更新数据状态；UI 刷新由后续 LVGL 主循环调用 rebuild/refresh 完成 */
 static void wifi_scan_done_handler(void)
@@ -339,6 +342,16 @@ static void wifi_scan_done_handler(void)
                 s_networks[i].auth_mode = s_scan_ap_records[i].authmode;
             }
             s_network_count = ap_count;
+            if (s_diag_verbose) {
+                s_diag_verbose = false;   /* 一次性：仅诊断命令触发的扫描打印明细 */
+                for (int i = 0; i < ap_count && i < MAX_NETWORKS; i++) {
+                    ESP_LOGI("WIFISCAN", "[%d] ssid=\"%s\" ch=%d rssi=%d auth=%d",
+                             i, (const char *)s_scan_ap_records[i].ssid,
+                             s_scan_ap_records[i].primary,
+                             s_scan_ap_records[i].rssi,
+                             (int)s_scan_ap_records[i].authmode);
+                }
+            }
         }
     } else {
         s_network_count = 0;
@@ -508,6 +521,26 @@ static void wifi_forget_network(void)
     ESP_LOGI(TAG, "WiFi credentials forgotten (nvs=%s)", esp_err_to_name(err));
 }
 
+/* 断连原因码 → 简要提示（覆盖现场最常见值，其余显示数值本身） */
+static const char *wifi_disc_reason_str(int reason)
+{
+    switch (reason) {
+    case 1:   return "UNSPECIFIED";
+    case 2:   return "AUTH_EXPIRE(auth timeout: weak signal / AP busy)";
+    case 3:   return "AUTH_LEAVE";
+    case 4:   return "ASSOC_EXPIRE";
+    case 7:   return "ASSOC_FAIL";
+    case 8:   return "HANDSHAKE_TIMEOUT";
+    case 15:  return "4WAY_HANDSHAKE_TIMEOUT(wrong password?)";
+    case 16:  return "GROUP_KEY_UPDATE_TIMEOUT";
+    case 201: return "NO_AP_FOUND(AP not found)";
+    case 202: return "AUTH_FAIL(auth rejected)";
+    case 203: return "ASSOC_FAIL(assoc rejected)";
+    case 205: return "CONNECTION_FAIL";
+    default:  return "OTHER";
+    }
+}
+
 /* ========== WiFi事件处理 ========== */
 /* 注意：WiFi事件是异步的，连接成功后需要更新UI状态 */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -527,8 +560,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             s_scan_ui_dirty = true;
             break;
             
-        case WIFI_EVENT_STA_DISCONNECTED:
-            ESP_LOGI(TAG, "WiFi disconnected from AP");
+        case WIFI_EVENT_STA_DISCONNECTED: {
+            wifi_event_sta_disconnected_t *dis = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGW(TAG, "WiFi disconnected: reason=%d (%s)",
+                     dis->reason, wifi_disc_reason_str((int)dis->reason));
             if (s_wifi_state == WIFI_STATE_CONNECTED || s_wifi_state == WIFI_STATE_CONNECTING) {
                 s_wifi_state = WIFI_STATE_IDLE;
                 s_connected_idx = -1;
@@ -536,7 +571,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 s_scan_ui_dirty = true;
             }
             break;
-            
+        }
+
         case WIFI_EVENT_SCAN_DONE:
             ESP_LOGI(TAG, "WiFi scan done (async)");
             wifi_scan_done_handler();
@@ -1019,6 +1055,7 @@ void wifi_diag_trigger_scan(void)
         wifi_driver_init();
     }
     s_mode_sel = WIFI_MODE_SEL_STA;
+    s_diag_verbose = true;   /* 本次扫描结果打印 AP 明细到串口，供自动化诊断采集 */
     wifi_apply_mode();
     /* 确保事件处理已注册（幂等，页面 destroy 可能已注销） */
     wifi_events_register();
