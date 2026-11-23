@@ -222,10 +222,19 @@ esp_err_t audio_output_init(void)
     
     /* 初始化所有后端 */
     for (int i = 0; i < s_backend_count; i++) {
+        /* 蓝牙后端懒初始化：BT 控制器常驻（可发现+可连接扫描）会持续
+         * 抢占 2.4GHz 射频时隙，是 WiFi 扫不到 AP/连不上的主因之一。
+         * 仅在用户进入蓝牙配对（bt_a2dp_start_discoverable）时才真正
+         * 初始化控制器，平时射频完全让给 WiFi。 */
+        if (s_backends[i]->type == AUDIO_OUT_BT_A2DP) {
+            ESP_LOGI(TAG, "Backend %s: init deferred (lazy, WiFi-first)",
+                     s_backends[i]->name);
+            continue;
+        }
         if (s_backends[i]->init) {
             esp_err_t ret = s_backends[i]->init();
             if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Backend %s init failed: %s", 
+                ESP_LOGW(TAG, "Backend %s init failed: %s",
                          s_backends[i]->name, esp_err_to_name(ret));
             }
         }

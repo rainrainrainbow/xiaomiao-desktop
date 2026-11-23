@@ -287,8 +287,12 @@ static esp_err_t bt_a2dp_backend_init(void)
         ESP_LOGE(TAG, "AVRCP register callback failed: %s", esp_err_to_name(ret));
     }
     
-    /* 启用蓝牙/WiFi共存 */
-    esp_coex_preference_set(ESP_COEX_PREFER_BT);
+    /* 蓝牙/WiFi 共存仲裁：偏向 WiFi。
+     * 此前 PREFER_BT 让 BT 抢占 2.4GHz 射频时隙，叠加 A2DP 开机常驻
+     * （可发现+可连接扫描），导致 WiFi 扫描几乎收不到任何 AP
+     * （同位置 PC 可见 27 个网络，本机 0~1 个）。改为偏 WiFi 后，
+     * 仅在用户主动使用蓝牙时才让渡时隙。 */
+    esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
     
     s_bt_initialized = true;
     ESP_LOGI(TAG, "Bluetooth A2DP Sink initialized successfully");
@@ -422,8 +426,14 @@ bool bt_a2dp_is_initialized(void)
 esp_err_t bt_a2dp_start_discoverable(void)
 {
     if (!s_bt_initialized) {
-        ESP_LOGW(TAG, "BT stack not initialized, cannot set discoverable");
-        return ESP_ERR_INVALID_STATE;
+        /* 按需懒初始化：用户首次进入蓝牙配对时才启动控制器，
+         * 平时射频完全让给 WiFi（见 backend_init 中的共存注释）。 */
+        ESP_LOGI(TAG, "BT stack not initialized, lazy-initializing now...");
+        esp_err_t ret = bt_a2dp_backend_init();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "BT lazy init failed: %s", esp_err_to_name(ret));
+            return ret;
+        }
     }
     esp_err_t ret = esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
     if (ret != ESP_OK) {
