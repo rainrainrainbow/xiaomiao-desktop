@@ -34,7 +34,7 @@
 static const char *TAG = "APP_WIFI";
 
 /* ========== WiFi状态 ========== */
-#define MAX_NETWORKS 8
+#define MAX_NETWORKS 20
 #define WIFI_SSID_MAX 32
 #define AP_PASSWORD   "12345678"   /* AP热点密码（8位） */
 #define AP_SSID       "Xiaomiao-AP"
@@ -190,6 +190,24 @@ static void wifi_driver_init(void)
         ESP_LOGE(TAG, "WiFi start failed: %s", esp_err_to_name(ret));
         return;
     }
+
+    /* 射频参数调优（解决"扫到 AP 很少 / RSSI 偏低 / 认证超时"类问题）：
+     * 1) 国家码 CN：解除 world-safe("01") 默认的功率/信道限制（1-13 信道全功率）；
+     * 2) TX 功率拉满 84 (0.25dBm 单位 = 21dBm)：AP 才能听到设备的认证帧；
+     * 3) 关闭 STA 省电：避免 beacon 间隔期间休眠错失认证/关联响应。 */
+    wifi_country_t cn = {
+        .cc = "CN",
+        .schan = 1,
+        .nchan = 13,
+        .max_tx_power = 84,
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    ret = esp_wifi_set_country(&cn);
+    ESP_LOGI(TAG, "set country CN: %s", esp_err_to_name(ret));
+    ret = esp_wifi_set_max_tx_power(84);
+    ESP_LOGI(TAG, "set max tx power 84: %s", esp_err_to_name(ret));
+    ret = esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI(TAG, "set wifi ps none: %s", esp_err_to_name(ret));
 
     /* 注册WiFi事件处理（幂等） */
     wifi_events_register();
@@ -404,6 +422,14 @@ static void wifi_password_callback(const char *password, void *user_data)
     wifi_config_t wifi_config = {
         .sta = {
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            /* 全信道扫描+按信号排序：同名多 BSSID / 隐藏信道环境更稳；
+             * PMF capable 兼容 802.11ax/WPA3 过渡模式 AP。 */
+            .scan_method = WIFI_ALL_CHANNEL_SCAN,
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
+            .pmf_cfg = {
+                .capable = true,
+                .required = false,
+            },
         },
     };
     strncpy((char*)wifi_config.sta.ssid, s_networks[idx].ssid, WIFI_SSID_MAX);
@@ -466,6 +492,12 @@ static void wifi_connect(int idx)
     wifi_config_t wifi_config = {
         .sta = {
             .threshold.authmode = WIFI_AUTH_OPEN,
+            .scan_method = WIFI_ALL_CHANNEL_SCAN,
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
+            .pmf_cfg = {
+                .capable = true,
+                .required = false,
+            },
         },
     };
     strncpy((char*)wifi_config.sta.ssid, s_networks[idx].ssid, WIFI_SSID_MAX);

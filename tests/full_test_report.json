@@ -1,115 +1,139 @@
 {
   "meta": {
     "port": "COM6",
-    "quick": true,
+    "quick": false,
     "dry_run": false,
     "fw_version": "v71.1"
   },
-  "generated": "2026-11-22 11:20:11",
+  "generated": "2026-11-23 09:16:22",
   "summary": {
-    "total": 38,
-    "pass": 18,
+    "total": 43,
+    "pass": 41,
     "fail": 0,
-    "warn": 1,
-    "skip": 19,
-    "pass_rate": 47.4
+    "warn": 0,
+    "skip": 2,
+    "pass_rate": 95.3
   },
   "results": [
     {
       "section": "boot-log",
       "name": "Boot header / firmware version",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Main loop running",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Display ON",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "LVGL initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Framebuffer ready",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Button task created",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Battery ADC initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "RGB LED strip initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "LMD2718 digital mic initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "I2S DAC backend ready",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Bluetooth A2DP Sink initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "MicroPython runtime initialized",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Desktop page loaded",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
-      "name": "6 builtin apps registered",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "name": "7 builtin apps registered",
+      "status": "PASS",
+      "detail": ""
     },
     {
       "section": "boot-log",
       "name": "Test interface ready",
-      "status": "SKIP",
-      "detail": "no boot log captured; use --reset to collect"
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "SD card mounted",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "section": "boot-log",
+      "name": "No reboot-loop",
+      "status": "PASS",
+      "detail": "rst: count=0 (1 expected from --reset)"
+    },
+    {
+      "section": "boot-log",
+      "name": "No stack overflow",
+      "status": "PASS",
+      "detail": "overflow count=0"
+    },
+    {
+      "section": "boot-log",
+      "name": "No UART driver error",
+      "status": "PASS",
+      "detail": "error count=0"
     },
     {
       "section": "command",
       "name": "cmd0 PING",
       "status": "PASS",
-      "detail": "id=1010 rtt-ok"
+      "detail": "id=1018 rtt-ok"
     },
     {
       "section": "command",
@@ -127,7 +151,7 @@
       "section": "command",
       "name": "cmd9 GET_BATTERY",
       "status": "PASS",
-      "detail": "4113 mV, 100%"
+      "detail": "3924 mV, 74%"
     },
     {
       "section": "command",
@@ -169,13 +193,13 @@
       "section": "command",
       "name": "cmd14 FILE_IO stat (internal FAT music)",
       "status": "PASS",
-      "detail": "/flash/music/renshijian.mp3 size=480487"
+      "detail": "/flash/music/renshijian.mp3 size=360847"
     },
     {
       "section": "command",
       "name": "cmd15/16 MP3 decode + playback",
       "status": "PASS",
-      "detail": "MP3 decoded: src=2 44100Hz 1ch bytes=56320 file=renshijian.mp3"
+      "detail": "MP3 decoded: src=2 44100Hz 1ch bytes=9216 file=renshijian.mp3"
     },
     {
       "section": "command",
@@ -227,21 +251,27 @@
     },
     {
       "section": "hardware-item",
+      "name": "item5 Bluetooth",
+      "status": "PASS",
+      "detail": "score=80 Bluetooth A2DP initialized, manual pairing test needed"
+    },
+    {
+      "section": "hardware-item",
       "name": "item7 SDCard",
-      "status": "WARN",
-      "detail": "no card inserted (hardware absent)"
+      "status": "PASS",
+      "detail": "score=100 SD card mounted, 7 files listed"
     },
     {
       "section": "reset",
       "name": "cmd11 RESET_DEVICE",
-      "status": "SKIP",
-      "detail": "quick mode"
+      "status": "PASS",
+      "detail": "ack=True rebooted-and-back=True"
     },
     {
       "section": "reset",
       "name": "cmd12 ENTER_BOOTLOADER",
-      "status": "SKIP",
-      "detail": "quick mode"
+      "status": "PASS",
+      "detail": "ack=True rebooted-and-back=True"
     }
   ]
 }

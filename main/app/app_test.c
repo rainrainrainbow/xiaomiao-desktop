@@ -1358,7 +1358,18 @@ static void test_handle_cmd(const test_cmd_t *cmd)
             strncpy((char *)wc.sta.password, pass, sizeof(wc.sta.password) - 1);
             wc.sta.threshold.authmode = (pass[0] == '\0') ? WIFI_AUTH_OPEN
                                                           : WIFI_AUTH_WPA2_PSK;
-            wc.sta.scan_method = WIFI_FAST_SCAN;
+            wc.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+            wc.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+            wc.sta.pmf_cfg.capable = true;
+
+            /* 诊断前统一射频参数（与设置页一致）：CN 全信道全功率、TX 拉满、关省电 */
+            {
+                wifi_country_t cn = { .cc = "CN", .schan = 1, .nchan = 13,
+                                      .max_tx_power = 84, .policy = WIFI_COUNTRY_POLICY_AUTO };
+                esp_wifi_set_country(&cn);
+                esp_wifi_set_max_tx_power(84);
+                esp_wifi_set_ps(WIFI_PS_NONE);
+            }
 
             esp_wifi_set_mode(WIFI_MODE_STA);
             esp_err_t e1 = esp_wifi_set_config(WIFI_IF_STA, &wc);

@@ -58,7 +58,11 @@ static const char *TAG = "APP_MUSIC";
 #define MUSIC_PATH_LEN    128  /* 文件名长度 */
 #define MUSIC_FULLPATH_LEN 256 /* 完整路径长度 */
 #define MUSIC_DISPLAY_LEN 32   /* 显示名称长度 */
-#define DECODE_BUF_SIZE   512  /* 解码缓冲区大小（16位样本数） */
+/* 解码缓冲：4096 样本(8KB) = 44.1k 立体声约 46ms/块。
+ * 块越大，播放循环每秒迭代次数越少（512样本时约170次/秒→4096时约21次/秒），
+ * 每次的锁/分配/I2S写入开销摊薄，且 SD 卡补窗（毫秒级停顿）期间
+ * I2S DMA 余量更从容，显著缓解 TF 卡播放卡顿。缓冲在 PSRAM。 */
+#define DECODE_BUF_SIZE   4096  /* 解码缓冲区大小（16位样本数） */
 
 /* ========== 播放模式 ========== */
 typedef enum {

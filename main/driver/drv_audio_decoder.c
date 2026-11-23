@@ -35,10 +35,11 @@ static volatile uint16_t s_live_peak = 0;
 
 /* ===== 流式 MP3 滑动窗口 =====
  * minimp3 每次 mp3dec_decode_frame 最多消费一帧（MPEG1 Layer3 上限 1441 字节），
- * 且需要若干字节前瞻。32KB 窗口足够容纳多帧，memmove 未消费尾部后续读即可。
- * 固定 32KB PSRAM，避免为整首歌申请几 MB～十几 MB 连续内存。 */
-#define MP3_WIN_SIZE  (32 * 1024)
-#define MP3_WIN_REFILL_THRESHOLD (16 * 1024)  /* 低于此值就补充 */
+ * 且需要若干字节前瞻。64KB 窗口提供约 4 秒 @128kbps 的预读余量：
+ * 单次补窗读盘（几十 ms）被更多音频数据摊薄，SD 卡延迟抖动不易击穿
+ * I2S DMA 缓冲，缓解 TF 卡播放卡顿。固定 64KB PSRAM，与文件大小无关。 */
+#define MP3_WIN_SIZE  (64 * 1024)
+#define MP3_WIN_REFILL_THRESHOLD (32 * 1024)  /* 低于此值就补充 */
 
 /* ========== RIFF/WAVE 常量 ========== */
 #define RIFF_ID       "RIFF"

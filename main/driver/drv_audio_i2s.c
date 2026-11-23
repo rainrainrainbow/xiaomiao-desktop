@@ -144,6 +144,24 @@ static void i2s_mono_to_stereo_16bit(const void *src, void *dst, size_t len,
     }
 }
 
+/* 持久复用的格式转换工作缓冲（PSRAM）：
+ * 原先每次 write 都 malloc/free，小缓冲高频写入（512样本/次≈170次/秒）带来
+ * 无谓的分配器抖动，是 TF 卡播放卡顿的帮凶之一。这里按需增长、跨调用复用，
+ * 仅 deinit 释放；所有后端操作已由 s_i2s_lock 串行化，无并发冲突。 */
+static void *s_work_buf = NULL;
+static size_t s_work_buf_size = 0;
+
+static void *i2s_work_buf_get(size_t need)
+{
+    if (s_work_buf && need <= s_work_buf_size) return s_work_buf;
+    void *nb = heap_caps_malloc(need, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!nb) return NULL;   /* 旧缓冲保留，本调用失败但不破坏后续复用 */
+    if (s_work_buf) heap_caps_free(s_work_buf);
+    s_work_buf = nb;
+    s_work_buf_size = need;
+    return s_work_buf;
+}
+
 /* ========== 后端接口实现 ========== */
 
 static esp_err_t i2s_backend_init_locked(void)
@@ -171,6 +189,12 @@ static void i2s_backend_deinit_locked(void)
         }
         i2s_del_channel(s_i2s_tx_handle);
         s_i2s_tx_handle = NULL;
+    }
+
+    if (s_work_buf) {
+        heap_caps_free(s_work_buf);
+        s_work_buf = NULL;
+        s_work_buf_size = 0;
     }
 
     s_i2s_initialized = false;
@@ -223,20 +247,20 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
     /* ---- 创建I2S TX通道（DMA 描述符自适应降级） ----
      * i2s_alloc_dma_desc 需要在内部 RAM 的 DMA 池中循环分配
      * dma_desc_num 个 (lldesc_t + dma_frame_num*slot*bits/8) 块。
-     * 系统长时间运行后内部 RAM 碎片化，16 desc (~16.5KB) 可能分配失败
-     * (ESP_ERR_NO_MEM)。按 16→8→4 降级重试：8KB≈46ms、4KB≈23ms@44.1k
-     * 立体声缓冲，配合写超时与 auto_clear 仍可稳定播放。 */
+     * 系统长时间运行后内部 RAM 碎片化，大档位可能分配失败
+     * (ESP_ERR_NO_MEM)。按 24→16→8→4 降级重试：
+     * 24KB≈140ms、16KB≈93ms、8KB≈46ms@44.1k 立体声缓冲，
+     * 配合写超时与 auto_clear 仍可稳定播放。缓冲越大，TF 卡
+     * 补窗/解码抖动越不易造成欠载（卡顿/爆音）。 */
     i2s_chan_config_t chan_cfg = {
         .id = I2S_NUM_0,
         .role = I2S_ROLE_MASTER,
-        /* 数据供给抖动余量：FAT/解码/UI 抢占时缓冲越大越不易 underflow。
-         * 16*256 立体声帧 = 16KB = 4096 帧 @44.1k ≈ 93ms 余量。 */
-        .dma_desc_num = 16,
+        .dma_desc_num = 24,
         .dma_frame_num = 256,
         .auto_clear = true,
     };
 
-    static const uint32_t dma_desc_candidates[] = { 16, 8, 4 };
+    static const uint32_t dma_desc_candidates[] = { 24, 16, 8, 4 };
     /* IDF v5.3 参数顺序为 (tx_handle, rx_handle)，不是 (rx, tx) */
     i2s_data_bit_width_t bit_width;
     if (bits == 24) {
@@ -308,7 +332,7 @@ static esp_err_t i2s_backend_open_locked(uint32_t sample_rate, uint8_t bits, uin
         break;  /* 当前档位创建+初始化+启用全部成功 */
     }
     if (ret != ESP_OK || !s_i2s_tx_handle) {
-        ESP_LOGE(TAG, "I2S channel create failed at all DMA sizes (16/8/4 desc)");
+        ESP_LOGE(TAG, "I2S channel create failed at all DMA sizes (24/16/8/4 desc)");
         return (ret == ESP_OK) ? ESP_FAIL : ret;
     }
 
@@ -334,7 +358,7 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
      * tone 与单声道 WAV/MP3 都走此分支；输出长度翻倍。 */
     if (s_current_channels == 1 && s_current_bits == 16) {
         size_t out_len = len * 2;
-        void *work = heap_caps_malloc(out_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        void *work = i2s_work_buf_get(out_len);
         if (!work) {
             ESP_LOGW(TAG, "Stereo expand buffer alloc failed (%zu bytes)", out_len);
             return ESP_ERR_NO_MEM;
@@ -344,7 +368,6 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
         size_t bytes_written = 0;
         esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, out_len,
                                           &bytes_written, pdMS_TO_TICKS(2000));
-        heap_caps_free(work);
         if (ret != ESP_OK || bytes_written != out_len) {
             ESP_LOGE(TAG, "I2S write (mono->stereo) failed: %s written=%zu/%zu",
                      esp_err_to_name(ret), bytes_written, out_len);
@@ -354,7 +377,7 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
 
     /* 立体声源（或其它位宽）：直接写入，按需应用音量 */
     if (need_volume) {
-        void *work = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        void *work = i2s_work_buf_get(len);
         if (!work) {
             ESP_LOGW(TAG, "Volume buffer alloc failed (%zu bytes), writing raw", len);
             size_t bytes_written = 0;
@@ -369,7 +392,6 @@ static esp_err_t i2s_backend_write_locked(const void *data, size_t len)
         i2s_probe_capture(work, len);  /* 诊断 */
         size_t bytes_written = 0;
         esp_err_t ret = i2s_channel_write(s_i2s_tx_handle, work, len, &bytes_written, pdMS_TO_TICKS(2000));
-        heap_caps_free(work);
         return ret;
     }
 
